@@ -1,0 +1,32 @@
+# One check invocation per line. Optional leading flags, then .mc paths.
+test/long_hdr.mc
+test/uninit_hdr.mc
+test/falloff_hdr.mc
+test/sign_compare_hdr.mc
+test/sizeof_param_hdr.mc
+test/goto_decl_hdr.mc
+test/forward_ref.mc
+test/untyped_param_hdr.mc
+test/autoconst_ok.mc
+test/autoconst_infer.mc
+test/autoconst_derive.mc
+test/autoconst_transitive.mc
+test/autoconst_alias_call.mc
+test/autoconst_return_cast.mc
+test/autoconst_return_infer.mc
+test/autoconst_return_derive.mc
+test/autoconst_return_transitive.mc
+test/autoconst_readonly_ret.mc
+test/attr_hdr.mc
+test/unseq_hdr.mc
+test/union_ptr_ok.mc
+-Ftest/fwk_root test/fwk_include.mc
+test/fwk_pragma.mc
+test/add.mc test/host_headers.mc
+test/once.mc
+test/host_headers.mc
+test/pp_if.mc
+test/pp_paste.mc
+test/pp_file_line.mc
+test/sys_include.mc
+test/add.mc

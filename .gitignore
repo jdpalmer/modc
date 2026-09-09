@@ -1,0 +1,39 @@
+# Local / OS
+.DS_Store
+Thumbs.db
+*~
+
+# Build outputs
+build/
+.modc-cache/
+cmake-build-*/
+out/
+dist/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.dSYM/
+*.qbe
+*.ssa
+*.s
+*.out
+*.q
+y.output
+
+# Compiler binary
+/modc
+/modc.exe
+/qbe-cc
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.cache/
+
+# Internal
+docs/roadmap.md

@@ -1,0 +1,1 @@
+#define CLI_INC_ANSWER 42

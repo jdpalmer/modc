@@ -1,0 +1,2 @@
+# flags: -M $ROOT
+cannot use null pointer

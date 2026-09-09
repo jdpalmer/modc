@@ -1,0 +1,7 @@
+/* Platform header via auto system includes (not modc stubs). */
+
+#include <unistd.h>
+
+int sys_include_smoke(void) {
+	return (int)getpid() > 0 ? 0: 1;
+}

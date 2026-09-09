@@ -1,0 +1,158 @@
+# Windows bootstrap + smoke (VS Clang + nmake).
+# From a Developer Command Prompt / PowerShell with clang and nmake on PATH:
+#
+#   nmake /f Makefile.msvc
+#   nmake /f Makefile.msvc check
+#   nmake /f Makefile.msvc clean
+#
+# Unix / macOS: use the GNU Makefile as usual.
+# Not a port of the full Unix `check` corpus.
+
+CC = clang
+QBE = qbe.exe
+QBEFLAGS = -t amd64_win
+
+# Forward-slash paths for -D string macros (escape-friendly).
+ROOT = .
+HOST = src/host/include
+BUILD = build
+MODC = modc.exe
+
+CFLAGS = -O2 -Wall -Wno-unused-parameter -D_CRT_SECURE_NO_WARNINGS \
+	-DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
+
+OBJS = \
+	$(BUILD)\main.o \
+	$(BUILD)\cli_build.o \
+	$(BUILD)\cli_cmd.o \
+	$(BUILD)\diag.o \
+	$(BUILD)\lex.o \
+	$(BUILD)\pp.o \
+	$(BUILD)\parse.o \
+	$(BUILD)\type.o \
+	$(BUILD)\symbol.o \
+	$(BUILD)\check.o \
+	$(BUILD)\emit.o \
+	$(BUILD)\pkg.o \
+	$(BUILD)\fmt.o \
+	$(BUILD)\vendor.o \
+	$(BUILD)\host_os.o \
+	$(BUILD)\cache.o
+
+HDRS = src\ast.h src\cli.h src\host_os.h
+
+all: $(MODC)
+
+$(MODC): $(OBJS)
+	$(CC) -o $(MODC) $(OBJS)
+	@echo Built $(MODC)
+
+$(BUILD)\main.o: src\main.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\main.c
+
+$(BUILD)\cli_build.o: src\cli_build.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\cli_build.c
+
+$(BUILD)\cli_cmd.o: src\cli_cmd.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\cli_cmd.c
+
+$(BUILD)\diag.o: src\diag.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\diag.c
+
+$(BUILD)\lex.o: src\lex.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\lex.c
+
+$(BUILD)\pp.o: src\pp.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\pp.c
+
+$(BUILD)\parse.o: src\parse.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\parse.c
+
+$(BUILD)\type.o: src\type.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\type.c
+
+$(BUILD)\symbol.o: src\symbol.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\symbol.c
+
+$(BUILD)\check.o: src\check.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\check.c
+
+$(BUILD)\emit.o: src\emit.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\emit.c
+
+$(BUILD)\pkg.o: src\pkg.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\pkg.c
+
+$(BUILD)\fmt.o: src\fmt.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\fmt.c
+
+$(BUILD)\vendor.o: src\vendor.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\vendor.c
+
+$(BUILD)\host_os.o: src\host_os.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\host_os.c
+
+$(BUILD)\cache.o: src\cache.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\cache.c
+
+check: $(MODC)
+	@echo == attr_hdr check ==
+	.\$(MODC) check test\attr_hdr.mc
+	@echo == bad_attr (expect fail) ==
+	-.\$(MODC) check test\bad_attr.mc > $(BUILD)\bad_attr.out 2>&1
+	findstr /C:"for headers only" $(BUILD)\bad_attr.out >nul
+	@echo == win header interop smokes ==
+	.\$(MODC) check test\win_hdr_soup.mc
+	.\$(MODC) check test\win_ptr64.mc
+	.\$(MODC) check test\win_vcruntime.mc
+	.\$(MODC) check test\win_corecrt.mc
+	.\$(MODC) check test\win_fn_typedef.mc
+	.\$(MODC) check test\win_pragma_enum.mc
+	.\$(MODC) check test\win_declspec_tag.mc
+	@echo == windows.h ==
+	.\$(MODC) check test\windows_h.mc
+	@echo == system includes (-v) ==
+	.\$(MODC) check -v test\win_vcruntime.mc 2> $(BUILD)\sysinc.out
+	-findstr /C:"system include:" $(BUILD)\sysinc.out >nul
+	@echo == win_abi interop ==
+	.\$(MODC) emit test\win_abi_modc.mc > $(BUILD)\win_abi_modc.qbe
+	$(QBE) $(QBEFLAGS) -o $(BUILD)\win_abi_modc.s $(BUILD)\win_abi_modc.qbe
+	$(CC) -c -o $(BUILD)\win_abi_host.o test\win_abi_host.c
+	$(CC) -c -o $(BUILD)\win_abi_modc.o $(BUILD)\win_abi_modc.s
+	$(CC) -o $(BUILD)\win_abi-test.exe test\win_abi_main.c $(BUILD)\win_abi_modc.o $(BUILD)\win_abi_host.o
+	$(BUILD)\win_abi-test.exe
+	@echo == fp_byvalue interop ==
+	.\$(MODC) emit test\fp_byvalue_modc.mc > $(BUILD)\fp_byvalue_modc.qbe
+	$(QBE) $(QBEFLAGS) -o $(BUILD)\fp_byvalue_modc.s $(BUILD)\fp_byvalue_modc.qbe
+	$(CC) -c -o $(BUILD)\fp_byvalue_host.o test\fp_byvalue_host.c
+	$(CC) -c -o $(BUILD)\fp_byvalue_modc.o $(BUILD)\fp_byvalue_modc.s
+	$(CC) -o $(BUILD)\fp_byvalue-test.exe test\fp_byvalue_main.c $(BUILD)\fp_byvalue_modc.o $(BUILD)\fp_byvalue_host.o
+	$(BUILD)\fp_byvalue-test.exe
+	@echo All Windows smokes passed.
+
+clean:
+	if exist $(BUILD)\*.o del /q $(BUILD)\*.o
+	if exist $(BUILD)\*.obj del /q $(BUILD)\*.obj
+	if exist $(BUILD)\*.s del /q $(BUILD)\*.s
+	if exist $(BUILD)\*.qbe del /q $(BUILD)\*.qbe
+	if exist $(BUILD)\*-test.exe del /q $(BUILD)\*-test.exe
+	if exist $(BUILD)\*.out del /q $(BUILD)\*.out
+	if exist $(MODC) del /q $(MODC)
+	if exist *.pdb del /q *.pdb
+	@echo cleaned
