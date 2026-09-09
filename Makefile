@@ -75,6 +75,12 @@ check-special: $(MODC)
 	$(BUILD)/pkg_csrc-bin
 	./modc build test/pkg_encap_main.mc -o $(BUILD)/pkg_encap-bin
 	$(BUILD)/pkg_encap-bin
+	./modc build test/pkg_xinline_main.mc -o $(BUILD)/pkg_xinline-bin
+	$(BUILD)/pkg_xinline-bin
+	./modc build test/pkg_order_main.mc -o $(BUILD)/pkg_order-bin
+	$(BUILD)/pkg_order-bin
+	./modc build test/pkg_method_order_main.mc -o $(BUILD)/pkg_method_order-bin
+	$(BUILD)/pkg_method_order-bin
 	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_app-bin
 	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vendor_app
 	@cp test/vendor_fix/log/mod.mc test/vendor_fix/log/modc.ini $(BUILD)/vrepos/log/

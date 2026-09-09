@@ -516,7 +516,11 @@ void pp_run(Compiler* c);
 int pp_defined(Compiler* c, const char* name);
 
 /* ---- parse.c ---- */
-void prescan_unit(Compiler* c);
+void prescan_unit(Compiler* c);	     /* types then func sigs (one file) */
+void prescan_unit_type_names(Compiler* c); /* incomplete tags/typedef stubs */
+void prescan_unit_type_bodies(Compiler* c); /* typedefs/tags bodies */
+void prescan_unit_types(Compiler* c); /* names then bodies (one file) */
+void prescan_unit_funcs(Compiler* c); /* file-scope func/method signatures */
 void parse_unit(Compiler* c);
 Tok* peek(Compiler* c);	    /* current Tok*; does not advance */
 Tok* peekn(Compiler* c, int n); /* lookahead; peekn(c,0) == peek(c) */
@@ -536,6 +540,7 @@ Type* type_struct(Compiler* c, int kind, char* tag, Span sp);
 Type* type_ranged(Compiler* c, Type* elem); /* interned ranged array T[..] */
 Type* type_tuple(Compiler* c, Type** elts, int n);
 void type_layout(Compiler* c, Type* t);
+void type_layout_pending(Compiler* c); /* finish aggregates deferred across files */
 int type_size(Compiler* c, Type* t);
 int type_align(Compiler* c, Type* t);
 int is_int(Type* t);

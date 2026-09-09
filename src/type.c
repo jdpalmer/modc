@@ -224,7 +224,44 @@ align_up(int n, int a) {
 	return (n + a - 1) / a * a;
 }
 
+// True when member m can participate in aggregate layout.
+static int
+member_layout_ready(Type* m) {
+	if (m == NULL)
+		return 0;
+	while (m->kind == TY_ARRAY) {
+		if (m->len < 0 || m->base == NULL)
+			return 0;
+		m = m->base;
+	}
+	if (m->kind == TY_STRUCT || m->kind == TY_UNION || m->kind == TY_ENUM)
+		return m->complete;
+	return 1;
+}
+
+// True when t's layout can be computed (no incomplete aggregate members).
+static int
+type_layout_ready(Type* t) {
+	Field* f;
+
+	if (t == NULL)
+		return 0;
+	if (t->kind == TY_ARRAY)
+		return t->len >= 0 && member_layout_ready(t->base);
+	if (t->kind != TY_STRUCT && t->kind != TY_UNION)
+		return 1;
+	/* Forward tags have no fields yet; ranged / bodies-in-progress have fields. */
+	if (!t->complete && t->fields == NULL)
+		return 0;
+	for (f = t->fields; f; f = f->next) {
+		if (!member_layout_ready(f->type))
+			return 0;
+	}
+	return 1;
+}
+
 // Compute struct/union/array size, alignment, and field offsets once.
+// Incomplete field types defer layout (cross-file embeds); call type_layout_pending later.
 void type_layout(Compiler* c, Type* t) {
 	Field* f;
 	int off, al, maxal, sz;
@@ -232,21 +269,28 @@ void type_layout(Compiler* c, Type* t) {
 	if (t == NULL || t->laid_out)
 		return;
 	if (t->kind == TY_ARRAY) {
+		if (!type_layout_ready(t))
+			return;
 		type_layout(c, t->base);
-		if (t->len >= 0 && t->base) {
-			t->size = (int)(t->len * type_size(c, t->base));
-			t->align = type_align(c, t->base);
-			t->complete = 1;
-		}
+		if (t->base == NULL || !t->base->laid_out)
+			return;
+		t->size = (int)(t->len * type_size(c, t->base));
+		t->align = type_align(c, t->base);
+		t->complete = 1;
 		t->laid_out = 1;
 		return;
 	}
 	if (t->kind != TY_STRUCT && t->kind != TY_UNION)
 		return;
+	if (!type_layout_ready(t))
+		return;
 	off = 0;
 	maxal = 1;
 	for (f = t->fields; f; f = f->next) {
 		type_layout(c, f->type);
+		if (f->type && !f->type->laid_out &&
+		    (f->type->kind == TY_STRUCT || f->type->kind == TY_UNION || f->type->kind == TY_ARRAY))
+			return;
 		al = type_align(c, f->type);
 		sz = type_size(c, f->type);
 		if (al > maxal)
@@ -270,6 +314,27 @@ void type_layout(Compiler* c, Type* t) {
 	t->complete = 1;
 	t->laid_out = 1;
 	(void)c;
+}
+
+// After all package type bodies are known, finish deferred aggregate layouts.
+void type_layout_pending(Compiler* c) {
+	Type* t;
+	int progress, guard;
+
+	for (guard = 0; guard < 64; guard++) {
+		progress = 0;
+		for (t = c->type_list; t; t = t->next) {
+			if (t->laid_out)
+				continue;
+			if (t->kind != TY_STRUCT && t->kind != TY_UNION && t->kind != TY_ARRAY)
+				continue;
+			type_layout(c, t);
+			if (t->laid_out)
+				progress = 1;
+		}
+		if (!progress)
+			break;
+	}
 }
 
 // Byte size of t, running layout first when the type is still incomplete.

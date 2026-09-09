@@ -45,7 +45,12 @@ int main() {
 modc build
 ```
 
-Every `.mc` file acts as its own translation unit. Importers see the union of all non-`static` declarations across all files in a package, allowing forward references and mutual recursion to work seamlessly without header prototypes. Only immediate `*.mc` files in a directory belong to that package; subdirectories are treated as distinct packages.
+Every `.mc` file acts as its own translation unit. Importers see the union of all
+non-`static` declarations across all files in a package. The compiler type-prescans
+the whole package (names, then bodies, then layouts) before function/method
+signatures, so types, methods, and by-value embeds work across files regardless of
+basename order — like a Go package. Only immediate `*.mc` files in a directory
+belong to that package; subdirectories are treated as distinct packages.
 
 ## Methods and linker names
 

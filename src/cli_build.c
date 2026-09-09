@@ -95,18 +95,82 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 		if (profile) {
 			t1 = now_sec();
 			t_lexpp += t1 - t0;
-			t0 = t1;
 		}
 		cache[i].tokens = c->tokens;
 		cache[i].tokens_len = c->tokens_len;
 		cache[i].tokens_cap = c->tokens_cap;
 		cache[i].infile = c->infile; /* span.file aliases this */
-		prescan_unit(c);
+		/* Detach so the next lex_pp_file does not drop or free these. */
+		c->tokens = NULL;
+		c->tokens_len = 0;
+		c->tokens_cap = 0;
+		c->infile = NULL;
+		if (c->error_count) {
+			r = 1;
+			break;
+		}
+	}
+	/* Package-wide: type-name stubs, type bodies, layouts, then func/method
+	 * signatures — Go-style package scope so file basename order does not matter. */
+	for (i = 0; r == 0 && i < nfiles; i++) {
+		if (profile)
+			t0 = now_sec();
+		c->infile = cache[i].infile;
+		c->tokens = cache[i].tokens;
+		c->tokens_len = cache[i].tokens_len;
+		c->tokens_cap = cache[i].tokens_cap;
+		c->pos = 0;
+		prescan_unit_type_names(c);
 		if (profile) {
 			t1 = now_sec();
 			t_prescan += t1 - t0;
 		}
-		/* Detach so the next lex_pp_file does not drop or free these. */
+		c->tokens = NULL;
+		c->tokens_len = 0;
+		c->tokens_cap = 0;
+		c->infile = NULL;
+		if (c->error_count) {
+			r = 1;
+			break;
+		}
+	}
+	for (i = 0; r == 0 && i < nfiles; i++) {
+		if (profile)
+			t0 = now_sec();
+		c->infile = cache[i].infile;
+		c->tokens = cache[i].tokens;
+		c->tokens_len = cache[i].tokens_len;
+		c->tokens_cap = cache[i].tokens_cap;
+		c->pos = 0;
+		prescan_unit_type_bodies(c);
+		if (profile) {
+			t1 = now_sec();
+			t_prescan += t1 - t0;
+		}
+		c->tokens = NULL;
+		c->tokens_len = 0;
+		c->tokens_cap = 0;
+		c->infile = NULL;
+		if (c->error_count) {
+			r = 1;
+			break;
+		}
+	}
+	if (r == 0)
+		type_layout_pending(c);
+	for (i = 0; r == 0 && i < nfiles; i++) {
+		if (profile)
+			t0 = now_sec();
+		c->infile = cache[i].infile;
+		c->tokens = cache[i].tokens;
+		c->tokens_len = cache[i].tokens_len;
+		c->tokens_cap = cache[i].tokens_cap;
+		c->pos = 0;
+		prescan_unit_funcs(c);
+		if (profile) {
+			t1 = now_sec();
+			t_prescan += t1 - t0;
+		}
 		c->tokens = NULL;
 		c->tokens_len = 0;
 		c->tokens_cap = 0;

@@ -42,7 +42,8 @@ struct DeferFrame {
 /*
  * Prefix inl_ — call-site auto-inline (budget InlineNodeBudget nodes).
  * Remaps callee locals into caller QBE slots; InlineSite is registered during
- * collect, expanded in try_inline_call.
+ * collect, expanded in try_inline_call. Cross-package inlines are skipped when
+ * emit_qbe_pkg filters by package (callee statics stay in the other .o).
  *
  * Prefix v* — Val helpers: vtmp = fresh %tN SSA temp, vimm = integer immediate.
  */
@@ -75,6 +76,7 @@ struct InlineCtx {
 static FILE* outf;
 static int tempno, lblno;
 static const char* emit_str_symbol = "__string"; /* QBE data symbol for string pool */
+static const char* emit_pkg_filter; /* non-NULL during emit_qbe_pkg */
 static Symbol* locals[MaxLocal];
 static Type* localty[MaxLocal];
 static int localparam[MaxLocal];
@@ -102,6 +104,7 @@ static void register_inline_sites(Compiler* c, Node* n);
 static InlineSite* find_inline_site(Node* call);
 static const char* slot_basename(Symbol* s);
 static int try_inline_call(Compiler* c, Node* n, Val* out);
+static int node_in_pkg(Node* n, const char* pkg_dir);
 
 // Allocate the next QBE SSA temporary name (%tN).
 static int
@@ -631,6 +634,10 @@ register_inline_site(Compiler* c, Node* call, Symbol* callee) {
 	int id, i;
 
 	if (call == NULL || callee == NULL || !inline_eligible(callee))
+		return;
+	/* Per-package .o emit: inlining a foreign callee can pull $__stN /
+	 * $__fN_* locals that are defined only in the callee's object. */
+	if (emit_pkg_filter && callee->node && !node_in_pkg(callee->node, emit_pkg_filter))
 		return;
 	if (isites_len >= MaxInlineSite)
 		return;
@@ -2636,6 +2643,7 @@ int emit_qbe(Compiler* c, FILE* out) {
 
 	outf = out;
 	emit_str_symbol = "__string";
+	emit_pkg_filter = NULL;
 	for (i = 0; i < c->funcs_len; i++)
 		collect(c, c->funcs[i]);
 	emitsuall(c);
@@ -2654,6 +2662,7 @@ int emit_qbe_pkg(Compiler* c, FILE* out, const char* pkg_dir, const char* str_sy
 
 	outf = out;
 	emit_str_symbol = (str_symbol && str_symbol[0]) ? str_symbol : "__string";
+	emit_pkg_filter = pkg_dir;
 	tempno = 0;
 	lblno = 0;
 	isites_len = 0;
@@ -2673,5 +2682,6 @@ int emit_qbe_pkg(Compiler* c, FILE* out, const char* pkg_dir, const char* str_sy
 			emitfunc(c, c->funcs[i]);
 	reset_su_ids(c);
 	emit_str_symbol = "__string";
+	emit_pkg_filter = NULL;
 	return 0;
 }

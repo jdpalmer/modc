@@ -165,6 +165,12 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 			return old;
 		if (kind == SK_TYPEDEF && old->kind == SK_TYPEDEF && !user_source(c, sp))
 			return old; /* headers: allow repeated typedefs (CRT/SDK) */
+		if (kind == SK_TYPEDEF && old->kind == SK_TYPEDEF && old->type && !old->type->complete) {
+			old->type = t;
+			return old; /* package stub typedef → real type */
+		}
+		if (kind == SK_TYPEDEF && old->kind == SK_TYPEDEF && t && old->type == t)
+			return old;
 		if (kind == SK_TYPEDEF && old->kind == SK_TAG && t && old->type == t)
 			return old;
 		if (kind == SK_FUNC && old->kind == SK_FUNC) {

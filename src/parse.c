@@ -3298,7 +3298,11 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			else {
 				if (s->defined)
 					error_at(c, sp, "redefinition of method %s", name);
-				s->type = ty;
+				/* Keep prescanned Type* so earlier call sites share readonly inference. */
+				if (s->type)
+					ty = s->type;
+				else
+					s->type = ty;
 			}
 		} else {
 			s = find_prescan_func(c, name, ty, isoverload);
@@ -3307,7 +3311,10 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			else {
 				if (s->defined)
 					error_at(c, sp, "redefinition of %s", name);
-				s->type = ty;
+				if (s->type)
+					ty = s->type;
+				else
+					s->type = ty;
 			}
 		}
 		s->defined = 1;
@@ -3406,10 +3413,83 @@ parse_decl_or_def(Compiler* c, int in_func) {
 
 static void parse_local_decl(Compiler* c, Node* blk);
 static void parse_decl_or_def(Compiler* c, int in_func);
+static void prescan_toplevel(Compiler* c);
 
-// First pass: parse typedefs and tag definitions only.
-static void
-prescan_types(Compiler* c) {
+/* ---- prescan ---- */
+
+// Register incomplete tags / typedef stubs from user tokens so later files can
+// name types before their defining file is type-prescanned.
+void
+prescan_unit_type_names(Compiler* c) {
+	int i, depth, d, n;
+	Tok *t, *n1;
+	char* last;
+	Span sp;
+	Symbol* s;
+	Type *ty, *tagged;
+
+	n = c->tokens_len;
+	depth = 0;
+	for (i = 0; i < n; i++) {
+		t = &c->tokens[i];
+		if (t->kind == TPunct) {
+			if (t->punct == PLbrace)
+				depth++;
+			else if (t->punct == PRbrace)
+				depth--;
+			continue;
+		}
+		if (depth != 0)
+			continue;
+		if (!user_source(c, t->span))
+			continue;
+		if (t->kind == TKw && (t->kw == K_struct || t->kw == K_union || t->kw == K_enum)) {
+			n1 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
+			if (n1 && n1->kind == TIdent && n1->s)
+				(void)type_struct(c, t->kw == K_union ? TY_UNION : (t->kw == K_enum ? TY_ENUM : TY_STRUCT),
+						  n1->s, n1->span);
+			continue;
+		}
+		if (t->kind != TKw || t->kw != K_typedef)
+			continue;
+		sp = t->span;
+		last = NULL;
+		tagged = NULL;
+		d = 0;
+		for (i++; i < n; i++) {
+			n1 = &c->tokens[i];
+			if (n1->kind == TPunct) {
+				if (n1->punct == PLbrace || n1->punct == PLparen || n1->punct == PLbrack)
+					d++;
+				else if (n1->punct == PRbrace || n1->punct == PRparen || n1->punct == PRbrack)
+					d--;
+				else if (n1->punct == PSemi && d == 0)
+					break;
+			}
+			if (d == 0 && n1->kind == TKw &&
+			    (n1->kw == K_struct || n1->kw == K_union || n1->kw == K_enum)) {
+				Tok* n2 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
+				if (n2 && n2->kind == TIdent && n2->s) {
+					int k = n1->kw == K_union ? TY_UNION : (n1->kw == K_enum ? TY_ENUM : TY_STRUCT);
+					tagged = type_struct(c, k, n2->s, n2->span);
+				}
+			}
+			if (d == 0 && n1->kind == TIdent && n1->s)
+				last = n1->s;
+		}
+		if (last == NULL)
+			continue;
+		s = symbol_lookup(c, last);
+		if (s && (s->kind == SK_TYPEDEF || s->kind == SK_TAG))
+			continue;
+		ty = tagged ? tagged : type_struct(c, TY_STRUCT, last, sp);
+		(void)symbol_define(c, last, SK_TYPEDEF, ty, ST_TYPEDEF, sp);
+	}
+}
+
+// Parse typedefs and tag definitions (bodies); stubs should already exist.
+void
+prescan_unit_type_bodies(Compiler* c) {
 	c->pos = 0;
 	while (peek(c)->kind != TEof && !c->fatal) {
 		if (at(c, PSemi)) {
@@ -3437,6 +3517,44 @@ prescan_types(Compiler* c) {
 		}
 		skip_toplevel_semi(c);
 	}
+}
+
+// One-file type prescan: stubs then bodies.
+void
+prescan_unit_types(Compiler* c) {
+	prescan_unit_type_names(c);
+	prescan_unit_type_bodies(c);
+}
+
+// Second pass: file-scope function / method signatures (bodies skipped).
+void
+prescan_unit_funcs(Compiler* c) {
+	c->pos = 0;
+	while (peek(c)->kind != TEof && !c->fatal) {
+		if (at(c, PSemi)) {
+			take(c);
+			continue;
+		}
+		if (atkw(c, K_import)) {
+			take(c);
+			if (peek(c)->kind != TString)
+				error_tok(c, peek(c), "expected string literal after import");
+			else
+				take(c);
+			expect(c, PSemi, "';'");
+			continue;
+		}
+		prescan_toplevel(c);
+		if (c->error_count && peek(c)->kind != TEof)
+			skip_to_balance(c);
+	}
+}
+
+// Prescan: types, then file-scope function signatures (skip bodies).
+void
+prescan_unit(Compiler* c) {
+	prescan_unit_types(c);
+	prescan_unit_funcs(c);
 }
 
 // True when a typedef declaration's name is already in the symbol table.
@@ -3599,32 +3717,6 @@ prescan_toplevel(Compiler* c) {
 		s = symbol_define_func(c, name, ty, storage == ST_STATIC ? ST_STATIC : ST_EXTERN, sp, isoverload);
 	expect(c, PSemi, "';'");
 	(void)s;
-}
-
-/* ---- prescan ---- */
-
-// Prescan: types, then file-scope function signatures (skip bodies).
-void prescan_unit(Compiler* c) {
-	prescan_types(c);
-	c->pos = 0;
-	while (peek(c)->kind != TEof && !c->fatal) {
-		if (at(c, PSemi)) {
-			take(c);
-			continue;
-		}
-		if (atkw(c, K_import)) {
-			take(c);
-			if (peek(c)->kind != TString)
-				error_tok(c, peek(c), "expected string literal after import");
-			else
-				take(c);
-			expect(c, PSemi, "';'");
-			continue;
-		}
-		prescan_toplevel(c);
-		if (c->error_count && peek(c)->kind != TEof)
-			skip_to_balance(c);
-	}
 }
 
 // Top-level: imports then decl/def until EOF (main parse entry).
