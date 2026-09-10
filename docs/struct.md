@@ -16,8 +16,10 @@ Point p = {0};           // Clean type usage in user code
 struct Point q = {0};    // Allowed for header/C compatibility
 ```
 
-A tag and another symbol may not share a name in the same scope. The same idea
-applies to `union` and `enum` tags.
+A tag and another symbol may not share a name in the same scope in user `.mc`
+sources. Headers may still use C's tag/ordinary homonyms (for example
+`struct if_nameindex` beside `if_nameindex()`); see [interop.md](interop.md).
+The same idea applies to `union` and `enum` tags.
 
 ## Field Access: Unified Dot Notation
 

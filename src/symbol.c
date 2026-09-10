@@ -56,7 +56,7 @@ symbol_visible(Compiler* c, Symbol* s) {
 
 // Find the visible symbol by name in the current scope chain.
 Symbol* symbol_lookup(Compiler* c, const char* name) {
-	Symbol* s;
+	Symbol *s, *tag = NULL;
 	unsigned i;
 
 	if (name == NULL || c->symbol_tab_cap == 0)
@@ -65,10 +65,17 @@ Symbol* symbol_lookup(Compiler* c, const char* name) {
 	for (s = c->symbol_tab[i]; s; s = s->hash_next) {
 		if (s->hidden || s->dead || s->is_method || strcmp(s->name, name) != 0)
 			continue;
-		if (symbol_visible(c, s))
-			return s;
+		if (!symbol_visible(c, s))
+			continue;
+		/* Header tag/func homonyms: ordinary lookup prefers the function/var. */
+		if (s->kind == SkTag) {
+			if (tag == NULL)
+				tag = s;
+			continue;
+		}
+		return s;
 	}
-	return NULL;
+	return tag;
 }
 
 // Find a visible struct/union/enum tag symbol.
@@ -122,6 +129,17 @@ symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 	s->home = xstrdup(f ? f : "");
 }
 
+// Headers may use C's tag/ordinary homonyms (e.g. struct if_nameindex +
+// if_nameindex()). User .mc keeps a single unified namespace with no clash.
+static int
+header_tag_homonym_ok(Compiler* c, Symbol* old, Span sp) {
+	if (old == NULL)
+		return 0;
+	if (user_source(c, sp) || user_source(c, old->span))
+		return 0;
+	return old->kind == SkTag || old->kind == SkFunc || old->kind == SkVar;
+}
+
 // Insert or update a symbol, handling tags, labels, shadowing, and redefs.
 Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int storage, Span sp) {
 	Symbol *old, *s;
@@ -136,8 +154,12 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 			return old;
 		}
 		old = symbol_lookup(c, name);
-		if (old && old->block == c->block && old->kind != SkTag)
-			error_at(c, sp, "redefinition of %s", name);
+		if (old && old->block == c->block && old->kind != SkTag) {
+			if (!header_tag_homonym_ok(c, old, sp) ||
+			    (old->kind != SkFunc && old->kind != SkVar))
+				error_at(c, sp, "redefinition of %s", name);
+			/* else: header tag alongside ordinary name (C/C++ hiding). */
+		}
 		s = xmalloc(sizeof(*s));
 		memset(s, 0, sizeof(*s));
 		s->param_fixed_len = -1;
@@ -207,9 +229,14 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 				old->type = t;
 			return old;
 		}
+		/* Headers: ordinary name may share a tag's spelling (POSIX pattern). */
+		if (old->kind == SkTag && (kind == SkVar || kind == SkFunc) &&
+		    header_tag_homonym_ok(c, old, sp))
+			goto create;
 		error_at(c, sp, "redefinition of %s", name);
 		return old;
 	}
+create:
 	s = xmalloc(sizeof(*s));
 	memset(s, 0, sizeof(*s));
 	s->param_fixed_len = -1;
@@ -437,6 +464,8 @@ Symbol* symbol_define_func(Compiler* c, const char* name, Type* t, int storage, 
 				old->storage = StNone;
 			return old;
 		}
+		if (old->kind == SkTag && header_tag_homonym_ok(c, old, sp))
+			goto create;
 		error_at(c, sp, "redefinition of %s", name);
 		return old;
 	}

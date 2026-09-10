@@ -97,4 +97,5 @@ test/str_escape_len.mc
 test/vararg.mc
 test/cli_defs.mc
 test/cli_inc.mc
+test/inc_kw_path.mc
 test/cli_host.mc

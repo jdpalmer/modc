@@ -30,4 +30,7 @@ test/pp_if.mc
 test/pp_paste.mc
 test/pp_file_line.mc
 test/sys_include.mc
+-Itest/inc_kw_dir test/inc_kw_path.mc
+test/hdr_tag_homonym.mc
+test/hdr_typedef_ptr_field.mc
 test/add.mc

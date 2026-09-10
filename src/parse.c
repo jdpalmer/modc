@@ -3529,32 +3529,44 @@ static void prescan_toplevel(Compiler* c);
 /* Prefer Ident in (*Name) for function-pointer typedefs; else last depth-0 Ident. */
 static char*
 typedef_declarator_name(Tok* toks, int start, int end) {
-	int i, d, after_star;
+	int i, d, brace, after_star;
 	char *last0, *fp;
 	Tok* t;
 
 	d = 0;
+	brace = 0;
 	after_star = 0;
 	last0 = NULL;
 	fp = NULL;
 	for (i = start; i < end; i++) {
 		t = &toks[i];
 		if (t->kind == TkPunct) {
-			if (t->punct == PnLparen || t->punct == PnLbrack || t->punct == PnLbrace) {
+			if (t->punct == PnLbrace) {
+				brace++;
+				after_star = 0;
+			} else if (t->punct == PnRbrace) {
+				brace--;
+				after_star = 0;
+			} else if (t->punct == PnLparen || t->punct == PnLbrack) {
 				d++;
 				after_star = 0;
-			} else if (t->punct == PnRparen || t->punct == PnRbrack || t->punct == PnRbrace) {
+			} else if (t->punct == PnRparen || t->punct == PnRbrack) {
 				d--;
 				after_star = 0;
-			} else if (t->punct == PnStar && d == 1)
+			} else if (t->punct == PnStar && d == 1 && brace == 0)
 				after_star = 1;
-			else if (t->punct == PnSemi && d == 0)
+			else if (t->punct == PnSemi && d == 0 && brace == 0)
 				break;
 			else
 				after_star = 0;
 			continue;
 		}
 		if (t->kind == TkIdent && t->s) {
+			/* Ignore idents inside a struct/union body; *field is not (*fn). */
+			if (brace != 0) {
+				after_star = 0;
+				continue;
+			}
 			if (d == 0)
 				last0 = t->s;
 			else if (d == 1 && after_star) {

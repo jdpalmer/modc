@@ -798,7 +798,8 @@ header_name(Tok* src, int src_files_len, int* i, int* angled) {
 		buf[0] = 0;
 		while (*i < src_files_len && !(src[*i].kind == TkPunct && src[*i].punct == PnGt) && src[*i].kind != TkNewline && src[*i].kind != TkEof) {
 			t = &src[*i];
-			if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkString) {
+			/* TkKw: paths like <net/if.h> — "if" is a keyword, spelling in t->s. */
+			if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkString || t->kind == TkKw) {
 				n += snprintf(buf + n, sizeof(buf) - n, "%s", t->s ? t->s : "");
 			} else if (t->kind == TkPunct) {
 				switch (t->punct) {
