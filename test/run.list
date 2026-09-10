@@ -64,6 +64,7 @@ test/autoconst_return_transitive.mc
 test/autoconst_readonly_ret.mc
 test/autoinline.mc
 test/autoinline_decl_init.mc
+test/autoinline_many.mc
 test/autoinline_export.mc
 test/autoinline_skip.mc
 test/auto_local.mc

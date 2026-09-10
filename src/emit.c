@@ -21,13 +21,11 @@ struct Val {
 };
 
 enum {
-	MaxLocal = 128,
 	MaxLoop = 32,
 	MaxCase = 128,
 	MaxDefer = 64,
 	MaxDeferStmt = 64,
 	MaxInlineMap = 32,
-	MaxInlineSite = 64,
 	MaxInlineStack = 16,
 	InlineNodeBudget = 32
 };
@@ -77,15 +75,17 @@ static FILE* outf;
 static int tempno, lblno;
 static const char* emit_str_symbol = "__string"; /* QBE data symbol for string pool */
 static const char* emit_pkg_filter; /* non-NULL during emit_qbe_pkg */
-static Symbol* locals[MaxLocal];
-static Type* localty[MaxLocal];
-static int localparam[MaxLocal];
+static Symbol** locals;
+static Type** localty;
+static int* localparam;
 static int locals_len;
+static int locals_cap;
 static int loopbrk[MaxLoop], loopcont[MaxLoop], loop_defer[MaxLoop], loops_len;
 static DeferFrame deferstk[MaxDefer];
 static int defers_len;
-static InlineSite isites[MaxInlineSite];
+static InlineSite* isites;
 static int isites_len;
+static int isites_cap;
 static InlineCtx inl;
 static Node* emit_curfn;
 
@@ -404,6 +404,19 @@ is_global_symbol(Symbol* s) {
 
 // Register a stack slot to emit at @start; dedupes repeated collect walks.
 static void
+ensure_locals_cap(int need) {
+	if (need <= locals_cap)
+		return;
+	if (locals_cap < 128)
+		locals_cap = 128;
+	while (locals_cap < need)
+		locals_cap *= 2;
+	locals = xrealloc(locals, (size_t)locals_cap * sizeof(*locals));
+	localty = xrealloc(localty, (size_t)locals_cap * sizeof(*localty));
+	localparam = xrealloc(localparam, (size_t)locals_cap * sizeof(*localparam));
+}
+
+static void
 addlocal(Symbol* s, Type* t, int isparam) {
 	int i;
 
@@ -417,8 +430,7 @@ addlocal(Symbol* s, Type* t, int isparam) {
 				localparam[i] = 1;
 			return;
 		}
-	if (locals_len >= MaxLocal)
-		return;
+	ensure_locals_cap(locals_len + 1);
 	localparam[locals_len] = isparam;
 	localty[locals_len] = t ? t : s->type;
 	locals[locals_len++] = s;
@@ -733,10 +745,12 @@ register_inline_site(Compiler* c, Node* call, Symbol* callee) {
 	 * $__fN_* locals that are defined only in the callee's object. */
 	if (emit_pkg_filter && callee->node && !node_in_pkg(callee->node, emit_pkg_filter))
 		return;
-	if (isites_len >= MaxInlineSite)
-		return;
 	if (find_inline_site(call))
 		return;
+	if (isites_len >= isites_cap) {
+		isites_cap = isites_cap ? isites_cap * 2 : 64;
+		isites = xrealloc(isites, (size_t)isites_cap * sizeof(*isites));
+	}
 	id = isites_len;
 	site = &isites[isites_len++];
 	memset(site, 0, sizeof(*site));
