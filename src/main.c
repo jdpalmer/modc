@@ -386,6 +386,7 @@ add_sysroot_includes(Compiler* c, const char* root) {
 	add_sysinc(c, buf);
 }
 
+#ifdef __APPLE__
 // Register a host -L library search directory (macOS).
 static void
 add_syslib(Compiler* c, const char* path) {
@@ -465,7 +466,9 @@ discover_macos_sysincludes(Compiler* c, int verbose) {
 	}
 	discover_homebrew_paths(c, verbose);
 }
+#endif
 
+#ifdef __linux__
 // Add common Linux multiarch and /usr/include paths.
 static void
 discover_linux_sysincludes(Compiler* c, int verbose) {
@@ -487,7 +490,9 @@ discover_linux_sysincludes(Compiler* c, int verbose) {
 		add_sysinc(c, paths[i]);
 	}
 }
+#endif
 
+#ifdef _WIN32
 // Add Windows SDK Include/<ver>/{ucrt,shared,um,winrt} dirs.
 static void
 add_win_sdk_includes(Compiler* c, const char* sdk, const char* ver, int verbose) {
@@ -554,6 +559,7 @@ discover_windows_sysincludes(Compiler* c, int verbose) {
 	if (sdk && ver)
 		add_win_sdk_includes(c, sdk, ver, verbose);
 }
+#endif
 
 // Resolve host system includes (MODC_SYSINCLUDE / platform defaults).
 static void

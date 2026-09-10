@@ -657,28 +657,6 @@ link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], i
 	return run_shell(o->verbose, cmd) != 0 ? 1 : 0;
 }
 
-// Assemble one .s to .o then link (legacy single-blob path).
-static int
-link_executable(Compiler* c, CliOpts* o, const char* dir, const char* asmpath,
-		const char* outpath, char foreign[][512], int nforeign) {
-	char modco[512], cmd[8192];
-	int off;
-	char objs[1][512];
-
-	snprintf(modco, sizeof(modco), "%s/modc.o", dir);
-	off = snprintf(cmd, sizeof(cmd), "%s -c", tool_cc());
-	off = append_opt_path(cmd, off, sizeof(cmd), " ", asmpath);
-	off = append_opt_path(cmd, off, sizeof(cmd), " -o ", modco);
-	if (off <= 0 || off >= (int)sizeof(cmd)) {
-		fprintf(stderr, "modc: command too long\n");
-		return 1;
-	}
-	if (run_shell(o->verbose, cmd) != 0)
-		return 1;
-	snprintf(objs[0], sizeof(objs[0]), "%s", modco);
-	return link_modc_objs(c, o, outpath, objs, 1, foreign, nforeign);
-}
-
 // Sanitize package directory basename for cache path segments.
 static void
 pkg_id_from_dir(const char* dir, char* out, size_t out_len) {
