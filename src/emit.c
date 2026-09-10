@@ -865,9 +865,18 @@ static Val
 coerce(Val v, char cls, Type* to) {
 	Val r;
 	const char* op;
+	char* end;
+	long long lit;
 
 	if (v.cls == cls || v.cls == '@')
 		return v;
+	/* Integer literals: rewrite w↔l without an extend instruction. */
+	if ((v.cls == 'w' || v.cls == 'l') && (cls == 'w' || cls == 'l') &&
+	    v.text[0] != '%' && v.text[0] != '$') {
+		lit = strtoll(v.text, &end, 10);
+		if (end != v.text && *end == '\0')
+			return vimm(cls, (int64_t)lit, to ? to : v.type);
+	}
 	r = vtmp(cls, to);
 	if (v.cls == 'w' && cls == 'l') {
 		op = (to && to->is_unsigned) || (v.type && v.type->is_unsigned) ? "extuw" : "extsw";
@@ -1147,7 +1156,17 @@ emitlval(Compiler* c, Node* n) {
 				i = coerce(i, 'l', c->type_llong);
 			if (step != 1) {
 				s = vtmp('l', c->type_llong);
-				fprintf(outf, "\t%s =l mul %s, %" PRId64 "\n", s.text, i.text, (int64_t)step);
+				if (step > 0 && (step & (step - 1)) == 0) {
+					int sh = 0;
+					int64_t st = step;
+
+					while (st > 1) {
+						st >>= 1;
+						sh++;
+					}
+					fprintf(outf, "\t%s =l shl %s, %d\n", s.text, i.text, sh);
+				} else
+					fprintf(outf, "\t%s =l mul %s, %" PRId64 "\n", s.text, i.text, (int64_t)step);
 				i = s;
 			}
 			v = vtmp('l', n->type);
@@ -1169,7 +1188,17 @@ emitlval(Compiler* c, Node* n) {
 			b = coerce(b, 'l', c->type_void_ptr);
 		if (step != 1) {
 			s = vtmp('l', c->type_llong);
-			fprintf(outf, "\t%s =l mul %s, %" PRId64 "\n", s.text, i.text, (int64_t)step);
+			if (step > 0 && (step & (step - 1)) == 0) {
+				int sh = 0;
+				int64_t st = step;
+
+				while (st > 1) {
+					st >>= 1;
+					sh++;
+				}
+				fprintf(outf, "\t%s =l shl %s, %d\n", s.text, i.text, sh);
+			} else
+				fprintf(outf, "\t%s =l mul %s, %" PRId64 "\n", s.text, i.text, (int64_t)step);
 			i = s;
 		}
 		v = vtmp('l', n->type);
@@ -1181,27 +1210,32 @@ emitlval(Compiler* c, Node* n) {
 }
 
 // Emit ++/-- on a modifiable lvalue; return pre- or post-update value.
+// Evaluate the address once so a[i]++ does not recompute a[i].
 static Val
 emitinc(Compiler* c, Node* n, int pre, int plus) {
-	Val cur, neu;
+	Val addr, cur, neu;
 	int step;
 	Type* t;
 
-	cur = emitexpr(c, n->a);
 	t = n->a ? n->a->type : NULL;
 	step = 1;
 	if (t && t->kind == TyPtr && t->base)
 		step = type_size(c, t->base);
+	addr = emitlval(c, n->a);
+	if (is_aggr(t)) {
+		cur = emitexpr(c, n->a);
+		neu = vtmp(cur.cls, t);
+		fprintf(outf, "\t%s =%c %s %s, %d\n",
+			neu.text, cur.cls, plus ? "add" : "sub", cur.text, step);
+		emitblit(addr, neu, storewidth(c, t));
+		return pre ? neu : cur;
+	}
+	cur = vtmp(qbe_class(t), t);
+	fprintf(outf, "\t%s =%c %s %s\n", cur.text, cur.cls, loadop(t), addr.text);
 	neu = vtmp(cur.cls, t);
 	fprintf(outf, "\t%s =%c %s %s, %d\n",
 		neu.text, cur.cls, plus ? "add" : "sub", cur.text, step);
-	{
-		Val addr = emitlval(c, n->a);
-		if (is_aggr(t))
-			emitblit(addr, neu, storewidth(c, t));
-		else
-			fprintf(outf, "\t%s %s, %s\n", storeop(c, t), neu.text, addr.text);
-	}
+	fprintf(outf, "\t%s %s, %s\n", storeop(c, t), neu.text, addr.text);
 	return pre ? neu : cur;
 }
 
@@ -1255,15 +1289,18 @@ qbe_arith_op(int punct, int is_unsigned) {
 }
 
 // Evaluate = and compound assignments, storing through the lhs lvalue.
+// Compound assigns evaluate the lhs address once (no double a[i] for a[i] += k).
 static Val
 emitexpr_assign(Compiler* c, Node* n) {
-	Val v, l, r;
+	Val v, l, r, addr;
 	const char* op;
 	int uns;
 
-	r = emitexpr(c, n->b);
-	if (n->op != PnEq && n->a) {
-		l = emitexpr(c, n->a);
+	if (n->op != PnEq && n->a && !is_aggr(n->a->type)) {
+		r = emitexpr(c, n->b);
+		addr = emitlval(c, n->a);
+		l = vtmp(qbe_class(n->a->type), n->a->type);
+		fprintf(outf, "\t%s =%c %s %s\n", l.text, l.cls, loadop(n->a->type), addr.text);
 		uns = n->a->type && n->a->type->is_unsigned;
 		op = qbe_arith_op(n->op, uns);
 		if (r.cls != l.cls)
@@ -1272,8 +1309,12 @@ emitexpr_assign(Compiler* c, Node* n) {
 			r = mask_shift_count(c, r, n->a->type);
 		v = vtmp(l.cls, n->a->type);
 		fprintf(outf, "\t%s =%c %s %s, %s\n", v.text, l.cls, op, l.text, r.text);
-		r = v;
+		if (v.cls != qbe_class(n->a->type))
+			v = coerce(v, qbe_class(n->a->type), n->a->type);
+		fprintf(outf, "\t%s %s, %s\n", storeop(c, n->a->type), v.text, addr.text);
+		return v;
 	}
+	r = emitexpr(c, n->b);
 	if (is_aggr(n->a ? n->a->type : NULL)) {
 		l = emitlval(c, n->a);
 		emitblit(l, r, storewidth(c, n->a->type));
@@ -2115,12 +2156,17 @@ caselbl(Node* n) {
 
 /* ---- statements ---- */
 
-// Store zeros into [addr, addr+n) using word/byte stores.
+// Store zeros into [addr, addr+n). Large regions call memset; small use stores.
 static void
 emit_zero_mem(Val addr, int n) {
-	Val cur, nxt;
+	Val cur, nxt, tmp;
 	int chunk;
 
+	if (n >= 64) {
+		tmp = vtmp('l', NULL);
+		fprintf(outf, "\t%s =l call $memset(l %s, w 0, l %d)\n", tmp.text, addr.text, n);
+		return;
+	}
 	cur = addr;
 	while (n > 0) {
 		if (n >= 8)

@@ -6,6 +6,7 @@ Thumbs.db
 # Build outputs
 build/
 .modc-cache/
+bench/.out/
 cmake-build-*/
 out/
 dist/
