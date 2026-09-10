@@ -88,6 +88,7 @@ test/pp_if.mc
 test/pp_paste.mc
 test/pp_file_line.mc
 test/fnptr.mc
+test/typedef_fnptr.mc
 test/vararg.mc
 test/cli_defs.mc
 test/cli_inc.mc

@@ -3520,6 +3520,50 @@ static void prescan_toplevel(Compiler* c);
 
 /* ---- prescan ---- */
 
+
+/* Prefer Ident in (*Name) for function-pointer typedefs; else last depth-0 Ident. */
+static char*
+typedef_declarator_name(Tok* toks, int start, int end) {
+	int i, d, after_star;
+	char *last0, *fp;
+	Tok* t;
+
+	d = 0;
+	after_star = 0;
+	last0 = NULL;
+	fp = NULL;
+	for (i = start; i < end; i++) {
+		t = &toks[i];
+		if (t->kind == TkPunct) {
+			if (t->punct == PnLparen || t->punct == PnLbrack || t->punct == PnLbrace) {
+				d++;
+				after_star = 0;
+			} else if (t->punct == PnRparen || t->punct == PnRbrack || t->punct == PnRbrace) {
+				d--;
+				after_star = 0;
+			} else if (t->punct == PnStar && d == 1)
+				after_star = 1;
+			else if (t->punct == PnSemi && d == 0)
+				break;
+			else
+				after_star = 0;
+			continue;
+		}
+		if (t->kind == TkIdent && t->s) {
+			if (d == 0)
+				last0 = t->s;
+			else if (d == 1 && after_star) {
+				fp = t->s;
+				after_star = 0;
+			} else
+				after_star = 0;
+			continue;
+		}
+		after_star = 0;
+	}
+	return fp ? fp : last0;
+}
+
 // Register incomplete tags / typedef stubs from user tokens so later files can
 // name types before their defining file is type-prescanned.
 void
@@ -3559,33 +3603,47 @@ prescan_unit_type_names(Compiler* c) {
 		last = NULL;
 		tagged = NULL;
 		d = 0;
-		for (i++; i < n; i++) {
-			n1 = &c->tokens[i];
-			if (n1->kind == TkPunct) {
-				if (n1->punct == PnLbrace || n1->punct == PnLparen || n1->punct == PnLbrack)
-					d++;
-				else if (n1->punct == PnRbrace || n1->punct == PnRparen || n1->punct == PnRbrack)
-					d--;
-				else if (n1->punct == PnSemi && d == 0)
-					break;
-			}
-			if (d == 0 && n1->kind == TkKw &&
-			    (n1->kw == KwStruct || n1->kw == KwUnion || n1->kw == KwEnum)) {
-				Tok* n2 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
-				if (n2 && n2->kind == TkIdent && n2->s) {
-					int k = n1->kw == KwUnion ? TyUnion : (n1->kw == KwEnum ? TyEnum : TyStruct);
-					tagged = type_struct(c, k, n2->s, n2->span);
+		{
+			int start;
+
+			start = i + 1;
+			for (i++; i < n; i++) {
+				n1 = &c->tokens[i];
+				if (n1->kind == TkPunct) {
+					if (n1->punct == PnLbrace || n1->punct == PnLparen || n1->punct == PnLbrack)
+						d++;
+					else if (n1->punct == PnRbrace || n1->punct == PnRparen || n1->punct == PnRbrack)
+						d--;
+					else if (n1->punct == PnSemi && d == 0)
+						break;
+				}
+				if (d == 0 && n1->kind == TkKw &&
+				    (n1->kw == KwStruct || n1->kw == KwUnion || n1->kw == KwEnum)) {
+					Tok* n2 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
+					if (n2 && n2->kind == TkIdent && n2->s) {
+						int k = n1->kw == KwUnion ? TyUnion : (n1->kw == KwEnum ? TyEnum : TyStruct);
+						tagged = type_struct(c, k, n2->s, n2->span);
+					}
 				}
 			}
-			if (d == 0 && n1->kind == TkIdent && n1->s)
-				last = n1->s;
+			last = typedef_declarator_name(c->tokens, start, i);
 		}
 		if (last == NULL)
 			continue;
 		s = symbol_lookup(c, last);
 		if (s && (s->kind == SkTypedef || s->kind == SkTag))
 			continue;
-		ty = tagged ? tagged : type_struct(c, TyStruct, last, sp);
+		if (tagged)
+			ty = tagged;
+		else {
+			/*
+			 * Untagged typedef (int, (*fn), …): do not type_struct(last) —
+			 * that installs SkTag last and then SkTypedef collides on the
+			 * real typedef in the bodies pass ("redefinition of last").
+			 */
+			ty = type_new(c, TyStruct);
+			ty->complete = 0;
+		}
 		(void)symbol_define(c, last, SkTypedef, ty, StTypedef, sp);
 	}
 }
@@ -3663,15 +3721,15 @@ prescan_unit(Compiler* c) {
 // True when a typedef declaration's name is already in the symbol table.
 static int
 typedef_decl_names_known(Compiler* c) {
-	int pos0, depth;
+	int pos0, start, end, depth;
 	char* last;
 	Tok* t;
 	Symbol* s;
 
 	pos0 = c->pos;
-	depth = 0;
-	last = NULL;
 	take(c); /* typedef */
+	start = c->pos;
+	depth = 0;
 	while (peek(c)->kind != TkEof) {
 		t = peek(c);
 		if (t->kind == TkPunct) {
@@ -3684,12 +3742,12 @@ typedef_decl_names_known(Compiler* c) {
 				break;
 			}
 		}
-		if (depth == 0 && t->kind == TkIdent && t->s)
-			last = t->s;
 		take(c);
 		if (c->fatal)
 			break;
 	}
+	end = c->pos;
+	last = typedef_declarator_name(c->tokens, start, end);
 	if (last == NULL) {
 		c->pos = pos0;
 		return 0;
