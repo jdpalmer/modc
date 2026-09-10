@@ -443,6 +443,8 @@ ensure_ranged_symbol(Node* n) {
 }
 
 // Pre-pass: find locals, ranged temps, and aggregates referenced by a function body.
+static void collect_init(Compiler* c, Initializer* in);
+
 static void
 collect(Compiler* c, Node* n) {
 	int i;
@@ -459,6 +461,8 @@ collect(Compiler* c, Node* n) {
 		addlocal(n->symbol, n->type, n->symbol->storage == StParam);
 	if (n->kind == NdDecl && n->symbol)
 		addlocal(n->symbol, n->type, n->symbol->storage == StParam);
+	if (n->kind == NdDecl && n->init)
+		collect_init(c, n->init);
 	collect(c, n->a);
 	collect(c, n->b);
 	collect(c, n->c);
@@ -466,7 +470,21 @@ collect(Compiler* c, Node* n) {
 		collect(c, n->children[i]);
 }
 
+static void
+collect_init(Compiler* c, Initializer* in) {
+	int i;
+
+	if (in == NULL)
+		return;
+	if (in->expr)
+		collect(c, in->expr);
+	for (i = 0; i < in->items_len; i++)
+		collect_init(c, &in->items[i]);
+}
+
 // Count AST nodes and reject constructs that cannot be duplicated at inline sites.
+static int inline_body_walk_init(Initializer* in, int* nnodes);
+
 static int
 inline_body_walk(Node* n, int* nnodes) {
 	int i;
@@ -486,6 +504,8 @@ inline_body_walk(Node* n, int* nnodes) {
 	default:
 		break;
 	}
+	if (n->kind == NdDecl && n->init && !inline_body_walk_init(n->init, nnodes))
+		return 0;
 	if (!inline_body_walk(n->a, nnodes))
 		return 0;
 	if (!inline_body_walk(n->b, nnodes))
@@ -494,6 +514,20 @@ inline_body_walk(Node* n, int* nnodes) {
 		return 0;
 	for (i = 0; i < n->children_len; i++)
 		if (!inline_body_walk(n->children[i], nnodes))
+			return 0;
+	return 1;
+}
+
+static int
+inline_body_walk_init(Initializer* in, int* nnodes) {
+	int i;
+
+	if (in == NULL)
+		return 1;
+	if (in->expr && !inline_body_walk(in->expr, nnodes))
+		return 0;
+	for (i = 0; i < in->items_len; i++)
+		if (!inline_body_walk_init(&in->items[i], nnodes))
 			return 0;
 	return 1;
 }
@@ -591,6 +625,8 @@ inl_add_map(Compiler* c, InlineSite* site, Symbol* s, int id) {
 }
 
 // Walk callee body to collect locals and ranged temps that need remapping.
+static void inl_collect_map_init(Compiler* c, InlineSite* site, Initializer* in, int id);
+
 static void
 inl_collect_map(Compiler* c, InlineSite* site, Node* n, int id) {
 	int i;
@@ -607,6 +643,8 @@ inl_collect_map(Compiler* c, InlineSite* site, Node* n, int id) {
 		inl_add_map(c, site, n->symbol, id);
 	if (n->kind == NdDecl && n->symbol)
 		inl_add_map(c, site, n->symbol, id);
+	if (n->kind == NdDecl && n->init)
+		inl_collect_map_init(c, site, n->init, id);
 	inl_collect_map(c, site, n->a, id);
 	inl_collect_map(c, site, n->b, id);
 	inl_collect_map(c, site, n->c, id);
@@ -614,7 +652,21 @@ inl_collect_map(Compiler* c, InlineSite* site, Node* n, int id) {
 		inl_collect_map(c, site, n->children[i], id);
 }
 
+static void
+inl_collect_map_init(Compiler* c, InlineSite* site, Initializer* in, int id) {
+	int i;
+
+	if (in == NULL)
+		return;
+	if (in->expr)
+		inl_collect_map(c, site, in->expr, id);
+	for (i = 0; i < in->items_len; i++)
+		inl_collect_map_init(c, site, &in->items[i], id);
+}
+
 // Find a parameter symbol by name in the callee AST (for inline arg binding).
+static Symbol* inl_find_param_in_init(Initializer* in, const char* name);
+
 static Symbol*
 inl_find_param_symbol(Node* n, const char* name) {
 	Symbol* s;
@@ -624,6 +676,11 @@ inl_find_param_symbol(Node* n, const char* name) {
 		return NULL;
 	if (n->kind == NdName && n->symbol && n->symbol->name && strcmp(n->symbol->name, name) == 0 && (n->symbol->storage == StParam || n->symbol->kind == SkVar))
 		return n->symbol;
+	if (n->kind == NdDecl && n->init) {
+		s = inl_find_param_in_init(n->init, name);
+		if (s)
+			return s;
+	}
 	s = inl_find_param_symbol(n->a, name);
 	if (s)
 		return s;
@@ -635,6 +692,26 @@ inl_find_param_symbol(Node* n, const char* name) {
 		return s;
 	for (i = 0; i < n->children_len; i++) {
 		s = inl_find_param_symbol(n->children[i], name);
+		if (s)
+			return s;
+	}
+	return NULL;
+}
+
+static Symbol*
+inl_find_param_in_init(Initializer* in, const char* name) {
+	Symbol* s;
+	int i;
+
+	if (in == NULL)
+		return NULL;
+	if (in->expr) {
+		s = inl_find_param_symbol(in->expr, name);
+		if (s)
+			return s;
+	}
+	for (i = 0; i < in->items_len; i++) {
+		s = inl_find_param_in_init(&in->items[i], name);
 		if (s)
 			return s;
 	}
@@ -699,6 +776,8 @@ register_inline_site(Compiler* c, Node* call, Symbol* callee) {
 }
 
 // Walk a function body and register every eligible call for inlining.
+static void register_inline_sites_init(Compiler* c, Initializer* in);
+
 static void
 register_inline_sites(Compiler* c, Node* n) {
 	Symbol* cal;
@@ -722,11 +801,25 @@ register_inline_sites(Compiler* c, Node* n) {
 				register_inline_site(c, n, cal);
 		}
 	}
+	if (n->kind == NdDecl && n->init)
+		register_inline_sites_init(c, n->init);
 	register_inline_sites(c, n->a);
 	register_inline_sites(c, n->b);
 	register_inline_sites(c, n->c);
 	for (i = 0; i < n->children_len; i++)
 		register_inline_sites(c, n->children[i]);
+}
+
+static void
+register_inline_sites_init(Compiler* c, Initializer* in) {
+	int i;
+
+	if (in == NULL)
+		return;
+	if (in->expr)
+		register_inline_sites(c, in->expr);
+	for (i = 0; i < in->items_len; i++)
+		register_inline_sites_init(c, &in->items[i]);
 }
 
 // Fresh SSA temporary (%tN) with QBE class and optional ModC type.
