@@ -1708,8 +1708,13 @@ parse_primary(Compiler* c) {
 		}
 		n = node(NdStr, t->span);
 		n->s = acc;
-		n->int_val = intern_str(c, acc);
-		n->type = type_array(c, c->type_char, (int64_t)strlen(acc) + 1);
+		{
+			int nbytes;
+
+			n->int_val = intern_str(c, acc, &nbytes);
+			/* Array bound is decoded size (incl. NUL), not source spelling. */
+			n->type = type_array(c, c->type_char, (int64_t)nbytes);
+		}
 		n->is_immutable = 1;
 		return n;
 	}

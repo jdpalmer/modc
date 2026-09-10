@@ -2618,7 +2618,7 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 	if (t->kind == TyArray) {
 		if (in && in->expr && in->expr->kind == NdStr && t->base && t->base->size == 1) {
 			int k, n;
-			n = intern_str(c, in->expr->s); /* already interned; use int_val */
+
 			n = (int)in->expr->int_val;
 			w = type_size(c, t);
 			for (k = 0; k < w && n + k < c->strpool_len; k++)

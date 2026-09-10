@@ -1171,9 +1171,9 @@ hexval(int ch) {
 }
 
 // Decode C escapes and append a NUL-terminated string to the compile-time pool.
-int intern_str(Compiler* c, const char* raw) {
+int intern_str(Compiler* c, const char* raw, int* out_len) {
 	unsigned char buf[4096];
-	int n, i, off;
+	int n, i, off, dig;
 	unsigned v;
 
 	n = 0;
@@ -1193,10 +1193,6 @@ int intern_str(Compiler* c, const char* raw) {
 				break;
 			case 'r':
 				buf[n++] = '\r';
-				i++;
-				break;
-			case '0':
-				buf[n++] = 0;
 				i++;
 				break;
 			case '\\':
@@ -1220,6 +1216,22 @@ int intern_str(Compiler* c, const char* raw) {
 				}
 				buf[n++] = (unsigned char)v;
 				break;
+			case '0':
+			case '1':
+			case '2':
+			case '3':
+			case '4':
+			case '5':
+			case '6':
+			case '7':
+				v = (unsigned)(raw[i] - '0');
+				i++;
+				for (dig = 0; dig < 2 && raw[i] >= '0' && raw[i] <= '7'; dig++) {
+					v = v * 8 + (unsigned)(raw[i] - '0');
+					i++;
+				}
+				buf[n++] = (unsigned char)v;
+				break;
 			default:
 				buf[n++] = (unsigned char)raw[i++];
 				break;
@@ -1228,6 +1240,8 @@ int intern_str(Compiler* c, const char* raw) {
 			buf[n++] = (unsigned char)raw[i++];
 	}
 	buf[n++] = 0;
+	if (out_len)
+		*out_len = n;
 	off = c->strpool_len;
 	if (c->strpool_len + n > c->strpool_cap) {
 		c->strpool_cap = c->strpool_cap ? c->strpool_cap * 2 : 256;

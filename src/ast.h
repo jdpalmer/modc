@@ -577,7 +577,9 @@ void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len);
 const char* type_name(Type* t);
 Type* promote(Compiler* c, Type* t);
 char qbe_class(Type* t); /* 'w'/'l'/'s'/'d' or '@' aggregate */
-int intern_str(Compiler* c, const char* raw);
+/* Decode escapes into the string pool. Returns offset; *out_len (if non-NULL)
+ * receives the decoded byte count including the terminating NUL. */
+int intern_str(Compiler* c, const char* raw, int* out_len);
 int eval_const(Compiler* c, Node* n, int64_t* out);
 Node* type_expr(Compiler* c, Node* n);
 void mark_symbol_used(Node* n);

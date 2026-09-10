@@ -90,6 +90,7 @@ test/pp_file_line.mc
 test/fnptr.mc
 test/typedef_fnptr.mc
 test/stdio_streams.mc
+test/str_escape_len.mc
 test/vararg.mc
 test/cli_defs.mc
 test/cli_inc.mc
