@@ -290,7 +290,7 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Explicit Switch Execution**: Implicit fallthrough across `switch` cases results in a compile-time error. Cases must terminate with `break` or explicitly declare `fallthrough;`.
 
-- **Defensive Local Initialization**: All local variables must be initialized at their point of declaration (`int x = 0;`). The compiler actively diagnoses uninitialized reads, `goto` jumps that bypass local declarations, control flow falling off non-`void` functions, signed/unsigned comparisons, and unsequenced modifications (`i = i++`).
+- **Defensive Local Initialization**: All local variables must be initialized at their point of declaration (`int x = 0;`). The compiler actively diagnoses uninitialized reads, `goto` jumps that bypass local declarations, control flow falling off non-`void` functions, signed/unsigned comparisons (except non-negative integer literals that fit the unsigned side), and unsequenced modifications (`i = i++`).
 
 - **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts.
 

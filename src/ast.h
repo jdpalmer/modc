@@ -572,7 +572,7 @@ Node* maybe_embed_project(Compiler* c, Type* dst, Node* src);
 Node* maybe_embed_upcast(Compiler* c, Type* dst, Node* src);
 void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src);
 void check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count);
-void check_sign_compare(Compiler* c, Span sp, Type* a, Type* b);
+void check_sign_compare(Compiler* c, Span sp, Node* a, Node* b);
 void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len);
 const char* type_name(Type* t);
 Type* promote(Compiler* c, Type* t);

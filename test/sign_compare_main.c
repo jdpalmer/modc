@@ -2,6 +2,7 @@ int both_signed(int a, int b);
 int both_unsigned(unsigned a, unsigned b);
 int sizeof_cast(int i);
 int eq_mixed_ok(int i, unsigned u);
+int lit_vs_unsigned(unsigned r);
 
 int
 main(void)
@@ -14,5 +15,10 @@ main(void)
 		return 3;
 	if(!eq_mixed_ok(-1, (unsigned)-1))
 		return 4;
+	if(!lit_vs_unsigned(0x20))
+		return 5;
+	if(lit_vs_unsigned(0x80))
+		return 6;
 	return 0;
 }
+

@@ -1016,22 +1016,47 @@ void check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count) {
 			 (int64_t)v, bits);
 }
 
-// Warn on signed vs unsigned comparisons in user code.
-void check_sign_compare(Compiler* c, Span sp, Type* a, Type* b) {
+// True when signed constant v is non-negative and fits in unsigned type uty.
+static int
+signed_const_fits_unsigned(Compiler* c, Type* uty, int64_t v) {
+	int bits;
+	uint64_t max;
+
+	if (v < 0 || uty == NULL || !is_int(uty) || is_signed_int(uty))
+		return 0;
+	bits = type_size(c, uty) * 8;
+	if (bits <= 0)
+		return 0;
+	if (bits >= 64)
+		return 1; /* any non-negative int64_t fits in uint64_t */
+	max = (1ULL << bits) - 1;
+	return (uint64_t)v <= max;
+}
+
+// Error on signed vs unsigned comparisons in user code, except when the signed
+// side is a non-negative constant that fits in the unsigned operand's type.
+void check_sign_compare(Compiler* c, Span sp, Node* a, Node* b) {
 	Type *pa, *pb;
 	int sa, sb;
+	int64_t v;
 
 	if (!user_source(c, sp))
 		return;
-	if (a == NULL || b == NULL || !is_int(a) || !is_int(b))
+	if (a == NULL || b == NULL || a->type == NULL || b->type == NULL)
 		return;
-	pa = promote(c, a);
-	pb = promote(c, b);
+	if (!is_int(a->type) || !is_int(b->type))
+		return;
+	pa = promote(c, a->type);
+	pb = promote(c, b->type);
 	if (!is_int(pa) || !is_int(pb))
 		return;
 	sa = is_signed_int(pa);
 	sb = is_signed_int(pb);
 	if (sa == sb)
+		return;
+	if (sa && !sb && eval_const(c, a, &v) && signed_const_fits_unsigned(c, pb, v))
+		return;
+	if (!sa && sb && eval_const(c, b, &v) && signed_const_fits_unsigned(c, pa, v))
 		return;
 	error_at(c, sp, "comparison between signed and unsigned integers");
 }
@@ -1677,7 +1702,7 @@ type_expr_bin(Compiler* c, Node* n) {
 		n->type = c->type_bool;
 	else if (n->op == PnLt || n->op == PnGt || n->op == PnLe || n->op == PnGe) {
 		if (n->type == NULL)
-			check_sign_compare(c, n->span, lt, rt);
+			check_sign_compare(c, n->span, n->a, n->b);
 		n->type = c->type_bool;
 	} else if (n->op == PnShl || n->op == PnShr) {
 		if (n->type == NULL)
