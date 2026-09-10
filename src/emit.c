@@ -701,7 +701,7 @@ register_inline_sites(Compiler* c, Node* n) {
 		register_inline_sites(c, n->children[i]);
 }
 
-/* Fresh SSA temporary (%tN) with QBE class and optional ModC type. */
+// Fresh SSA temporary (%tN) with QBE class and optional ModC type.
 static Val
 vtmp(char cls, Type* t) {
 	Val v;
@@ -1227,6 +1227,7 @@ try_inline_call(Compiler* c, Node* n, Val* out) {
 	return 1;
 }
 
+// Emit a call (or builtin va_*); evaluate args and return the call result value.
 static Val
 emitexpr_call(Compiler* c, Node* n, Val v) {
 	Val l, r, tgt;
@@ -2611,6 +2612,7 @@ emitsuall(Compiler* c) {
 	} while (progress);
 }
 
+// Restore emit_id after a package/TU emit pass (negated while types were printed).
 static void
 reset_su_ids(Compiler* c) {
 	Type* t;
@@ -2620,6 +2622,7 @@ reset_su_ids(Compiler* c) {
 			t->emit_id = -t->emit_id;
 }
 
+// True if n's defining file belongs to package directory pkg_dir.
 static int
 node_in_pkg(Node* n, const char* pkg_dir) {
 	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], want[HOST_PATH_MAX];

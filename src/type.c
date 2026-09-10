@@ -10,19 +10,7 @@
 #include "ast.h"
 #include <ctype.h>
 
-/*
- * Types, symbols, and post-parse checks.
- *
- * Compilation pipeline: lex → pp → parse → [type check] → emit → QBE
- * (type_expr also runs during parse; type_check_unit is the whole-unit pass.)
- *
- * Owns the Compiler type pool (type_list), symbol table, overload resolution, and
- * analyses that need a finished AST (uninit, fall-off, unused, discarded
- * tuple results, …). This file is the type system’s home, not a second parse.
- */
-#include "ast.h"
-#include <ctype.h>
-
+// Allocate a primitive Type with fixed size/align/signedness.
 static Type*
 mkprim(Compiler* c, int kind, int size, int align, int is_unsigned) {
 	Type* t;
@@ -98,6 +86,7 @@ Type* type_array(Compiler* c, Type* base, int64_t len) {
 	return t;
 }
 
+// Function type with return type, parameter list, and optional varargs.
 Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va) {
 	Type* t;
 	int i;
@@ -217,6 +206,7 @@ Type* type_tuple(Compiler* c, Type** elts, int n) {
 	return t;
 }
 
+// Round n up to the next multiple of alignment a.
 static int
 align_up(int n, int a) {
 	if (a <= 1)
@@ -357,7 +347,7 @@ int type_align(Compiler* c, Type* t) {
 	return t->align > 0 ? t->align : 1;
 }
 
-/* Integer kinds including bool and enum. */
+// Integer kinds including bool and enum.
 int is_int(Type* t) {
 	if (t == NULL)
 		return 0;
@@ -380,42 +370,47 @@ int is_int(Type* t) {
 	}
 }
 
+// True if t is an integer or floating-point type.
 int is_arith(Type* t) {
 	return is_int(t) || (t && (t->kind == TyFloat || t->kind == TyDouble));
 }
 
-/* Scalar in the C sense: arithmetic or pointer. */
+// Scalar in the C sense: arithmetic or pointer.
 int is_scalar(Type* t) {
 	return is_arith(t) || is_ptr(t);
 }
 
+// True if t is a pointer type.
 int is_ptr(Type* t) {
 	return t && t->kind == TyPtr;
 }
 
+// True if t is a function type.
 int is_func(Type* t) {
 	return t && t->kind == TyFunc;
 }
 
+// True if t is an array type.
 int is_array(Type* t) {
 	return t && t->kind == TyArray;
 }
 
+// True if t is a struct or union.
 int is_aggr(Type* t) {
 	return t && (t->kind == TyStruct || t->kind == TyUnion);
 }
 
-/* Interned {ptr,len} ranged-array struct. */
+// Interned {ptr,len} ranged-array struct.
 int is_ranged(Type* t) {
 	return t && t->is_ranged;
 }
 
-/* Interned multi-return tuple struct. */
+// Interned multi-return tuple struct.
 int is_tuple(Type* t) {
 	return t && t->is_tuple;
 }
 
-/* Signed integer kinds; excludes char and all unsigned variants. */
+// Signed integer kinds; excludes char and all unsigned variants.
 int is_signed_int(Type* t) {
 	if (t == NULL || t->is_unsigned)
 		return 0;
@@ -652,6 +647,7 @@ check_embed_ranged_null(Compiler* c, Span sp, Node* x) {
 			 type_name(t->base));
 }
 
+// True if t is a pointer to void.
 int
 is_void_ptr(Type* t) {
 	return is_ptr(t) && t->base && t->base->kind == TyVoid;
@@ -665,6 +661,7 @@ reject_void_ptr_arith(Compiler* c, Span sp, Type* t) {
 			 "`void *` arithmetic is not allowed in %%C user code (allowed in headers); cast to a typed pointer first");
 }
 
+// True if n is a null pointer constant (0 or cast of 0).
 int
 is_null_expr(Node* n) {
 	if (n == NULL)
@@ -676,6 +673,7 @@ is_null_expr(Node* n) {
 	return 0;
 }
 
+// True if integer literal v fits in type t without truncation.
 static int
 int_lit_fits_type(Type* t, int64_t v) {
 	int64_t min, max;
@@ -1372,6 +1370,7 @@ eval_rec(Compiler* c, Node* n, int64_t* out) {
 	return 0;
 }
 
+// Evaluate a constant expression into *out; returns 0 on failure.
 int eval_const(Compiler* c, Node* n, int64_t* out) {
 	return eval_rec(c, n, out);
 }
@@ -1433,6 +1432,7 @@ void mark_symbol_used(Node* n);
 // Type-check a call: overload resolution, builtins, method calls, and argument checking.
 static Node* type_expr_call(Compiler* c, Node* n);
 
+// Rewrite a method call into an ordinary call with receiver as first arg.
 static Node*
 lower_method_call(Compiler* c, Node* n) {
 	Node *recv, *nm, *call;
@@ -1471,6 +1471,7 @@ lower_method_call(Compiler* c, Node* n) {
 	return type_expr_call(c, call);
 }
 
+// Type-check a call: overload resolution, builtins, methods, and arguments.
 static Node*
 type_expr_call(Compiler* c, Node* n) {
 	Type* ft;
@@ -1944,6 +1945,7 @@ Node* type_expr(Compiler* c, Node* n) {
 
 static void mark_symbol_used_init(Initializer* in);
 
+// Mark every NdName symbol in the subtree as used.
 void
 mark_symbol_used(Node* n) {
 	int i;
@@ -1961,6 +1963,7 @@ mark_symbol_used(Node* n) {
 		mark_symbol_used_init(n->init);
 }
 
+// Mark symbols referenced from an initializer tree as used.
 static void
 mark_symbol_used_init(Initializer* in) {
 	int i;

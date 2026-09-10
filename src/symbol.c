@@ -7,6 +7,7 @@
 #include "ast.h"
 #include <ctype.h>
 
+// Rebuild the symbol hash table at capacity cap from the linked symbol list.
 static void
 symbol_tab_rebuild(Compiler* c, int cap) {
 	Symbol* s;
@@ -37,6 +38,7 @@ symbol_tab_add(Compiler* c, Symbol* s) {
 	c->symbol_tab[i] = s;
 }
 
+// True if s is visible in the current block / including file.
 static int
 symbol_visible(Compiler* c, Symbol* s) {
 	if (s->block != 0) {
@@ -222,6 +224,7 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 	return s;
 }
 
+// Append s to a mangled-name buffer, truncating if needed.
 static void
 mappend(char* buf, int* pos, int cap, const char* s) {
 	int n;
@@ -373,6 +376,7 @@ find_func_overload(Compiler* c, const char* name, Type* t) {
 	return NULL;
 }
 
+// True if linkname is already used by another visible symbol.
 static int
 linkname_taken(Compiler* c, const char* linkname) {
 	Symbol* s;
@@ -451,6 +455,7 @@ create:
 	return s;
 }
 
+// Append alphanumeric characters of s as lowercase (for method mangling).
 static void
 mangle_lower(const char* s, char* buf, int* pos, int cap) {
 	const char* p;
@@ -603,6 +608,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	return s;
 }
 
+// True if name has at least one file-scope overload entry.
 int symbol_has_overload(Compiler* c, const char* name) {
 	Symbol* s;
 

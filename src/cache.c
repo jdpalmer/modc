@@ -20,11 +20,11 @@ enum { CacheHexLen = 16 }; /* 64-bit hex */
 static unsigned long long
 fnv1a64(const void* data, size_t n, unsigned long long h) {
 	const unsigned char* p = data;
-	size_t i;
 
-	if (h == 0)
+	if (h == 0) {
 		h = 14695981039346656037ull;
-	for (i = 0; i < n; i++) {
+	}
+	for (size_t i = 0; i < n; i++) {
 		h ^= p[i];
 		h *= 1099511628211ull;
 	}
@@ -40,17 +40,18 @@ cache_hash_bytes(const void* data, size_t n) {
 // Hash a C string (NULL treated as empty).
 unsigned long long
 cache_hash_str(const char* s) {
-	if (s == NULL)
+	if (s == NULL) {
 		return cache_hash_bytes("", 0);
+	}
 	return cache_hash_bytes(s, strlen(s));
 }
 
 // Hash file contents; returns 0 if the file cannot be read.
 unsigned long long
 cache_hash_file(const char* path) {
-	char* text;
 	size_t n;
 	unsigned long long h;
+	char* text;
 
 	text = read_file(path, &n);
 	if (text == NULL)
@@ -70,8 +71,9 @@ cache_hash_mix(unsigned long long a, unsigned long long b) {
 void
 cache_hash_hex(unsigned long long h, char* out, size_t out_len) {
 	if (out_len < CacheHexLen + 1) {
-		if (out_len)
+		if (out_len) {
 			out[0] = 0;
+		}
 		return;
 	}
 	snprintf(out, out_len, "%016llx", (unsigned long long)h);

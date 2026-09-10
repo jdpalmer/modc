@@ -78,6 +78,7 @@ da_add(DAState* st, Symbol* s, int assigned) {
 	st->n++;
 }
 
+// Set assignedness for a local already in the definite-assignment set (or add it).
 static void
 da_set(DAState* st, Symbol* s, int assigned) {
 	int i;
@@ -89,6 +90,7 @@ da_set(DAState* st, Symbol* s, int assigned) {
 		da_add(st, s, assigned);
 }
 
+// Copy definite-assignment state.
 static void
 da_copy(DAState* dst, DAState* src) {
 	*dst = *src;
@@ -127,6 +129,7 @@ da_use(Compiler* c, Node* n, DAState* st) {
 	st->assigned[i] = 1;
 }
 
+// Mark the leftmost name of an assignment LHS as definitely assigned.
 static void
 da_mark_lhs(DAState* st, Node* n) {
 	if (n == NULL)
@@ -139,6 +142,7 @@ da_mark_lhs(DAState* st, Node* n) {
 		da_mark_lhs(st, n->b);
 }
 
+// Walk initializer expressions for definite-assignment uses.
 static void
 da_init(Compiler* c, Initializer* in, DAState* st) {
 	int i;
@@ -266,6 +270,7 @@ for_init_da(Compiler* c, Node* init, DAState* st) {
 		da_expr(c, init, st, 0);
 }
 
+// Propagate definite-assignment through statements; joins intersect at branches.
 static void
 da_stmt(Compiler* c, Node* n, DAState* st) {
 	DAState a, b;
@@ -379,6 +384,7 @@ node_has_break(Node* n) {
 	return 0;
 }
 
+// True if n is a constant expression evaluating to non-zero.
 static int
 is_const_nonzero(Compiler* c, Node* n) {
 	int64_t v;
@@ -475,6 +481,7 @@ switch_enum_type(Type* t) {
 	return NULL;
 }
 
+// True if body covers every enumerator of et (or has default / overflow).
 static int
 switch_enum_exhaustive(Compiler* c, Type* et, Node* body) {
 	SwitchCases sc;
@@ -527,6 +534,7 @@ check_switch_enum_exhaust(Compiler* c, Node* sw) {
 	}
 }
 
+// Recursively find switches and check enum exhaustiveness.
 static void
 walk_enum_exhaust(Compiler* c, Node* n) {
 	int i;
@@ -614,6 +622,7 @@ switch_returns(Compiler* c, Node* body, Type* swty) {
 	return ok;
 }
 
+// True if every path through n returns (or never falls off).
 static int
 stmt_returns(Compiler* c, Node* n) {
 	int i;
@@ -687,6 +696,7 @@ struct GEvent {
 	Node* n;
 };
 
+// Append one GEvent (decl/label/goto) to the linearized timeline.
 static void
 ge_add(GEvent* ev, int* nev, int kind, Node* n) {
 	if (*nev >= GEMax)
@@ -861,6 +871,7 @@ check_unseq_expr(Compiler* c, Node* n) {
 		check_unseq_init(c, n->init);
 }
 
+// Walk initializer expressions for unsequenced modification checks.
 static void
 check_unseq_init(Compiler* c, Initializer* in) {
 	int i;
@@ -894,6 +905,7 @@ check_unseq_func(Compiler* c, Node* fn) {
  */
 typedef int (*StmtVisitFn)(Compiler* c, Node* n, void* ctx);
 
+// Depth-first walk of statement positions; visit may prune default recursion.
 static void
 walk_stmt(Compiler* c, Node* n, StmtVisitFn visit, void* ctx) {
 	int i;
@@ -935,11 +947,13 @@ walk_stmt(Compiler* c, Node* n, StmtVisitFn visit, void* ctx) {
 	}
 }
 
+// True if n is a cast to void.
 static int
 is_void_cast(Node* n) {
 	return n && n->kind == NdCast && n->type && n->type->kind == TyVoid;
 }
 
+// True if n is a multi-return call used as a discarded expression statement.
 static int
 is_discarded_tuple_expr(Node* n) {
 	if (n == NULL)
@@ -953,6 +967,7 @@ is_discarded_tuple_expr(Node* n) {
 	return 0;
 }
 
+// StmtVisitFn: error on discarded tuple returns; prune non-statement forms.
 static int
 discard_tuple_visit(Compiler* c, Node* n, void* ctx) {
 	(void)ctx;
@@ -984,12 +999,14 @@ discard_tuple_visit(Compiler* c, Node* n, void* ctx) {
 	}
 }
 
+// Walk a statement tree for discarded multi-return values.
 static void
 check_discard_tuple_stmt(Compiler* c, Node* n) {
 	walk_stmt(c, n, discard_tuple_visit, NULL);
 }
 
 
+// True if name looks like an internal __temp (skip unused warnings).
 static int
 is_compiler_temp_name(const char* name) {
 	return name && name[0] == '_' && name[1] == '_';
@@ -1065,6 +1082,7 @@ typedef struct {
 	int n;
 } IRAlias;
 
+// True if s is the tracked param or a recorded alias of it.
 static int
 ir_is_alias(IRAlias* a, Symbol* param, Symbol* s) {
 	int i;
@@ -1094,6 +1112,7 @@ ir_add_alias(IRAlias* a, Symbol* s) {
 	a->alias[a->n++] = s;
 }
 
+// True if n (through commas) names symbol s.
 static int
 ir_node_is_symbol(Node* n, Symbol* s) {
 	if (n == NULL || s == NULL)
@@ -1163,6 +1182,7 @@ ir_call_fn_type(Node* n) {
 static int ir_stmt_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a);
 static int ir_expr_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a);
 
+// True if storing through lval writes via a pointer derived from param.
 static int
 ir_store_taints(Node* lval, Symbol* param, IRAlias* a) {
 	if (lval == NULL)
@@ -1176,6 +1196,7 @@ ir_store_taints(Node* lval, Symbol* param, IRAlias* a) {
 	return 0;
 }
 
+// True if assigning into lval escapes the pointer into untracked memory.
 static int
 ir_escape_lhs(Node* lval) {
 	if (lval == NULL)
@@ -1274,6 +1295,7 @@ ir_init_taints(Compiler* c, Initializer* in, Symbol* param, IRAlias* a, Symbol* 
 	return t;
 }
 
+// True if the statement may mutate or expose the tracked pointer parameter.
 static int
 ir_stmt_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a) {
 	int i, t;
@@ -1324,6 +1346,7 @@ ir_stmt_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a) {
 	}
 }
 
+// Look up the Symbol for function parameter index idx.
 static Symbol*
 ir_param_symbol(Compiler* c, Symbol* fn, int idx) {
 	Symbol* s;
@@ -1344,6 +1367,7 @@ ir_param_symbol(Compiler* c, Symbol* fn, int idx) {
 	return NULL;
 }
 
+// True if parameter idx is stored through or escaped in the function body.
 static int
 ir_param_tainted(Compiler* c, Node* fn, int idx) {
 	Symbol* ps;
@@ -1362,6 +1386,7 @@ ir_param_tainted(Compiler* c, Node* fn, int idx) {
 
 static int ac_immut_source(Node* n);
 
+// True if s is a pointer parameter already marked READONLY on fn.
 static int
 ir_sym_readonly_param(Compiler* c, Node* fn, Symbol* s) {
 	Type* ty;
@@ -1381,6 +1406,7 @@ ir_sym_readonly_param(Compiler* c, Node* fn, Symbol* s) {
 	return 0;
 }
 
+// True if s is a readonly param or a local bound to readonly provenance.
 static int
 ir_is_readonly_symbol(Compiler* c, Node* fn, IRAlias* ro, Symbol* s) {
 	int i;
@@ -1414,6 +1440,7 @@ ir_ro_remove(IRAlias* ro, Symbol* s) {
 	}
 }
 
+// True if n is a pointer derived from a readonly param or local alias.
 static int
 ir_derived_readonly(Node* n, Compiler* c, Node* fn, IRAlias* ro) {
 	if (n == NULL)
@@ -1453,6 +1480,7 @@ ir_derived_readonly(Node* n, Compiler* c, Node* fn, IRAlias* ro) {
 	}
 }
 
+// True if n is safe to return/bind as a READONLY pointer.
 static int
 ir_expr_readonly_safe(Compiler* c, Node* fn, Node* n, IRAlias* ro) {
 	Type* ft;
@@ -1490,6 +1518,7 @@ ir_expr_readonly_safe(Compiler* c, Node* fn, Node* n, IRAlias* ro) {
 	}
 }
 
+// Update readonly-local aliases when dst is bound to rhs.
 static void
 ir_readonly_local_bind(Compiler* c, Node* fn, Symbol* dst, Node* rhs, IRAlias* ro) {
 	if (dst == NULL || !ac_tracked_local(dst))
@@ -1506,6 +1535,7 @@ typedef struct {
 	int bad;
 } IRRetCtx;
 
+// StmtVisitFn: track readonly locals and flag unsafe READONLY returns.
 static int
 ir_return_visit(Compiler* c, Node* n, void* ctx) {
 	IRRetCtx* x = ctx;
@@ -1539,6 +1569,7 @@ ir_return_visit(Compiler* c, Node* n, void* ctx) {
 	}
 }
 
+// Walk fn body; return nonzero if a READONLY return is not safe.
 static int
 ir_return_stmt_check(Compiler* c, Node* fn, Node* n, IRAlias* ro) {
 	IRRetCtx x;
@@ -1550,6 +1581,7 @@ ir_return_stmt_check(Compiler* c, Node* fn, Node* n, IRAlias* ro) {
 	return x.bad;
 }
 
+// True if fn's pointer return cannot be inferred READONLY.
 static int
 ir_return_tainted(Compiler* c, Node* fn) {
 	IRAlias ro;
@@ -1643,6 +1675,7 @@ ac_find(ACState* st, Symbol* s) {
 	return -1;
 }
 
+// Locals/params with pointer, array, or ranged type are auto-const tracked.
 static int
 ac_tracked_local(Symbol* s) {
 	Type* t;
@@ -1655,11 +1688,13 @@ ac_tracked_local(Symbol* s) {
 	return t && (is_ptr(t) || is_array(t) || is_ranged(t));
 }
 
+// True if t is a ranged char/unsigned char buffer.
 static int
 ac_char_ranged(Type* t) {
 	return t && is_ranged(t) && t->base && (t->base->kind == TyChar || t->base->kind == TyUChar);
 }
 
+// Set auto-const state for a tracked local (adding it if needed).
 static void
 ac_set(ACState* st, Symbol* s, int state) {
 	int i;
@@ -1676,6 +1711,7 @@ ac_set(ACState* st, Symbol* s, int state) {
 	st->st[i] = (unsigned char)state;
 }
 
+// Auto-const state of s, or ACPlain if untracked.
 static int
 ac_get(ACState* st, Symbol* s) {
 	int i;
@@ -1684,6 +1720,7 @@ ac_get(ACState* st, Symbol* s) {
 	return i >= 0 ? st->st[i] : ACPlain;
 }
 
+// Copy auto-const state.
 static void
 ac_copy(ACState* dst, ACState* src) {
 	*dst = *src;
@@ -1715,6 +1752,7 @@ ac_join(ACState* dst, ACState* a, ACState* b) {
 	}
 }
 
+// True if n is an immutable string/readonly pointer source (literal, etc.).
 static int
 ac_immut_source(Node* n) {
 	if (n == NULL)
@@ -1730,6 +1768,7 @@ ac_immut_source(Node* n) {
 	return 0;
 }
 
+// True if n evaluates to an immutable string under current auto-const state.
 static int
 ac_expr_immut(ACState* st, Node* n) {
 	if (n == NULL)
@@ -1745,6 +1784,7 @@ ac_expr_immut(ACState* st, Node* n) {
 	return 0;
 }
 
+// True if t is a mutable pointer or array parameter type.
 static int
 ac_mutable_ptr_type(Type* t) {
 	if (t == NULL)
@@ -1804,6 +1844,7 @@ ac_store_through(Compiler* c, Node* lval, ACState* st) {
 		ac_store_through(c, lval->b, st);
 }
 
+// Update auto-const state when dst is assigned from rhs.
 static void
 ac_assign_ptr(Compiler* c, Symbol* dst, Node* rhs, ACState* st, Span sp) {
 	int im;
@@ -1829,6 +1870,7 @@ ac_assign_ptr(Compiler* c, Symbol* dst, Node* rhs, ACState* st, Span sp) {
 		ac_set(st, dst, ACPlain);
 }
 
+// Walk initializers for auto-const; bind dst when present.
 static void
 ac_init(Compiler* c, Initializer* in, ACState* st, Symbol* dst) {
 	int i;
@@ -1951,6 +1993,7 @@ for_init_ac(Compiler* c, Node* init, ACState* st) {
 		ac_expr(c, init, st);
 }
 
+// Propagate auto-const state through statements; joins at branches.
 static void
 ac_stmt(Compiler* c, Node* n, ACState* st) {
 	ACState a, b;
