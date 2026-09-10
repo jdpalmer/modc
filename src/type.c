@@ -1519,7 +1519,8 @@ type_expr_call(Compiler* c, Node* n) {
 			n->type = c->type_int;
 		return n;
 	}
-	if (bn && strcmp(bn, "ranged") == 0) {
+	/* User funcs/methods named len/ranged win over the builtins. */
+	if (bn && strcmp(bn, "ranged") == 0 && !(n->a && n->a->symbol)) {
 		Node *x, *y;
 		Type *et, *pt;
 
@@ -1557,7 +1558,7 @@ type_expr_call(Compiler* c, Node* n) {
 		n->type = type_ranged(c, c->type_int);
 		return n;
 	}
-	if (bn && strcmp(bn, "len") == 0) {
+	if (bn && strcmp(bn, "len") == 0 && !(n->a && n->a->symbol)) {
 		Node* x;
 		Type* lt;
 

@@ -264,6 +264,8 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 			t_emit = t1 - t0;
 			fprintf(stderr, "modc profile: emit=%.3fs\n", t_emit);
 		}
+		if (c->error_count)
+			return 1;
 	}
 	return 0;
 }
@@ -326,7 +328,7 @@ run_shell(int verbose, const char* cmd) {
 	if (st != 0) {
 		if (st == -1)
 			fprintf(stderr, "modc: failed to run command: %s\n", strerror(errno));
-		return st == -1 ? 1 : st;
+		return 1;
 	}
 	return 0;
 }
@@ -937,6 +939,8 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 	}
 	emit_qbe_pkg(c, f, pkg->dir, strsym);
 	fclose(f);
+	if (c->error_count)
+		return 1;
 	if (snprintf(cmd, sizeof(cmd), "%s -t %s -o %s %s", tool_qbe(), tool_qbe_target(),
 		     asmpath, qbe) >= (int)sizeof(cmd)) {
 		fprintf(stderr, "modc: command too long\n");

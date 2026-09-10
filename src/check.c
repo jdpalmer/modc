@@ -1951,7 +1951,8 @@ ac_expr(Compiler* c, Node* n, ACState* st) {
 		if ((ft == NULL || !is_func(ft)) && n->a && n->a->symbol && n->a->symbol->type && is_func(n->a->symbol->type))
 			ft = n->a->symbol->type;
 		/* Builtin ranged("…") / len(): not a mutable C pointer sink. */
-		if (n->a && n->a->kind == NdName && n->a->s && (strcmp(n->a->s, "ranged") == 0 || strcmp(n->a->s, "len") == 0)) {
+		if (n->a && n->a->kind == NdName && n->a->s && n->a->symbol == NULL &&
+		    (strcmp(n->a->s, "ranged") == 0 || strcmp(n->a->s, "len") == 0)) {
 			for (i = 0; i < n->children_len; i++)
 				ac_expr(c, n->children[i], st);
 			return;

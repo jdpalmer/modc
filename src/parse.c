@@ -1664,8 +1664,15 @@ parse_primary(Compiler* c) {
 		take(c);
 		n = node(NdName, t->span);
 		n->s = t->s;
-		if (t->s && (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0) && at(c, PnLparen))
+		/* Builtins len()/ranged() may be undeclared; user defs still bind. */
+		if (t->s && (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0) && at(c, PnLparen)) {
+			s = symbol_lookup(c, t->s);
+			if (s) {
+				n->symbol = s;
+				n->type = s->type;
+			}
 			return n;
+		}
 		s = symbol_lookup(c, t->s);
 		n->symbol = s;
 		if (s == NULL) {
@@ -3145,6 +3152,18 @@ parse_local_decl(Compiler* c, Node* blk) {
 				d->init = parse_init(c);
 				finish_array_from_init(c, &s->type, d->init);
 				d->type = s->type;
+				/* Scalar `T x = {e}` → same as `T x = e` for emission/checks.
+				 * Skip enums: distinct enum types reject bare `0` as an expr. */
+				if (d->init && d->init->is_list && s->type && !is_aggr(s->type) &&
+				    s->type->kind != TyArray && s->type->kind != TyEnum &&
+				    d->init->items_len == 1 && d->init->items[0].expr &&
+				    !d->init->items[0].is_list) {
+					d->init->expr = d->init->items[0].expr;
+					d->init->is_list = 0;
+					free(d->init->items);
+					d->init->items = NULL;
+					d->init->items_len = 0;
+				}
 				if (d->init && d->init->expr && s->type) {
 					d->init->expr = apply_implicit_conversions(c, s->type, d->init->expr);
 					check_implicit_conv(c, sp, s->type, d->init->expr);
@@ -3228,8 +3247,14 @@ parse_decl_or_def(Compiler* c, int in_func) {
 	if (at(c, PnLparen) && peek_tuple_type(c)) {
 		base = parse_tuple_type(c);
 		saw = 1;
-	} else
+	} else {
 		base = parse_declspec(c, &storage, &saw);
+		/* `static (T, U) f(...)` — storage class precedes the tuple type. */
+		if (at(c, PnLparen) && peek_tuple_type(c)) {
+			base = parse_tuple_type(c);
+			saw = 1;
+		}
+	}
 	if (at(c, PnSemi)) {
 		free(doc);
 		take(c);
@@ -3680,8 +3705,13 @@ prescan_toplevel(Compiler* c) {
 	if (at(c, PnLparen) && peek_tuple_type(c)) {
 		base = parse_tuple_type(c);
 		saw = 1;
-	} else
+	} else {
 		base = parse_declspec(c, &storage, &saw);
+		if (at(c, PnLparen) && peek_tuple_type(c)) {
+			base = parse_tuple_type(c);
+			saw = 1;
+		}
+	}
 	if (at(c, PnSemi)) {
 		take(c);
 		return;

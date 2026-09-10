@@ -40,11 +40,13 @@ test/fixed_array_param.mc
 test/defer.mc
 test/overload.mc
 test/method.mc
+test/method_len.mc
 test/overload_ranged.mc
 test/range_for.mc
 test/range_hooks.mc
 test/multiret.mc
 test/discard_tuple_ok.mc
+test/static_tuple.mc
 test/unused_ok.mc
 test/shadow_hdr.mc
 test/autoconst_ok.mc
@@ -61,6 +63,7 @@ test/autoinline.mc
 test/autoinline_export.mc
 test/autoinline_skip.mc
 test/auto_local.mc
+test/ternary_wide.mc
 test/conv.mc
 test/lit_suffix.mc
 test/uchar.mc

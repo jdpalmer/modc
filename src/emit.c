@@ -105,6 +105,7 @@ static InlineSite* find_inline_site(Node* call);
 static const char* slot_basename(Symbol* s);
 static int try_inline_call(Compiler* c, Node* n, Val* out);
 static int node_in_pkg(Node* n, const char* pkg_dir);
+static Type* emit_field_path(Compiler* c, Type* t, Initializer* it, int* totoff);
 
 // Allocate the next QBE SSA temporary name (%tN).
 static int
@@ -691,8 +692,19 @@ register_inline_sites(Compiler* c, Node* n) {
 		return;
 	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->symbol && n->a->symbol->kind == SkFunc) {
 		cal = n->a->symbol;
-		if (n->a->s == NULL || (strcmp(n->a->s, "ranged") != 0 && strcmp(n->a->s, "len") != 0 && strncmp(n->a->s, "__builtin_", 10) != 0))
-			register_inline_site(c, n, cal);
+		{
+			int skip;
+
+			skip = 0;
+			if (n->a->s && strncmp(n->a->s, "__builtin_", 10) == 0)
+				skip = 1;
+			else if (n->a->s &&
+				 (strcmp(n->a->s, "len") == 0 || strcmp(n->a->s, "ranged") == 0) &&
+				 n->a->symbol == NULL)
+				skip = 1;
+			if (!skip)
+				register_inline_site(c, n, cal);
+		}
 	}
 	register_inline_sites(c, n->a);
 	register_inline_sites(c, n->b);
@@ -1274,7 +1286,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		fprintf(outf, "\t%s =%c vaarg %s\n", v.text, v.cls, l.text);
 		return v;
 	}
-	if (bn && strcmp(bn, "ranged") == 0) {
+	if (bn && strcmp(bn, "ranged") == 0 && !(n->a && n->a->symbol)) {
 		Val p, ln, slot;
 		int off;
 		int64_t alen;
@@ -1321,7 +1333,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		v.type = n->type;
 		return v;
 	}
-	if (bn && strcmp(bn, "len") == 0) {
+	if (bn && strcmp(bn, "len") == 0 && !(n->a && n->a->symbol)) {
 		Node* x;
 		Val base, off, ln;
 		int lenoff;
@@ -1801,18 +1813,20 @@ emitexpr(Compiler* c, Node* n) {
 		ttrue = newlbl();
 		tfalse = newlbl();
 		tjoin = newlbl();
+		cls = qbe_class(n->type);
 		l = asbool(emitexpr(c, n->a));
 		emitjnz(l.text, ttrue, tfalse);
 		emitlbl(ttrue);
 		r = emitexpr(c, n->b);
+		if (r.cls != cls && r.cls != '@')
+			r = coerce(r, cls, n->type);
 		emitjmp(tjoin);
 		emitlbl(tfalse);
 		l = emitexpr(c, n->c);
+		if (l.cls != cls && l.cls != '@')
+			l = coerce(l, cls, n->type);
 		emitjmp(tjoin);
 		emitlbl(tjoin);
-		cls = r.cls;
-		if (l.cls != cls)
-			l = coerce(l, cls, n->type);
 		v = vtmp(cls, n->type);
 		fprintf(outf, "\t%s =%c phi @L%d %s, @L%d %s\n",
 			v.text, cls, ttrue, r.text, tfalse, l.text);
@@ -1966,6 +1980,134 @@ caselbl(Node* n) {
 
 /* ---- statements ---- */
 
+// Store zeros into [addr, addr+n) using word/byte stores.
+static void
+emit_zero_mem(Val addr, int n) {
+	Val cur, nxt;
+	int chunk;
+
+	cur = addr;
+	while (n > 0) {
+		if (n >= 8)
+			chunk = 8;
+		else if (n >= 4)
+			chunk = 4;
+		else
+			chunk = 1;
+		if (chunk == 8)
+			fprintf(outf, "\tstorel 0, %s\n", cur.text);
+		else if (chunk == 4)
+			fprintf(outf, "\tstorew 0, %s\n", cur.text);
+		else
+			fprintf(outf, "\tstoreb 0, %s\n", cur.text);
+		n -= chunk;
+		if (n <= 0)
+			break;
+		nxt = vtmp('l', NULL);
+		fprintf(outf, "\t%s =l add %s, %d\n", nxt.text, cur.text, chunk);
+		cur = nxt;
+	}
+}
+
+// Address of base + byte offset (identity when off == 0).
+static Val
+emit_addr_off(Val base, int off) {
+	Val v;
+
+	if (off == 0)
+		return base;
+	v = vtmp('l', NULL);
+	fprintf(outf, "\t%s =l add %s, %d\n", v.text, base.text, off);
+	return v;
+}
+
+static void emit_local_init(Compiler* c, Val base, Type* t, Initializer* in, int off);
+
+// Emit a braced initializer list into a local/aggregate at base+off.
+static void
+emit_local_init_list(Compiler* c, Val base, Type* t, Initializer* in, int off) {
+	int i, nextpos, inner, w, j;
+	Type* ft;
+	Field* f;
+
+	nextpos = 0;
+	for (i = 0; i < in->items_len; i++) {
+		Initializer* it = &in->items[i];
+
+		if (it->designator == IdIndexEq) {
+			if (t->kind != TyArray)
+				continue;
+			w = type_size(c, t->base);
+			emit_local_init(c, base, t->base, it, off + (int)(it->index * w));
+		} else if (it->designator == IdFieldDot) {
+			ft = emit_field_path(c, t, it, &inner);
+			if (ft)
+				emit_local_init(c, base, ft, it, off + inner);
+		} else if (t->kind == TyArray) {
+			w = type_size(c, t->base);
+			emit_local_init(c, base, t->base, it, off + nextpos * w);
+			nextpos++;
+		} else if (is_aggr(t)) {
+			for (f = t->fields, j = 0; f && j < nextpos; j++)
+				f = f->next;
+			if (f)
+				emit_local_init(c, base, f->type, it, off + f->offset);
+			nextpos++;
+		} else
+			emit_local_init(c, base, t, it, off);
+	}
+}
+
+// Emit one local initializer (scalar expr, string, or nested brace list).
+static void
+emit_local_init(Compiler* c, Val base, Type* t, Initializer* in, int off) {
+	Val dest, r;
+	char cls;
+	int w, i;
+
+	if (t == NULL || in == NULL)
+		return;
+	if (in->is_list) {
+		emit_local_init_list(c, base, t, in, off);
+		return;
+	}
+	if (t->kind == TyArray) {
+		w = t->base ? type_size(c, t->base) : 4;
+		if (in->expr && in->expr->kind == NdStr && t->base && type_size(c, t->base) == 1) {
+			/* Copy string bytes into the array local. */
+			dest = emit_addr_off(base, off);
+			r = emitexpr(c, in->expr);
+			emitblit(dest, r, type_size(c, t));
+			return;
+		}
+		emit_local_init(c, base, t->base, in, off);
+		for (i = 1; i < t->len; i++)
+			; /* remaining elements already zeroed by caller */
+		(void)w;
+		return;
+	}
+	if (!in->expr)
+		return;
+	dest = emit_addr_off(base, off);
+	if (is_aggr(t) || is_array(t)) {
+		/*
+		 * `T x = {0}` / `T a[N] = {0}`: the `0` is a zero-init filler, not a
+		 * value of type T. The object was already cleared by emit_zero_mem.
+		 */
+		if (in->expr->type == NULL ||
+		    (!is_aggr(in->expr->type) && !is_array(in->expr->type)))
+			return;
+		r = emitexpr(c, in->expr);
+		emitblit(dest, r, storewidth(c, t));
+		return;
+	}
+	r = emitexpr(c, in->expr);
+	cls = qbe_class(t);
+	if (r.cls != cls)
+		r = coerce(r, cls, t);
+	fprintf(outf, "\t%s %s, %s\n", storeop(c, t), r.text, dest.text);
+}
+
 // Emit one statement; returns 1 if control cannot fall through (return/break/goto).
 static int
 emitstmt_ret(Compiler* c, Node* n) {
@@ -1979,20 +2121,30 @@ emitstmt_ret(Compiler* c, Node* n) {
 	case NdSkip:
 		return 0;
 	case NdDecl:
-		if (n->init && n->init->expr && n->symbol && n->symbol->storage == StLocal) {
-			Val addr, r;
+		if (n->init && n->symbol && n->symbol->storage == StLocal) {
+			Val addr;
+
 			snprintf(addr.text, sizeof(addr.text), "%%%s.addr", slot_basename(n->symbol));
 			addr.cls = 'l';
-			r = emitexpr(c, n->init->expr);
-			if (is_aggr(n->type) || is_array(n->type))
-				emitblit(addr, r, storewidth(c, n->type));
-			else {
-				char cls;
+			addr.type = n->type;
+			if (n->init->expr) {
+				Val r;
 
-				cls = qbe_class(n->type);
-				if (r.cls != cls)
-					r = coerce(r, cls, n->type);
-				fprintf(outf, "\t%s %s, %s\n", storeop(c, n->type), r.text, addr.text);
+				r = emitexpr(c, n->init->expr);
+				if (is_aggr(n->type) || is_array(n->type))
+					emitblit(addr, r, storewidth(c, n->type));
+				else {
+					char cls;
+
+					cls = qbe_class(n->type);
+					if (r.cls != cls)
+						r = coerce(r, cls, n->type);
+					fprintf(outf, "\t%s %s, %s\n", storeop(c, n->type), r.text, addr.text);
+				}
+			} else if (n->init->is_list || n->init->items_len > 0) {
+				/* C `{0}` / partial lists: zero the object, then store members. */
+				emit_zero_mem(addr, storewidth(c, n->type));
+				emit_local_init(c, addr, n->type, n->init, 0);
 			}
 		}
 		return 0;
