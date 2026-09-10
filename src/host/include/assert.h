@@ -5,9 +5,8 @@
  *
  * Uses __FILE__/__LINE__ (preprocessor predefined).
  * Comma operator is banned in %C; failure goes through a helper.
- * Uses write(2) rather than fprintf(stderr, …): Apple's __stderrp is a
- * dylib symbol that QBE currently addresses incorrectly (needs GOT).
- * Does not redefine static_assert (language keyword).
+ * Uses write(2) rather than fprintf(stderr, …) so assert does not depend on
+ * stdio buffering during abort paths.
  */
 
 #include <stdio.h>

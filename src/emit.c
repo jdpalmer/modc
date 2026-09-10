@@ -921,11 +921,19 @@ emitblit(Val dst, Val src, int n) {
 		fprintf(outf, "\tblit %s, %s, %d\n", src.text, dst.text, n);
 }
 
-// Address of a global, string literal, or function symbol ($name).
+// True when a global var lives outside this object (dylib / other TU): QBE needs
+// `extern $name` so arm64_apple uses GOT (@gotpage) instead of @page/@pageoff.
+static int
+needs_qbe_extern(Symbol* s) {
+	return s && s->kind == SkVar && s->storage == StExtern && !s->defined;
+}
+
+// Address of a global, string literal, or function symbol ($name or extern $name).
 static Val
 emitgaddr(Compiler* c, Node* n) {
 	Val v;
 	int off;
+	const char* name;
 
 	memset(&v, 0, sizeof(v));
 	v.cls = 'l';
@@ -944,7 +952,11 @@ emitgaddr(Compiler* c, Node* n) {
 		snprintf(v.text, sizeof(v.text), "$%s", n->symbol->name);
 		return v;
 	}
-	snprintf(v.text, sizeof(v.text), "$%s", n->symbol ? symbol_link_name(n->symbol) : "g");
+	name = n->symbol ? symbol_link_name(n->symbol) : "g";
+	if (needs_qbe_extern(n->symbol))
+		snprintf(v.text, sizeof(v.text), "extern $%s", name);
+	else
+		snprintf(v.text, sizeof(v.text), "$%s", name);
 	(void)c;
 	return v;
 }
