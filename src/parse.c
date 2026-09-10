@@ -3638,7 +3638,10 @@ skip_parsed_type_decl(Compiler* c) {
 	int pos0;
 
 	if (atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
+		int is_enum;
+
 		pos0 = c->pos;
+		is_enum = atkw(c, KwEnum);
 		take(c); /* struct / union / enum */
 		/* SDK: struct __declspec(deprecated(...)) Tag { ... }; */
 		while (eat_vendor_attr(c))
@@ -3650,6 +3653,21 @@ skip_parsed_type_decl(Compiler* c) {
 				c->pos = pos0;
 				skip_toplevel_semi(c);
 				return 1;
+			}
+		} else if (is_enum && at(c, PnLbrace)) {
+			/*
+			 * Anonymous enum { A, ... }: no tag to look up. Prescan already
+			 * defined the enumerators - skip so main parse does not
+			 * report "redefinition of A".
+			 */
+			t = peekn(c, 1);
+			if (t && t->kind == TkIdent && t->s) {
+				s = symbol_lookup(c, t->s);
+				if (s && s->kind == SkEnumCon && s->block == c->block) {
+					c->pos = pos0;
+					skip_toplevel_semi(c);
+					return 1;
+				}
 			}
 		}
 		c->pos = pos0;

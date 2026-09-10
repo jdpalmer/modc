@@ -8,6 +8,7 @@ test/namespace.mc
 test/enum_distinct.mc
 test/enum_hdr.mc
 test/enum_exhaust.mc
+test/anon_enum.mc
 test/embed_upcast.mc
 test/static_assert.mc
 test/assign_cond.mc
