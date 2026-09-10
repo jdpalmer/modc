@@ -96,7 +96,7 @@ main(void)
 }
 ```
 
-Importers can manipulate `Window` and `Window *` directly because the memory layout accounts for the pointer slot. However, they do not gain access to `GtkWidget` types unless they explicitly `#include <gtk/gtk.h>`. Header symbols included in another package are never re-exported. For architectural details on platform-independent app/backend splits, see [../uikit/DESIGN.md](../uikit/DESIGN.md) and reference tests in `test/pkg_encap*`.
+Importers can manipulate `Window` and `Window *` directly because the memory layout accounts for the pointer slot. However, they do not gain access to `GtkWidget` types unless they explicitly `#include <gtk/gtk.h>`. Header symbols included in another package are never re-exported — except when the includer is a package `bridge.mc`, whose includes form the package C surface (package-visible, linked to host objects). See `test/pkg_encap*`.
 
 ## Owning containers
 

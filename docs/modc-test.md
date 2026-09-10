@@ -59,7 +59,6 @@ is an error.
 
 ```sh
 ./modc test -M test test/testdriver
-./modc test uikit                    # e.g. layout_test.mc
 ./modc test --corpus                 # make check (compiler tree)
 ```
 

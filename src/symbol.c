@@ -89,8 +89,8 @@ Symbol* symbol_lookup_tag(Compiler* c, const char* name) {
 }
 
 // Record defining file; header symbols are scoped to their home file.
-// Exception: uikit's host ABI included from bridge.mc is the package C surface
-// (uk_*), so those decls are package-visible and link to the host object.
+// Exception: headers included from bridge.mc are the package C surface (host
+// ABI), so those decls are package-visible and link to the host object.
 static void
 symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 	const char* f;
@@ -99,10 +99,16 @@ symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 
 	if (s->block == 0 && !user_source(c, sp)) {
 		home = c->infile ? c->infile : "";
-		f = sp.file ? sp.file : "";
 		base = strrchr(home, '/');
 		base = base ? base + 1 : home;
-		if (strcmp(base, "bridge.mc") == 0 && strstr(f, "uikit_host.h") != NULL) {
+#ifdef _WIN32
+		{
+			const char* b2 = strrchr(home, '\\');
+			if (b2 && b2 + 1 > base)
+				base = b2 + 1;
+		}
+#endif
+		if (strcmp(base, "bridge.mc") == 0) {
 			s->header = 0;
 			s->home = xstrdup(home);
 			return;
