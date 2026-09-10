@@ -81,24 +81,24 @@ o_indent(Out* o) {
 static int
 is_type_kw(int kw) {
 	switch (kw) {
-	case K_char:
-	case K_short:
-	case K_int:
-	case K_long:
-	case K_float:
-	case K_double:
-	case K_void:
-	case K_bool:
-	case K_struct:
-	case K_union:
-	case K_enum:
-	case K_signed:
-	case K_unsigned:
-	case K_const:
-	case K_volatile:
-	case K_restrict:
-	case K_typedef:
-	case K_auto:
+	case KwChar:
+	case KwShort:
+	case KwInt:
+	case KwLong:
+	case KwFloat:
+	case KwDouble:
+	case KwVoid:
+	case KwBool:
+	case KwStruct:
+	case KwUnion:
+	case KwEnum:
+	case KwSigned:
+	case KwUnsigned:
+	case KwConst:
+	case KwVolatile:
+	case KwRestrict:
+	case KwTypedef:
+	case KwAuto:
 		return 1;
 	default:
 		return 0;
@@ -112,44 +112,44 @@ static int
 method_recv_lparen(Tok* tokens, int n, int i) {
 	Tok *t, *star, *name, *rp, *dot, *meth;
 
-	if (i < 0 || i >= n || tokens[i].kind != TPunct || tokens[i].punct != PLparen)
+	if (i < 0 || i >= n || tokens[i].kind != TkPunct || tokens[i].punct != PnLparen)
 		return 0;
 	t = next_code(tokens, n, i);
 	if (t == NULL)
 		return 0;
-	if (t->kind == TKw && (t->kw == K_struct || t->kw == K_union || t->kw == K_enum)) {
+	if (t->kind == TkKw && (t->kw == KwStruct || t->kw == KwUnion || t->kw == KwEnum)) {
 		t = next_code(tokens, n, (int)(t - tokens));
-		if (t == NULL || t->kind != TIdent)
+		if (t == NULL || t->kind != TkIdent)
 			return 0;
-	} else if (t->kind != TIdent)
+	} else if (t->kind != TkIdent)
 		return 0;
 	star = next_code(tokens, n, (int)(t - tokens));
-	if (star == NULL || star->kind != TPunct || star->punct != PStar)
+	if (star == NULL || star->kind != TkPunct || star->punct != PnStar)
 		return 0;
-	while (star && star->kind == TPunct && star->punct == PStar)
+	while (star && star->kind == TkPunct && star->punct == PnStar)
 		star = next_code(tokens, n, (int)(star - tokens));
 	name = star;
-	if (name == NULL || name->kind != TIdent)
+	if (name == NULL || name->kind != TkIdent)
 		return 0;
 	rp = next_code(tokens, n, (int)(name - tokens));
-	if (rp == NULL || rp->kind != TPunct || rp->punct != PRparen)
+	if (rp == NULL || rp->kind != TkPunct || rp->punct != PnRparen)
 		return 0;
 	dot = next_code(tokens, n, (int)(rp - tokens));
-	if (dot == NULL || dot->kind != TPunct || dot->punct != PDot)
+	if (dot == NULL || dot->kind != TkPunct || dot->punct != PnDot)
 		return 0;
 	meth = next_code(tokens, n, (int)(dot - tokens));
-	return meth != NULL && meth->kind == TIdent;
+	return meth != NULL && meth->kind == TkIdent;
 }
 
 // Control keywords that need a space before their following '('.
 static int
 kw_space_before_paren(int kw) {
 	switch (kw) {
-	case K_if:
-	case K_for:
-	case K_while:
-	case K_switch:
-	case K_sizeof:
+	case KwIf:
+	case KwFor:
+	case KwWhile:
+	case KwSwitch:
+	case KwSizeof:
 		return 1;
 	default:
 		return 0;
@@ -161,16 +161,16 @@ static int
 is_atom(Tok* t) {
 	if (t == NULL)
 		return 0;
-	if (t->kind == TIdent || t->kind == TNumber || t->kind == TString || t->kind == TCharLit)
+	if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkString || t->kind == TkCharLit)
 		return 1;
-	if (t->kind == TKw && (t->kw == K_true || t->kw == K_false))
+	if (t->kind == TkKw && (t->kw == KwTrue || t->kw == KwFalse))
 		return 1;
-	if (t->kind == TPunct) {
+	if (t->kind == TkPunct) {
 		switch (t->punct) {
-		case PRparen:
-		case PRbrack:
-		case PPlusPlus:
-		case PMinusMinus:
+		case PnRparen:
+		case PnRbrack:
+		case PnPlusPlus:
+		case PnMinusMinus:
 			return 1;
 		default:
 			return 0;
@@ -184,20 +184,20 @@ static int
 starts_expr(Tok* t) {
 	if (t == NULL)
 		return 0;
-	if (t->kind == TIdent || t->kind == TNumber || t->kind == TString || t->kind == TCharLit || t->kind == TKw)
+	if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkString || t->kind == TkCharLit || t->kind == TkKw)
 		return 1;
-	if (t->kind == TPunct) {
+	if (t->kind == TkPunct) {
 		switch (t->punct) {
-		case PLparen:
-		case PLbrack:
-		case PPlus:
-		case PMinus:
-		case PStar:
-		case PAmp:
-		case PBang:
-		case PTilde:
-		case PPlusPlus:
-		case PMinusMinus:
+		case PnLparen:
+		case PnLbrack:
+		case PnPlus:
+		case PnMinus:
+		case PnStar:
+		case PnAmp:
+		case PnBang:
+		case PnTilde:
+		case PnPlusPlus:
+		case PnMinusMinus:
 			return 1;
 		default:
 			return 0;
@@ -217,49 +217,49 @@ static int
 unary_context(Tok* before) {
 	if (before == NULL)
 		return 1;
-	if (before->kind == TKw)
-		return before->kw == K_return || before->kw == K_case;
-	if (before->kind != TPunct)
+	if (before->kind == TkKw)
+		return before->kw == KwReturn || before->kw == KwCase;
+	if (before->kind != TkPunct)
 		return 0;
 	switch (before->punct) {
-	case PLparen:
-	case PLbrack:
-	case PLbrace:
-	case PEq:
-	case PPlusEq:
-	case PMinusEq:
-	case PStarEq:
-	case PSlashEq:
-	case PPercentEq:
-	case PAmpEq:
-	case PPipeEq:
-	case PCaretEq:
-	case PShlEq:
-	case PShrEq:
-	case PComma:
-	case PSemi:
-	case PColon:
-	case PQuestion:
-	case PEqEq:
-	case PBangEq:
-	case PLt:
-	case PGt:
-	case PLe:
-	case PGe:
-	case PShl:
-	case PShr:
-	case PPlus:
-	case PMinus:
-	case PStar:
-	case PSlash:
-	case PPercent:
-	case PAmp:
-	case PPipe:
-	case PCaret:
-	case PAmpAmp:
-	case PPipePipe:
-	case PBang:
-	case PTilde:
+	case PnLparen:
+	case PnLbrack:
+	case PnLbrace:
+	case PnEq:
+	case PnPlusEq:
+	case PnMinusEq:
+	case PnStarEq:
+	case PnSlashEq:
+	case PnPercentEq:
+	case PnAmpEq:
+	case PnPipeEq:
+	case PnCaretEq:
+	case PnShlEq:
+	case PnShrEq:
+	case PnComma:
+	case PnSemi:
+	case PnColon:
+	case PnQuestion:
+	case PnEqEq:
+	case PnBangEq:
+	case PnLt:
+	case PnGt:
+	case PnLe:
+	case PnGe:
+	case PnShl:
+	case PnShr:
+	case PnPlus:
+	case PnMinus:
+	case PnStar:
+	case PnSlash:
+	case PnPercent:
+	case PnAmp:
+	case PnPipe:
+	case PnCaret:
+	case PnAmpAmp:
+	case PnPipePipe:
+	case PnBang:
+	case PnTilde:
 		return 1;
 	default:
 		return 0;
@@ -272,7 +272,7 @@ prev_code(Tok* tokens, int i) {
 	int j;
 
 	for (j = i - 1; j >= 0; j--) {
-		if (tokens[j].kind == TNewline || tokens[j].kind == TComment)
+		if (tokens[j].kind == TkNewline || tokens[j].kind == TkComment)
 			continue;
 		return &tokens[j];
 	}
@@ -285,9 +285,9 @@ next_code(Tok* tokens, int n, int i) {
 	int j;
 
 	for (j = i + 1; j < n; j++) {
-		if (tokens[j].kind == TEof)
+		if (tokens[j].kind == TkEof)
 			return NULL;
-		if (tokens[j].kind == TNewline || tokens[j].kind == TComment)
+		if (tokens[j].kind == TkNewline || tokens[j].kind == TkComment)
 			continue;
 		return &tokens[j];
 	}
@@ -298,24 +298,24 @@ next_code(Tok* tokens, int n, int i) {
 static int
 is_binary_punct(int p) {
 	switch (p) {
-	case PPlus:
-	case PMinus:
-	case PStar:
-	case PSlash:
-	case PPercent:
-	case PAmp:
-	case PPipe:
-	case PCaret:
-	case PShl:
-	case PShr:
-	case PEqEq:
-	case PBangEq:
-	case PLt:
-	case PGt:
-	case PLe:
-	case PGe:
-	case PAmpAmp:
-	case PPipePipe:
+	case PnPlus:
+	case PnMinus:
+	case PnStar:
+	case PnSlash:
+	case PnPercent:
+	case PnAmp:
+	case PnPipe:
+	case PnCaret:
+	case PnShl:
+	case PnShr:
+	case PnEqEq:
+	case PnBangEq:
+	case PnLt:
+	case PnGt:
+	case PnLe:
+	case PnGe:
+	case PnAmpAmp:
+	case PnPipePipe:
 		return 1;
 	default:
 		return 0;
@@ -327,17 +327,17 @@ static int
 operand_after_cast(Tok* cur) {
 	if (cur == NULL)
 		return 0;
-	if (cur->kind == TIdent || cur->kind == TNumber || cur->kind == TCharLit || cur->kind == TString)
+	if (cur->kind == TkIdent || cur->kind == TkNumber || cur->kind == TkCharLit || cur->kind == TkString)
 		return 1;
-	if (cur->kind == TPunct) {
+	if (cur->kind == TkPunct) {
 		switch (cur->punct) {
-		case PLparen:
-		case PStar:
-		case PAmp:
-		case PBang:
-		case PTilde:
-		case PPlusPlus:
-		case PMinusMinus:
+		case PnLparen:
+		case PnStar:
+		case PnAmp:
+		case PnBang:
+		case PnTilde:
+		case PnPlusPlus:
+		case PnMinusMinus:
 			return 1;
 		default:
 			return 0;
@@ -349,12 +349,12 @@ operand_after_cast(Tok* cur) {
 // Keywords that need a space before their operand (return x, case N:).
 static int
 kw_space_after(Tok* prev) {
-	if (prev == NULL || prev->kind != TKw)
+	if (prev == NULL || prev->kind != TkKw)
 		return 0;
 	switch (prev->kw) {
-	case K_return:
-	case K_case:
-	case K_auto:
+	case KwReturn:
+	case KwCase:
+	case KwAuto:
 		return 1;
 	default:
 		return 0;
@@ -371,21 +371,21 @@ space_before_lparen(Tok* tokens, int n, int i) {
 		return 0;
 	if (method_recv_lparen(tokens, n, i))
 		return 1;
-	if (prev->kind == TKw) {
+	if (prev->kind == TkKw) {
 		if (kw_space_before_paren(prev->kw) || kw_space_after(prev))
 			return 1;
 		return 0;
 	}
-	if (prev->kind == TPunct) {
-		if (prev->punct == PComma || prev->punct == PEq)
+	if (prev->kind == TkPunct) {
+		if (prev->punct == PnComma || prev->punct == PnEq)
 			return 1;
-		if (prev->punct == PPlus || prev->punct == PMinus) {
+		if (prev->punct == PnPlus || prev->punct == PnMinus) {
 			left = prev_code(tokens, (int)(prev - tokens));
 			if (left && is_atom(left))
 				return 1;
 			return 0;
 		}
-		if (prev->punct == PStar) {
+		if (prev->punct == PnStar) {
 			left = prev_code(tokens, (int)(prev - tokens));
 			if (binary_star(left, next_code(tokens, n, i)))
 				return 1;
@@ -407,20 +407,20 @@ paren_expr_is_cast(Tok* tokens, int rparen_i) {
 	for (i = rparen_i; i >= 0; i--) {
 		Tok* t = &tokens[i];
 
-		if (t->kind == TNewline || t->kind == TComment)
+		if (t->kind == TkNewline || t->kind == TkComment)
 			continue;
-		if (t->kind != TPunct)
+		if (t->kind != TkPunct)
 			continue;
-		if (t->punct == PRparen) {
+		if (t->punct == PnRparen) {
 			if (depth == 0)
 				depth = 1;
 			else
 				depth++;
-		} else if (t->punct == PLparen) {
+		} else if (t->punct == PnLparen) {
 			depth--;
 			if (depth == 0)
 				return !comma;
-		} else if (t->punct == PComma && depth == 1)
+		} else if (t->punct == PnComma && depth == 1)
 			comma = 1;
 	}
 	return 0;
@@ -434,13 +434,13 @@ func_param_lparen(Tok* tokens, int i) {
 
 	for (j = i - 1; j >= 0; j--) {
 		t = &tokens[j];
-		if (t->kind == TNewline || t->kind == TComment)
+		if (t->kind == TkNewline || t->kind == TkComment)
 			continue;
-		if (t->kind == TIdent)
+		if (t->kind == TkIdent)
 			return 1;
-		if (t->kind == TKw && (t->kw == K_typedef || is_type_kw(t->kw)))
+		if (t->kind == TkKw && (t->kw == KwTypedef || is_type_kw(t->kw)))
 			continue;
-		if (t->kind == TPunct && (t->punct == PStar || t->punct == PRparen || t->punct == PComma))
+		if (t->kind == TkPunct && (t->punct == PnStar || t->punct == PnRparen || t->punct == PnComma))
 			continue;
 		return 0;
 	}
@@ -452,47 +452,47 @@ static int
 pointer_decl_star(Tok* tokens, int n, int i) {
 	Tok *prev, *next, *before;
 
-	if (tokens[i].kind != TPunct || tokens[i].punct != PStar)
+	if (tokens[i].kind != TkPunct || tokens[i].punct != PnStar)
 		return 0;
 	prev = prev_code(tokens, i);
 	next = next_code(tokens, n, i);
 	if (prev == NULL)
 		return 0;
-	if (prev->kind == TKw && is_type_kw(prev->kw))
+	if (prev->kind == TkKw && is_type_kw(prev->kw))
 		return 1;
-	if (prev->kind == TPunct && prev->punct == PStar)
+	if (prev->kind == TkPunct && prev->punct == PnStar)
 		return 1;
-	if (prev->kind == TPunct && prev->punct == PRparen && paren_expr_is_cast(tokens, (int)(prev - tokens)))
+	if (prev->kind == TkPunct && prev->punct == PnRparen && paren_expr_is_cast(tokens, (int)(prev - tokens)))
 		return 1;
-	if (prev->kind == TIdent && next && next->kind == TIdent) {
+	if (prev->kind == TkIdent && next && next->kind == TkIdent) {
 		int j;
 
 		for (j = i - 1; j >= 0; j--) {
 			Tok* t = &tokens[j];
 
-			if (t->kind == TNewline || t->kind == TComment)
+			if (t->kind == TkNewline || t->kind == TkComment)
 				continue;
-			if (t->kind == TPunct) {
-				if (t->punct == PLparen) {
+			if (t->kind == TkPunct) {
+				if (t->punct == PnLparen) {
 					if (method_recv_lparen(tokens, n, j) || func_param_lparen(tokens, j))
 						return 1;
 					return 0;
 				}
-				if (t->punct == PSemi || t->punct == PLbrace || t->punct == PComma)
+				if (t->punct == PnSemi || t->punct == PnLbrace || t->punct == PnComma)
 					return 1;
-				if (is_binary_punct(t->punct) || t->punct == PEq || t->punct == PLbrack || t->punct == PRbrack || t->punct == PQuestion || t->punct == PColon)
+				if (is_binary_punct(t->punct) || t->punct == PnEq || t->punct == PnLbrack || t->punct == PnRbrack || t->punct == PnQuestion || t->punct == PnColon)
 					return 0;
 				continue;
 			}
-			if (t->kind == TKw) {
+			if (t->kind == TkKw) {
 				switch (t->kw) {
-				case K_return:
-				case K_if:
-				case K_for:
-				case K_while:
-				case K_switch:
-				case K_case:
-				case K_else:
+				case KwReturn:
+				case KwIf:
+				case KwFor:
+				case KwWhile:
+				case KwSwitch:
+				case KwCase:
+				case KwElse:
 					return 0;
 				default:
 					break;
@@ -503,11 +503,11 @@ pointer_decl_star(Tok* tokens, int n, int i) {
 	}
 	if (binary_star(prev, next))
 		return 0;
-	if (prev->kind == TIdent && next && next->kind == TPunct && next->punct == PLparen) {
+	if (prev->kind == TkIdent && next && next->kind == TkPunct && next->punct == PnLparen) {
 		before = prev_code(tokens, (int)(prev - tokens));
-		if (before && before->kind == TPunct && before->punct == PStar)
+		if (before && before->kind == TkPunct && before->punct == PnStar)
 			return 1;
-		if (before && ((before->kind == TKw && is_type_kw(before->kw)) || before->kind == TIdent))
+		if (before && ((before->kind == TkKw && is_type_kw(before->kw)) || before->kind == TkIdent))
 			return 1;
 	}
 	return 0;
@@ -520,24 +520,24 @@ dir_space(Tok* prev, Tok* cur) {
 
 	if (prev == NULL)
 		return 0;
-	cp = cur->kind == TPunct ? cur->punct : -1;
-	pp = prev->kind == TPunct ? prev->punct : -1;
+	cp = cur->kind == TkPunct ? cur->punct : -1;
+	pp = prev->kind == TkPunct ? prev->punct : -1;
 
-	if (pp == PHash)
+	if (pp == PnHash)
 		return 0; /* #include */
-	if (cp == PLt)
+	if (cp == PnLt)
 		return 1; /* include <...> */
-	if (pp == PLt)
+	if (pp == PnLt)
 		return 0; /* <stdio.h> glued */
-	if (cp == PGt || pp == PDot || cp == PDot || pp == PSlash || cp == PSlash)
+	if (cp == PnGt || pp == PnDot || cp == PnDot || pp == PnSlash || cp == PnSlash)
 		return 0;
-	if (cp == PLparen && (prev->kind == TIdent || prev->kind == TKw) && !cur->ws)
+	if (cp == PnLparen && (prev->kind == TkIdent || prev->kind == TkKw) && !cur->ws)
 		return 0;
-	if (cp == PComma || cp == PRparen)
+	if (cp == PnComma || cp == PnRparen)
 		return 0;
-	if (prev->kind == TString || cur->kind == TString)
+	if (prev->kind == TkString || cur->kind == TkString)
 		return 1;
-	if (prev->kind == TKw || prev->kind == TIdent)
+	if (prev->kind == TkKw || prev->kind == TkIdent)
 		return 1;
 	return 1;
 }
@@ -554,81 +554,81 @@ space_between(Tok* tokens, int n, int i) {
 		return 0;
 	next = next_code(tokens, n, i);
 
-	if (cur->kind == TComment)
+	if (cur->kind == TkComment)
 		return 1;
 
-	cp = cur->kind == TPunct ? cur->punct : -1;
-	pp = prev->kind == TPunct ? prev->punct : -1;
+	cp = cur->kind == TkPunct ? cur->punct : -1;
+	pp = prev->kind == TkPunct ? prev->punct : -1;
 
-	if (cp == PComma || cp == PSemi || cp == PRparen || cp == PRbrack)
+	if (cp == PnComma || cp == PnSemi || cp == PnRparen || cp == PnRbrack)
 		return 0;
-	if (cp == PDot || cp == PArrow)
+	if (cp == PnDot || cp == PnArrow)
 		return 0;
-	if (cp == PDotDot) {
-		if (prev->kind == TPunct && prev->punct == PLbrack)
+	if (cp == PnDotDot) {
+		if (prev->kind == TkPunct && prev->punct == PnLbrack)
 			return 0;
 		return 1;
 	}
-	if (cp == PPlusPlus || cp == PMinusMinus)
+	if (cp == PnPlusPlus || cp == PnMinusMinus)
 		return 0;
-	if (cp == PLbrack || cp == PColon)
+	if (cp == PnLbrack || cp == PnColon)
 		return 0;
 
-	if (cp == PLparen)
+	if (cp == PnLparen)
 		return space_before_lparen(tokens, n, i);
 
-	if (cp == PLbrace)
+	if (cp == PnLbrace)
 		return 1;
 
-	if (cp == PStar) {
-		if (pp == PEq || pp == PPlusEq || pp == PMinusEq || pp == PStarEq || pp == PSlashEq || pp == PPercentEq || pp == PAmpEq || pp == PPipeEq || pp == PCaretEq || pp == PShlEq || pp == PShrEq)
+	if (cp == PnStar) {
+		if (pp == PnEq || pp == PnPlusEq || pp == PnMinusEq || pp == PnStarEq || pp == PnSlashEq || pp == PnPercentEq || pp == PnAmpEq || pp == PnPipeEq || pp == PnCaretEq || pp == PnShlEq || pp == PnShrEq)
 			return 1;
 		if (pointer_decl_star(tokens, n, i))
 			return 0;
 		if (binary_star(prev, next))
 			return 1;
-		if (prev->kind == TIdent || pp == PStar)
+		if (prev->kind == TkIdent || pp == PnStar)
 			return 1;
 		return 0;
 	}
 
-	if (pp == PDotDot) {
-		if (cur->kind == TPunct && cur->punct == PRbrack)
+	if (pp == PnDotDot) {
+		if (cur->kind == TkPunct && cur->punct == PnRbrack)
 			return 0;
 		return 1;
 	}
-	if (pp == PRparen && operand_after_cast(cur) && paren_expr_is_cast(tokens, (int)(prev - tokens)))
+	if (pp == PnRparen && operand_after_cast(cur) && paren_expr_is_cast(tokens, (int)(prev - tokens)))
 		return 0;
-	if (pp == PLparen || pp == PLbrack || pp == PDot || pp == PArrow)
+	if (pp == PnLparen || pp == PnLbrack || pp == PnDot || pp == PnArrow)
 		return 0;
-	if (pp == PBang || pp == PTilde || pp == PPlusPlus || pp == PMinusMinus)
+	if (pp == PnBang || pp == PnTilde || pp == PnPlusPlus || pp == PnMinusMinus)
 		return 0;
 
-	if (pp == PStar) {
-		if (pointer_decl_star(tokens, n, (int)(prev - tokens)) && cur->kind == TIdent)
+	if (pp == PnStar) {
+		if (pointer_decl_star(tokens, n, (int)(prev - tokens)) && cur->kind == TkIdent)
 			return 1;
 		left = prev_code(tokens, (int)(prev - tokens));
 		if (!binary_star(left, cur)) {
-			if (cur->kind == TIdent || cur->kind == TNumber || (cur->kind == TPunct && (cur->punct == PStar || cur->punct == PLparen || cur->punct == PAmp)))
+			if (cur->kind == TkIdent || cur->kind == TkNumber || (cur->kind == TkPunct && (cur->punct == PnStar || cur->punct == PnLparen || cur->punct == PnAmp)))
 				return 0;
 		}
 	}
-	if (pp == PAmp) {
+	if (pp == PnAmp) {
 		left = prev_code(tokens, (int)(prev - tokens));
 		if (!is_atom(left)) {
-			if (cur->kind == TIdent || cur->kind == TKw || (cur->kind == TPunct && cur->punct == PLparen))
+			if (cur->kind == TkIdent || cur->kind == TkKw || (cur->kind == TkPunct && cur->punct == PnLparen))
 				return 0;
 		}
 	}
-	if (pp == PPlus || pp == PMinus) {
+	if (pp == PnPlus || pp == PnMinus) {
 		left = prev_code(tokens, (int)(prev - tokens));
 		if (unary_context(left) && !is_atom(left)) {
-			if (cur->kind == TIdent || cur->kind == TNumber || (cur->kind == TPunct && cur->punct == PLparen))
+			if (cur->kind == TkIdent || cur->kind == TkNumber || (cur->kind == TkPunct && cur->punct == PnLparen))
 				return 0;
 		}
 	}
 
-	if (pp == PRbrace && cur->kind == TKw && cur->kw == K_else)
+	if (pp == PnRbrace && cur->kind == TkKw && cur->kw == KwElse)
 		return 1;
 
 	return 1;
@@ -637,21 +637,21 @@ space_between(Tok* tokens, int n, int i) {
 // Write one token's spelling into the output buffer.
 static void
 emit_tok(Out* o, Tok* t) {
-	if (t->kind == TIdent || t->kind == TKw || t->kind == TNumber)
+	if (t->kind == TkIdent || t->kind == TkKw || t->kind == TkNumber)
 		o_puts(o, t->s ? t->s : "");
-	else if (t->kind == TString) {
+	else if (t->kind == TkString) {
 		o_putc(o, '"');
 		o_puts(o, t->s ? t->s : "");
 		o_putc(o, '"');
-	} else if (t->kind == TCharLit) {
+	} else if (t->kind == TkCharLit) {
 		o_putc(o, '\'');
 		o_puts(o, t->s ? t->s : "");
 		o_putc(o, '\'');
-	} else if (t->kind == THeader)
+	} else if (t->kind == TkHeader)
 		o_puts(o, t->s ? t->s : "");
-	else if (t->kind == TComment)
+	else if (t->kind == TkComment)
 		o_puts(o, t->s ? t->s : "");
-	else if (t->kind == TPunct)
+	else if (t->kind == TkPunct)
 		o_puts(o, punct_spell(t->punct));
 }
 
@@ -671,12 +671,12 @@ char* fmt_source(Compiler* c) {
 	pending_blank = 0;
 	for (i = 0; i < n; i++) {
 		cur = &tokens[i];
-		if (cur->kind == TEof)
+		if (cur->kind == TkEof)
 			break;
 
-		if (cur->kind == TNewline) {
+		if (cur->kind == TkNewline) {
 			nln = 0;
-			while (i < n && tokens[i].kind == TNewline) {
+			while (i < n && tokens[i].kind == TkNewline) {
 				nln++;
 				i++;
 			}
@@ -694,7 +694,7 @@ char* fmt_source(Compiler* c) {
 		next = next_code(tokens, n, i);
 
 		/* start # directive */
-		if (cur->kind == TPunct && cur->punct == PHash && o.paren == 0 && (o.bol || cur->bol)) {
+		if (cur->kind == TkPunct && cur->punct == PnHash && o.paren == 0 && (o.bol || cur->bol)) {
 			if (!o.bol && o.col > 0)
 				o_nl(&o);
 			if (pending_blank && o.n > 0) {
@@ -717,7 +717,7 @@ char* fmt_source(Compiler* c) {
 			o.bol = 1;
 		}
 
-		if (cur->kind == TComment) {
+		if (cur->kind == TkComment) {
 			if (o.bol && !o.in_dir)
 				o_indent(&o);
 			else if (o.col > 0)
@@ -725,12 +725,12 @@ char* fmt_source(Compiler* c) {
 			emit_tok(&o, cur);
 			if (cur->s && cur->s[0] == '/' && cur->s[1] == '/')
 				o_nl(&o);
-			else if (next && next->kind != TEof)
+			else if (next && next->kind != TkEof)
 				o_nl(&o);
 			continue;
 		}
 
-		if (cur->kind == TPunct && cur->punct == PRbrace && o.depth > 0)
+		if (cur->kind == TkPunct && cur->punct == PnRbrace && o.depth > 0)
 			o.depth--;
 
 		{
@@ -754,31 +754,31 @@ char* fmt_source(Compiler* c) {
 
 		emit_tok(&o, cur);
 
-		if (cur->kind == TPunct) {
-			if (cur->punct == PLparen)
+		if (cur->kind == TkPunct) {
+			if (cur->punct == PnLparen)
 				o.paren++;
-			else if (cur->punct == PRparen && o.paren > 0)
+			else if (cur->punct == PnRparen && o.paren > 0)
 				o.paren--;
-			else if (cur->punct == PLbrack)
+			else if (cur->punct == PnLbrack)
 				o.brack++;
-			else if (cur->punct == PRbrack && o.brack > 0)
+			else if (cur->punct == PnRbrack && o.brack > 0)
 				o.brack--;
-			else if (cur->punct == PLbrace)
+			else if (cur->punct == PnLbrace)
 				o.depth++;
 		}
 
 		if (o.in_dir)
 			continue;
 
-		if (cur->kind == TPunct) {
-			if (cur->punct == PLbrace)
+		if (cur->kind == TkPunct) {
+			if (cur->punct == PnLbrace)
 				o_nl(&o);
-			else if (cur->punct == PSemi && o.paren == 0 && o.brack == 0)
+			else if (cur->punct == PnSemi && o.paren == 0 && o.brack == 0)
 				o_nl(&o);
-			else if (cur->punct == PRbrace) {
-				if (next && next->kind == TKw && next->kw == K_else) {
+			else if (cur->punct == PnRbrace) {
+				if (next && next->kind == TkKw && next->kw == KwElse) {
 					/* } else on same line */
-				} else if (next && next->kind == TPunct && (next->punct == PSemi || next->punct == PComma)) {
+				} else if (next && next->kind == TkPunct && (next->punct == PnSemi || next->punct == PnComma)) {
 					/* }; or }, */
 				} else
 					o_nl(&o);

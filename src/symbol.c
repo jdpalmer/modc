@@ -78,7 +78,7 @@ Symbol* symbol_lookup_tag(Compiler* c, const char* name) {
 		return NULL;
 	i = str_hash(name) & (unsigned)(c->symbol_tab_cap - 1);
 	for (s = c->symbol_tab[i]; s; s = s->hash_next) {
-		if (s->hidden || s->dead || s->kind != SK_TAG || strcmp(s->name, name) != 0)
+		if (s->hidden || s->dead || s->kind != SkTag || strcmp(s->name, name) != 0)
 			continue;
 		if (symbol_visible(c, s))
 			return s;
@@ -87,13 +87,26 @@ Symbol* symbol_lookup_tag(Compiler* c, const char* name) {
 }
 
 // Record defining file; header symbols are scoped to their home file.
+// Exception: uikit's host ABI included from bridge.mc is the package C surface
+// (uk_*), so those decls are package-visible and link to the host object.
 static void
 symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 	const char* f;
+	const char* home;
+	const char* base;
 
 	if (s->block == 0 && !user_source(c, sp)) {
+		home = c->infile ? c->infile : "";
+		f = sp.file ? sp.file : "";
+		base = strrchr(home, '/');
+		base = base ? base + 1 : home;
+		if (strcmp(base, "bridge.mc") == 0 && strstr(f, "uikit_host.h") != NULL) {
+			s->header = 0;
+			s->home = xstrdup(home);
+			return;
+		}
 		s->header = 1;
-		s->home = xstrdup(c->infile ? c->infile : "");
+		s->home = xstrdup(home);
 		return;
 	}
 	s->header = 0;
@@ -105,7 +118,7 @@ symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int storage, Span sp) {
 	Symbol *old, *s;
 
-	if (kind == SK_TAG) {
+	if (kind == SkTag) {
 		old = symbol_lookup_tag(c, name);
 		if (old && old->block == c->block) {
 			if (old->type && t && old->type != t && old->type->complete && t->complete)
@@ -115,7 +128,7 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 			return old;
 		}
 		old = symbol_lookup(c, name);
-		if (old && old->block == c->block && old->kind != SK_TAG)
+		if (old && old->block == c->block && old->kind != SkTag)
 			error_at(c, sp, "redefinition of %s", name);
 		s = xmalloc(sizeof(*s));
 		memset(s, 0, sizeof(*s));
@@ -133,11 +146,11 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 		symbol_tab_add(c, s);
 		return s;
 	}
-	if (kind == SK_LABEL) {
+	if (kind == SkLabel) {
 		if (c->symbol_tab_cap) {
 			unsigned i = str_hash(name) & (unsigned)(c->symbol_tab_cap - 1);
 			for (s = c->symbol_tab[i]; s; s = s->hash_next) {
-				if (s->kind == SK_LABEL && strcmp(s->name, name) == 0) {
+				if (s->kind == SkLabel && strcmp(s->name, name) == 0) {
 					s->block = 0;
 					return s;
 				}
@@ -161,26 +174,26 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 	}
 	old = symbol_lookup(c, name);
 	if (old && old->block == c->block) {
-		if (old->kind == SK_LABEL && kind == SK_LABEL)
+		if (old->kind == SkLabel && kind == SkLabel)
 			return old;
-		if (kind == SK_TYPEDEF && old->kind == SK_TYPEDEF && !user_source(c, sp))
+		if (kind == SkTypedef && old->kind == SkTypedef && !user_source(c, sp))
 			return old; /* headers: allow repeated typedefs (CRT/SDK) */
-		if (kind == SK_TYPEDEF && old->kind == SK_TYPEDEF && old->type && !old->type->complete) {
+		if (kind == SkTypedef && old->kind == SkTypedef && old->type && !old->type->complete) {
 			old->type = t;
 			return old; /* package stub typedef → real type */
 		}
-		if (kind == SK_TYPEDEF && old->kind == SK_TYPEDEF && t && old->type == t)
+		if (kind == SkTypedef && old->kind == SkTypedef && t && old->type == t)
 			return old;
-		if (kind == SK_TYPEDEF && old->kind == SK_TAG && t && old->type == t)
+		if (kind == SkTypedef && old->kind == SkTag && t && old->type == t)
 			return old;
-		if (kind == SK_FUNC && old->kind == SK_FUNC) {
+		if (kind == SkFunc && old->kind == SkFunc) {
 			old->type = t ? t : old->type;
-			if (storage == ST_NONE && old->storage == ST_EXTERN)
-				old->storage = ST_NONE;
+			if (storage == StNone && old->storage == StExtern)
+				old->storage = StNone;
 			return old;
 		}
-		if (kind == SK_VAR && old->kind == SK_VAR && old->block == 0) {
-			if (storage != ST_EXTERN)
+		if (kind == SkVar && old->kind == SkVar && old->block == 0) {
+			if (storage != StExtern)
 				old->storage = storage;
 			if (t)
 				old->type = t;
@@ -198,13 +211,13 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 	s->storage = storage;
 	s->block = c->block;
 	s->span = sp;
-	s->owner = (kind == SK_VAR) ? c->current_fn : NULL;
+	s->owner = (kind == SkVar) ? c->current_fn : NULL;
 	s->shadow = old;
 	symbol_set_home(c, s, sp);
 	s->next = c->symbols;
 	c->symbols = s;
 	symbol_tab_add(c, s);
-	if (kind == SK_VAR && old && old->kind == SK_VAR && c->current_fn && old->owner == c->current_fn && user_source(c, sp))
+	if (kind == SkVar && old && old->kind == SkVar && c->current_fn && old->owner == c->current_fn && user_source(c, sp))
 		error_at(c, sp, "'%s' shadows a previous declaration", name);
 	return s;
 }
@@ -239,55 +252,55 @@ mangle_type(Type* t, char* buf, int* pos, int cap) {
 		return;
 	}
 	switch (t->kind) {
-	case TY_VOID:
+	case TyVoid:
 		mappend(buf, pos, cap, "v");
 		break;
-	case TY_CHAR:
-	case TY_UCHAR:
+	case TyChar:
+	case TyUChar:
 		mappend(buf, pos, cap, "c");
 		break;
-	case TY_SHORT:
+	case TyShort:
 		mappend(buf, pos, cap, "h");
 		break;
-	case TY_USHORT:
+	case TyUShort:
 		mappend(buf, pos, cap, "H");
 		break;
-	case TY_INT:
+	case TyInt:
 		mappend(buf, pos, cap, "i");
 		break;
-	case TY_UINT:
+	case TyUInt:
 		mappend(buf, pos, cap, "I");
 		break;
-	case TY_LONG:
+	case TyLong:
 		mappend(buf, pos, cap, "l");
 		break;
-	case TY_ULONG:
+	case TyULong:
 		mappend(buf, pos, cap, "L");
 		break;
-	case TY_LLONG:
+	case TyLLong:
 		mappend(buf, pos, cap, "q");
 		break;
-	case TY_ULLONG:
+	case TyULLong:
 		mappend(buf, pos, cap, "Q");
 		break;
-	case TY_FLOAT:
+	case TyFloat:
 		mappend(buf, pos, cap, "f");
 		break;
-	case TY_DOUBLE:
+	case TyDouble:
 		mappend(buf, pos, cap, "d");
 		break;
-	case TY_BOOL:
+	case TyBool:
 		mappend(buf, pos, cap, "b");
 		break;
-	case TY_PTR:
+	case TyPtr:
 		mappend(buf, pos, cap, "p");
 		mangle_type(t->base, buf, pos, cap);
 		break;
-	case TY_ARRAY:
+	case TyArray:
 		mangle_type(t->base, buf, pos, cap);
 		break;
-	case TY_STRUCT:
-	case TY_UNION:
+	case TyStruct:
+	case TyUnion:
 		mappend(buf, pos, cap, "A");
 		if (t->tag) {
 			for (p = t->tag; *p; p++) {
@@ -302,7 +315,7 @@ mangle_type(Type* t, char* buf, int* pos, int cap) {
 			mappend(buf, pos, cap, tmp);
 		}
 		break;
-	case TY_ENUM:
+	case TyEnum:
 		mappend(buf, pos, cap, "e");
 		if (t->tag) {
 			for (p = t->tag; *p; p++) {
@@ -317,7 +330,7 @@ mangle_type(Type* t, char* buf, int* pos, int cap) {
 			mappend(buf, pos, cap, tmp);
 		}
 		break;
-	case TY_FUNC:
+	case TyFunc:
 		mappend(buf, pos, cap, "F");
 		break;
 	default:
@@ -354,7 +367,7 @@ find_func_overload(Compiler* c, const char* name, Type* t) {
 	for (s = c->symbols; s; s = s->next) {
 		if (s->hidden)
 			continue;
-		if (s->kind == SK_FUNC && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0 && type_eq(s->type, t))
+		if (s->kind == SkFunc && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0 && type_eq(s->type, t))
 			return s;
 	}
 	return NULL;
@@ -398,8 +411,8 @@ Symbol* symbol_define_func(Compiler* c, const char* name, Type* t, int storage, 
 			}
 			if (isoverload && type_eq(old->type, t)) {
 				old->type = t ? t : old->type;
-				if (storage == ST_NONE && old->storage == ST_EXTERN)
-					old->storage = ST_NONE;
+				if (storage == StNone && old->storage == StExtern)
+					old->storage = StNone;
 				return old;
 			}
 			if (isoverload) {
@@ -408,10 +421,10 @@ Symbol* symbol_define_func(Compiler* c, const char* name, Type* t, int storage, 
 				goto create;
 			}
 		}
-		if (old->kind == SK_FUNC) {
+		if (old->kind == SkFunc) {
 			old->type = t ? t : old->type;
-			if (storage == ST_NONE && old->storage == ST_EXTERN)
-				old->storage = ST_NONE;
+			if (storage == StNone && old->storage == StExtern)
+				old->storage = StNone;
 			return old;
 		}
 		error_at(c, sp, "redefinition of %s", name);
@@ -422,7 +435,7 @@ create:
 	memset(s, 0, sizeof(*s));
 	s->param_fixed_len = -1;
 	s->name = xstrdup(name);
-	s->kind = SK_FUNC;
+	s->kind = SkFunc;
 	s->type = t;
 	s->storage = storage;
 	s->block = c->block;
@@ -557,8 +570,8 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	old = symbol_find_method(c, recv_tag, name);
 	if (old && t && old->type && type_eq(old->type, t)) {
 		old->type = t;
-		if (storage == ST_NONE && old->storage == ST_EXTERN)
-			old->storage = ST_NONE;
+		if (storage == StNone && old->storage == StExtern)
+			old->storage = StNone;
 		return old;
 	}
 	if (old)
@@ -573,7 +586,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	memset(s, 0, sizeof(*s));
 	s->param_fixed_len = -1;
 	s->name = xstrdup(name);
-	s->kind = SK_FUNC;
+	s->kind = SkFunc;
 	s->type = t;
 	s->storage = storage;
 	s->block = 0;
@@ -594,7 +607,7 @@ int symbol_has_overload(Compiler* c, const char* name) {
 	Symbol* s;
 
 	for (s = c->symbols; s; s = s->next)
-		if (!s->hidden && !s->dead && s->kind == SK_FUNC && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0)
+		if (!s->hidden && !s->dead && s->kind == SkFunc && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0)
 			return 1;
 	return 0;
 }
@@ -608,7 +621,7 @@ overload_ranged_score(Type* param, Type* argty, Node* expr) {
 		return 2;
 	if (is_ranged(param) && is_array(argty) && argty->len >= 0 && param->base && type_eq(param->base, argty->base))
 		return 1;
-	if (is_ranged(param) && expr && expr->kind == NStr && param->base && (param->base->kind == TY_CHAR || param->base->kind == TY_UCHAR))
+	if (is_ranged(param) && expr && expr->kind == NdStr && param->base && (param->base->kind == TyChar || param->base->kind == TyUChar))
 		return 1;
 	return 0;
 }
@@ -639,7 +652,7 @@ overload_arg_score(Compiler* c, Type* param, Type* argty, Node* expr) {
 	p = decay(c, param);
 	if (type_eq(p, a))
 		return 2;
-	if (a->kind == TY_FLOAT && p->kind == TY_DOUBLE)
+	if (a->kind == TyFloat && p->kind == TyDouble)
 		return 1;
 	if (is_int(a) && is_int(p)) {
 		Type* ip;
@@ -647,22 +660,22 @@ overload_arg_score(Compiler* c, Type* param, Type* argty, Node* expr) {
 		ip = promote(c, a);
 		if (type_eq(p, ip))
 			return 1;
-		if (p->kind == TY_LONG && (ip->kind == TY_INT || ip->kind == TY_UINT))
+		if (p->kind == TyLong && (ip->kind == TyInt || ip->kind == TyUInt))
 			return 1;
-		if (p->kind == TY_ULONG && (ip->kind == TY_INT || ip->kind == TY_UINT))
+		if (p->kind == TyULong && (ip->kind == TyInt || ip->kind == TyUInt))
 			return 1;
-		if (p->kind == TY_LLONG && (ip->kind == TY_INT || ip->kind == TY_UINT))
+		if (p->kind == TyLLong && (ip->kind == TyInt || ip->kind == TyUInt))
 			return 1;
-		if (p->kind == TY_ULLONG && (ip->kind == TY_INT || ip->kind == TY_UINT))
+		if (p->kind == TyULLong && (ip->kind == TyInt || ip->kind == TyUInt))
 			return 1;
-		if (p->kind == TY_UINT && ip->kind == TY_INT)
+		if (p->kind == TyUInt && ip->kind == TyInt)
 			return 1;
 	}
 	if (is_ptr(p) && is_ptr(a) && type_eq(p->base, a->base))
 		return 2;
 	if (is_ptr(p) && is_ptr(a) && is_aggr(a->base) && is_aggr(p->base) && anon_embed_offset(a->base, p->base, NULL) == 1)
 		return 1;
-	if (is_ptr(p) && argty->kind == TY_ARRAY && type_eq(p->base, argty->base))
+	if (is_ptr(p) && argty->kind == TyArray && type_eq(p->base, argty->base))
 		return 1;
 	return 0;
 }
@@ -704,7 +717,7 @@ Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int 
 	best = NULL;
 	bestscore = -1;
 	for (s = c->symbols; s; s = s->next) {
-		if (s->kind != SK_FUNC || s->block != 0 || !s->is_overload || strcmp(s->name, name) != 0)
+		if (s->kind != SkFunc || s->block != 0 || !s->is_overload || strcmp(s->name, name) != 0)
 			continue;
 		score = overload_score(c, s->type, args, args_len);
 		if (score < 0)
@@ -739,7 +752,7 @@ Symbol* symbol_resolve_range_count(Compiler* c, Type* range_ty, Type** elem_out,
 		Type *fn, *p0, *p1, *el;
 		int sc;
 
-		if (s->kind != SK_FUNC || s->block != 0 || !s->is_overload || strcmp(s->name, "range_count") != 0)
+		if (s->kind != SkFunc || s->block != 0 || !s->is_overload || strcmp(s->name, "range_count") != 0)
 			continue;
 		fn = s->type;
 		if (fn == NULL || !is_func(fn) || fn->params_len != 2)
@@ -785,7 +798,7 @@ Symbol* symbol_resolve_range_at(Compiler* c, Type* range_ty, Type* elem, Span sp
 		Type *fn, *p0, *p1;
 		int sc;
 
-		if (s->kind != SK_FUNC || s->block != 0 || !s->is_overload || strcmp(s->name, "range_at") != 0)
+		if (s->kind != SkFunc || s->block != 0 || !s->is_overload || strcmp(s->name, "range_at") != 0)
 			continue;
 		fn = s->type;
 		if (fn == NULL || !is_func(fn) || fn->params_len != 2)
@@ -820,7 +833,7 @@ void symbol_pop_block(Compiler* c) {
 	Symbol* s;
 
 	for (s = c->symbols; s; s = s->next) {
-		if (s->block == c->block && s->kind != SK_FUNC)
+		if (s->block == c->block && s->kind != SkFunc)
 			s->dead = 1;
 	}
 	c->block--;
@@ -833,7 +846,7 @@ void symbol_hide_file_statics(Compiler* c) {
 	for (s = c->symbols; s; s = s->next) {
 		if (s->block != 0)
 			continue;
-		if (s->storage == ST_STATIC)
+		if (s->storage == StStatic)
 			s->hidden = 1;
 	}
 }

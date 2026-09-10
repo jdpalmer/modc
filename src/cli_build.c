@@ -788,10 +788,10 @@ pkg_iface_hash(Compiler* c, const char* pkg_dir) {
 	for (s = c->symbols; s; s = s->next) {
 		if (s->dead || s->hidden || s->header)
 			continue;
-		if (s->storage == ST_STATIC || s->storage == ST_LOCAL || s->storage == ST_PARAM)
+		if (s->storage == StStatic || s->storage == StLocal || s->storage == StParam)
 			continue;
-		if (s->kind != SK_FUNC && s->kind != SK_VAR && s->kind != SK_TYPEDEF &&
-		    s->kind != SK_TAG && s->kind != SK_ENUMCON)
+		if (s->kind != SkFunc && s->kind != SkVar && s->kind != SkTypedef &&
+		    s->kind != SkTag && s->kind != SkEnumCon)
 			continue;
 		src = s->home;
 		if (src == NULL || src[0] == 0)

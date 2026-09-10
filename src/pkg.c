@@ -402,14 +402,14 @@ scan_imports(Compiler* c, const char* path, char*** imps, int* nimps) {
 	depth = 0;
 	for (i = 0; i < c->tokens_len; i++) {
 		Tok* t = &c->tokens[i];
-		if (t->kind == TPunct && t->punct == PLbrace)
+		if (t->kind == TkPunct && t->punct == PnLbrace)
 			depth++;
-		else if (t->kind == TPunct && t->punct == PRbrace)
+		else if (t->kind == TkPunct && t->punct == PnRbrace)
 			depth--;
 		if (depth != 0)
 			continue;
-		if (t->kind == TKw && t->kw == K_import) {
-			if (i + 2 < c->tokens_len && c->tokens[i + 1].kind == TString) {
+		if (t->kind == TkKw && t->kw == KwImport) {
+			if (i + 2 < c->tokens_len && c->tokens[i + 1].kind == TkString) {
 				if (n >= cap) {
 					cap = cap ? cap * 2 : 4;
 					list = xrealloc(list, cap * sizeof(char*));

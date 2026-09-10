@@ -249,12 +249,12 @@ fmt_type(Type* t, char* buf, size_t n) {
 		snprintf(buf, n, "%s[..]", inner);
 		return;
 	}
-	if (t->kind == TY_PTR) {
+	if (t->kind == TyPtr) {
 		fmt_type(t->base, inner, sizeof(inner));
 		snprintf(buf, n, "%s*", inner);
 		return;
 	}
-	if (t->kind == TY_ARRAY) {
+	if (t->kind == TyArray) {
 		fmt_type(t->base, inner, sizeof(inner));
 		if (t->len >= 0)
 			snprintf(buf, n, "%s[%lld]", inner, (long long)t->len);
@@ -275,7 +275,7 @@ print_sym_doc(Symbol* s) {
 	if (s == NULL || s->name == NULL)
 		return;
 	t = s->type;
-	if (s->kind == SK_FUNC && t && t->kind == TY_FUNC) {
+	if (s->kind == SkFunc && t && t->kind == TyFunc) {
 		fmt_type(t->base, ret, sizeof(ret));
 		printf("%s(", s->name);
 		for (i = 0; i < t->params_len; i++) {
@@ -290,7 +290,7 @@ print_sym_doc(Symbol* s) {
 		if (t->is_varargs)
 			printf("%s...", t->params_len ? ", " : "");
 		printf(") -> %s\n", ret);
-	} else if (s->kind == SK_TYPEDEF) {
+	} else if (s->kind == SkTypedef) {
 		fmt_type(t, ret, sizeof(ret));
 		printf("typedef %s %s\n", ret, s->name);
 	} else {
@@ -308,9 +308,9 @@ doc_sym_exported(Symbol* s) {
 		return 0;
 	if (s->hidden || s->dead || s->block != 0)
 		return 0;
-	if (s->storage == ST_STATIC || s->storage == ST_LOCAL || s->storage == ST_PARAM)
+	if (s->storage == StStatic || s->storage == StLocal || s->storage == StParam)
 		return 0;
-	if (s->kind != SK_FUNC && s->kind != SK_VAR && s->kind != SK_TYPEDEF)
+	if (s->kind != SkFunc && s->kind != SkVar && s->kind != SkTypedef)
 		return 0;
 	return 1;
 }

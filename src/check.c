@@ -30,7 +30,7 @@ da_has_goto(Node* n) {
 
 	if (n == NULL)
 		return 0;
-	if (n->kind == NGoto)
+	if (n->kind == NdGoto)
 		return 1;
 	if (da_has_goto(n->a) || da_has_goto(n->b) || da_has_goto(n->c))
 		return 1;
@@ -43,7 +43,7 @@ da_has_goto(Node* n) {
 // Locals with scalar type can be tracked for definite-assignment.
 static int
 da_trackable(Symbol* s) {
-	if (s == NULL || s->kind != SK_VAR || s->storage != ST_LOCAL)
+	if (s == NULL || s->kind != SkVar || s->storage != StLocal)
 		return 0;
 	return is_scalar(s->type);
 }
@@ -116,7 +116,7 @@ static void
 da_use(Compiler* c, Node* n, DAState* st) {
 	int i;
 
-	if (n == NULL || n->kind != NName || n->symbol == NULL)
+	if (n == NULL || n->kind != NdName || n->symbol == NULL)
 		return;
 	i = da_find(st, n->symbol);
 	if (i < 0 || st->assigned[i])
@@ -131,11 +131,11 @@ static void
 da_mark_lhs(DAState* st, Node* n) {
 	if (n == NULL)
 		return;
-	if (n->kind == NName) {
+	if (n->kind == NdName) {
 		da_set(st, n->symbol, 1);
 		return;
 	}
-	if (n->kind == NComma)
+	if (n->kind == NdComma)
 		da_mark_lhs(st, n->b);
 }
 
@@ -160,46 +160,46 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 	if (n == NULL)
 		return;
 	switch (n->kind) {
-	case NLit:
-	case NStr:
-	case NSizeofT:
-	case NSkip:
+	case NdLit:
+	case NdStr:
+	case NdSizeofT:
+	case NdSkip:
 		return;
-	case NSizeof:
+	case NdSizeof:
 		/* operand not evaluated */
 		return;
-	case NName:
+	case NdName:
 		if (!as_lval)
 			da_use(c, n, st);
 		return;
-	case NAddr:
+	case NdAddr:
 		da_expr(c, n->a, st, 1);
 		/* escaping address: stop requiring prior init */
-		if (n->a && n->a->kind == NName)
+		if (n->a && n->a->kind == NdName)
 			da_set(st, n->a->symbol, 1);
 		return;
-	case NAssign:
+	case NdAssign:
 		da_expr(c, n->b, st, 0);
-		if (n->op != PEq)
+		if (n->op != PnEq)
 			da_expr(c, n->a, st, 0);
 		else
 			da_expr(c, n->a, st, 1);
 		da_mark_lhs(st, n->a);
 		return;
-	case NUn:
-		if (n->op == PPlusPlus || n->op == PMinusMinus) {
+	case NdUn:
+		if (n->op == PnPlusPlus || n->op == PnMinusMinus) {
 			da_expr(c, n->a, st, 0);
 			da_mark_lhs(st, n->a);
 			return;
 		}
 		da_expr(c, n->a, st, 0);
 		return;
-	case NPost:
+	case NdPost:
 		da_expr(c, n->a, st, 0);
 		da_mark_lhs(st, n->a);
 		return;
-	case NBin:
-		if (n->op == PAmpAmp || n->op == PPipePipe) {
+	case NdBin:
+		if (n->op == PnAmpAmp || n->op == PnPipePipe) {
 			da_expr(c, n->a, st, 0);
 			da_copy(&a, st);
 			da_expr(c, n->b, &a, 0);
@@ -210,7 +210,7 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 		da_expr(c, n->a, st, 0);
 		da_expr(c, n->b, st, 0);
 		return;
-	case NCond:
+	case NdCond:
 		da_expr(c, n->a, st, 0);
 		da_copy(&a, st);
 		da_copy(&b, st);
@@ -218,30 +218,30 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 		da_expr(c, n->c, &b, 0);
 		da_intersect(st, &a, &b);
 		return;
-	case NComma:
+	case NdComma:
 		da_expr(c, n->a, st, 0);
 		da_expr(c, n->b, st, as_lval);
 		return;
-	case NCall:
+	case NdCall:
 		for (i = 0; i < n->children_len; i++)
 			da_expr(c, n->children[i], st, 0);
 		da_expr(c, n->a, st, 0);
 		return;
-	case NCast:
+	case NdCast:
 		/* (void)x; silences unused and is not an uninit use */
-		if (n->type && n->type->kind == TY_VOID && n->a && n->a->kind == NName) {
+		if (n->type && n->type->kind == TyVoid && n->a && n->a->kind == NdName) {
 			da_set(st, n->a->symbol, 1);
 			return;
 		}
 		da_expr(c, n->a, st, 0);
 		return;
-	case NIndex:
-	case NSubrange:
-	case NDot:
-	case NArrow:
-	case NDeref:
-	case NTupleLit:
-		da_expr(c, n->a, st, as_lval && (n->kind == NDot || n->kind == NArrow || n->kind == NIndex || n->kind == NDeref));
+	case NdIndex:
+	case NdSubrange:
+	case NdDot:
+	case NdArrow:
+	case NdDeref:
+	case NdTupleLit:
+		da_expr(c, n->a, st, as_lval && (n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex || n->kind == NdDeref));
 		da_expr(c, n->b, st, 0);
 		da_expr(c, n->c, st, 0);
 		for (i = 0; i < n->children_len; i++)
@@ -260,7 +260,7 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 // For-loop init may be a declaration or an expression.
 static void
 for_init_da(Compiler* c, Node* init, DAState* st) {
-	if (init && init->kind == NDecl)
+	if (init && init->kind == NdDecl)
 		da_stmt(c, init, st);
 	else
 		da_expr(c, init, st, 0);
@@ -274,17 +274,17 @@ da_stmt(Compiler* c, Node* n, DAState* st) {
 	if (n == NULL)
 		return;
 	switch (n->kind) {
-	case NDecl:
+	case NdDecl:
 		da_init(c, n->init, st);
 		has_init = n->init != NULL && (n->init->expr != NULL || n->init->items_len > 0 || n->init->is_list);
 		if (n->symbol && da_trackable(n->symbol))
 			da_add(st, n->symbol, has_init);
 		return;
-	case NBlock:
+	case NdBlock:
 		for (i = 0; i < n->children_len; i++)
 			da_stmt(c, n->children[i], st);
 		return;
-	case NIf:
+	case NdIf:
 		da_expr(c, n->a, st, 0);
 		da_copy(&a, st);
 		da_copy(&b, st);
@@ -293,17 +293,17 @@ da_stmt(Compiler* c, Node* n, DAState* st) {
 			da_stmt(c, n->c, &b);
 		da_intersect(st, &a, &b);
 		return;
-	case NWhile:
+	case NdWhile:
 		da_expr(c, n->a, st, 0);
 		da_copy(&a, st);
 		da_stmt(c, n->b, &a);
 		/* body may not run — keep pre-loop assignments only */
 		return;
-	case NDo:
+	case NdDo:
 		da_stmt(c, n->a, st);
 		da_expr(c, n->b, st, 0);
 		return;
-	case NFor:
+	case NdFor:
 		for_init_da(c, n->a, st);
 		da_expr(c, n->b, st, 0);
 		da_copy(&a, st);
@@ -311,29 +311,29 @@ da_stmt(Compiler* c, Node* n, DAState* st) {
 			da_stmt(c, n->children[0], &a);
 		da_expr(c, n->c, &a, 0);
 		return;
-	case NSwitch:
+	case NdSwitch:
 		da_expr(c, n->a, st, 0);
 		da_copy(&a, st);
 		da_stmt(c, n->b, &a);
 		return;
-	case NCase:
-	case NDefault:
+	case NdCase:
+	case NdDefault:
 		return;
-	case NLabel:
+	case NdLabel:
 		da_stmt(c, n->a, st);
 		return;
-	case NReturn:
+	case NdReturn:
 		da_expr(c, n->a, st, 0);
 		return;
-	case NDefer:
+	case NdDefer:
 		da_copy(&a, st);
 		da_stmt(c, n->a, &a);
 		return;
-	case NBreak:
-	case NContinue:
-	case NGoto:
-	case NFallthrough:
-	case NSkip:
+	case NdBreak:
+	case NdContinue:
+	case NdGoto:
+	case NdFallthrough:
+	case NdSkip:
 		return;
 	default:
 		/* expression statement */
@@ -347,7 +347,7 @@ static void
 check_uninit_func(Compiler* c, Node* fn) {
 	DAState st;
 
-	if (fn == NULL || fn->kind != NFunc || fn->a == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
@@ -366,10 +366,10 @@ node_has_break(Node* n) {
 
 	if (n == NULL)
 		return 0;
-	if (n->kind == NBreak)
+	if (n->kind == NdBreak)
 		return 1;
 	/* nested loop/switch break targets inner, not outer — still conservative */
-	if (n->kind == NWhile || n->kind == NFor || n->kind == NDo || n->kind == NSwitch)
+	if (n->kind == NdWhile || n->kind == NdFor || n->kind == NdDo || n->kind == NdSwitch)
 		return 0;
 	if (node_has_break(n->a) || node_has_break(n->b) || node_has_break(n->c))
 		return 1;
@@ -447,18 +447,18 @@ swcases_collect(Node* n, SwitchCases* sc) {
 
 	if (n == NULL || sc->overflow)
 		return;
-	if (n->kind == NCase) {
+	if (n->kind == NdCase) {
 		if (swcases_add(sc, n->int_val) < 0)
 			return;
 		if (n->b)
 			(void)swcases_add_range(sc, n->int_val, n->b->int_val);
 		return;
 	}
-	if (n->kind == NDefault) {
+	if (n->kind == NdDefault) {
 		sc->has_default = 1;
 		return;
 	}
-	if (n->kind == NSwitch)
+	if (n->kind == NdSwitch)
 		return;
 	swcases_collect(n->a, sc);
 	swcases_collect(n->b, sc);
@@ -470,7 +470,7 @@ swcases_collect(Node* n, SwitchCases* sc) {
 // Switch scrutinee type when it is a complete enum tag type.
 static Type*
 switch_enum_type(Type* t) {
-	if (t && t->kind == TY_ENUM && t->complete && t->tag)
+	if (t && t->kind == TyEnum && t->complete && t->tag)
 		return t;
 	return NULL;
 }
@@ -490,7 +490,7 @@ switch_enum_exhaustive(Compiler* c, Type* et, Node* body) {
 	for (s = c->symbols; s; s = s->next) {
 		if (s->hidden || s->dead)
 			continue;
-		if (s->kind != SK_ENUMCON || s->type == NULL || !type_eq(s->type, et))
+		if (s->kind != SkEnumCon || s->type == NULL || !type_eq(s->type, et))
 			continue;
 		if (!swcases_has(&sc, s->int_val))
 			return 0;
@@ -505,7 +505,7 @@ check_switch_enum_exhaust(Compiler* c, Node* sw) {
 	SwitchCases sc;
 	Symbol* s;
 
-	if (sw == NULL || sw->kind != NSwitch)
+	if (sw == NULL || sw->kind != NdSwitch)
 		return;
 	if (!user_source(c, sw->span))
 		return;
@@ -519,7 +519,7 @@ check_switch_enum_exhaust(Compiler* c, Node* sw) {
 	for (s = c->symbols; s; s = s->next) {
 		if (s->hidden || s->dead)
 			continue;
-		if (s->kind != SK_ENUMCON || s->type == NULL || !type_eq(s->type, et))
+		if (s->kind != SkEnumCon || s->type == NULL || !type_eq(s->type, et))
 			continue;
 		if (!swcases_has(&sc, s->int_val))
 			error_at(c, sw->span, "switch on %s is not exhaustive; missing case %s",
@@ -533,7 +533,7 @@ walk_enum_exhaust(Compiler* c, Node* n) {
 
 	if (n == NULL)
 		return;
-	if (n->kind == NSwitch) {
+	if (n->kind == NdSwitch) {
 		check_switch_enum_exhaust(c, n);
 		walk_enum_exhaust(c, n->b);
 		return;
@@ -548,7 +548,7 @@ walk_enum_exhaust(Compiler* c, Node* n) {
 // Per-function entry for exhaustive enum switch checking.
 static void
 check_enum_exhaust_func(Compiler* c, Node* fn) {
-	if (fn == NULL || fn->kind != NFunc || fn->a == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
@@ -564,7 +564,7 @@ switch_returns(Compiler* c, Node* body, Type* swty) {
 
 	if (body == NULL)
 		return 0;
-	if (body->kind != NBlock)
+	if (body->kind != NdBlock)
 		return stmt_returns(c, body);
 	has_default = 0;
 	path_open = 0;
@@ -573,8 +573,8 @@ switch_returns(Compiler* c, Node* body, Type* swty) {
 	ok = 1;
 	for (i = 0; i < body->children_len; i++) {
 		s = body->children[i];
-		if (s->kind == NCase || s->kind == NDefault) {
-			if (s->kind == NDefault)
+		if (s->kind == NdCase || s->kind == NdDefault) {
+			if (s->kind == NdDefault)
 				has_default = 1;
 			if (!falling) {
 				if (path_open && !path_returned)
@@ -585,15 +585,15 @@ switch_returns(Compiler* c, Node* body, Type* swty) {
 			falling = 0;
 			continue;
 		}
-		if (s->kind == NDefer || s->kind == NSkip)
+		if (s->kind == NdDefer || s->kind == NdSkip)
 			continue;
-		if (s->kind == NFallthrough) {
+		if (s->kind == NdFallthrough) {
 			path_open = 1;
 			path_returned = 0;
 			falling = 1;
 			continue;
 		}
-		if (s->kind == NBreak) {
+		if (s->kind == NdBreak) {
 			ok = 0;
 			path_open = 1;
 			path_returned = 1;
@@ -621,38 +621,38 @@ stmt_returns(Compiler* c, Node* n) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NReturn:
+	case NdReturn:
 		return 1;
-	case NGoto:
+	case NdGoto:
 		/* path leaves; labels may still fall off — OK for linear tails */
 		return 1;
-	case NBlock:
+	case NdBlock:
 		for (i = n->children_len - 1; i >= 0; i--) {
-			if (n->children[i]->kind == NDefer)
+			if (n->children[i]->kind == NdDefer)
 				continue;
 			return stmt_returns(c, n->children[i]);
 		}
 		return 0;
-	case NIf:
+	case NdIf:
 		return stmt_returns(c, n->b) && n->c != NULL && stmt_returns(c, n->c);
-	case NLabel:
+	case NdLabel:
 		return stmt_returns(c, n->a);
-	case NWhile:
+	case NdWhile:
 		if (is_const_nonzero(c, n->a) && !node_has_break(n->b))
 			return 1;
 		return 0;
-	case NFor:
+	case NdFor:
 		/* for(;0;) never; for(;;)/for(;1;) without break never falls off */
 		if ((n->b == NULL || is_const_nonzero(c, n->b)) && !node_has_break(n->children_len > 0 ? n->children[0] : NULL))
 			return 1;
 		return 0;
-	case NDo:
+	case NdDo:
 		if (stmt_returns(c, n->a))
 			return 1;
 		if (is_const_nonzero(c, n->b) && !node_has_break(n->a))
 			return 1;
 		return 0;
-	case NSwitch:
+	case NdSwitch:
 		return switch_returns(c, n->b, n->a ? n->a->type : NULL);
 	default:
 		return 0;
@@ -664,12 +664,12 @@ static void
 check_falloff_func(Compiler* c, Node* fn) {
 	Type* ret;
 
-	if (fn == NULL || fn->kind != NFunc || fn->type == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->type == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
 	ret = fn->type->base;
-	if (ret == NULL || ret->kind == TY_VOID)
+	if (ret == NULL || ret->kind == TyVoid)
 		return;
 	if (stmt_returns(c, fn->a))
 		return;
@@ -704,42 +704,42 @@ ge_walk(Node* n, GEvent* ev, int* nev) {
 	if (n == NULL)
 		return;
 	switch (n->kind) {
-	case NDecl:
+	case NdDecl:
 		ge_add(ev, nev, GEDecl, n);
 		return;
-	case NLabel:
+	case NdLabel:
 		ge_add(ev, nev, GELabel, n);
 		ge_walk(n->a, ev, nev);
 		return;
-	case NGoto:
+	case NdGoto:
 		ge_add(ev, nev, GEGoto, n);
 		return;
-	case NBlock:
+	case NdBlock:
 		for (i = 0; i < n->children_len; i++)
 			ge_walk(n->children[i], ev, nev);
 		return;
-	case NIf:
+	case NdIf:
 		ge_walk(n->a, ev, nev);
 		ge_walk(n->b, ev, nev);
 		ge_walk(n->c, ev, nev);
 		return;
-	case NWhile:
-	case NDo:
+	case NdWhile:
+	case NdDo:
 		ge_walk(n->a, ev, nev);
 		ge_walk(n->b, ev, nev);
 		return;
-	case NFor:
+	case NdFor:
 		ge_walk(n->a, ev, nev);
 		ge_walk(n->b, ev, nev);
 		ge_walk(n->c, ev, nev);
 		for (i = 0; i < n->children_len; i++)
 			ge_walk(n->children[i], ev, nev);
 		return;
-	case NSwitch:
+	case NdSwitch:
 		ge_walk(n->a, ev, nev);
 		ge_walk(n->b, ev, nev);
 		return;
-	case NDefer:
+	case NdDefer:
 		ge_walk(n->a, ev, nev);
 		return;
 	default:
@@ -760,7 +760,7 @@ check_goto_over_decl(Compiler* c, Node* fn) {
 	Node *g, *lab, *d;
 	const char* name;
 
-	if (fn == NULL || fn->kind != NFunc || fn->a == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
@@ -806,34 +806,34 @@ expr_modifies_symbol(Node* n, Symbol* s) {
 	if (n == NULL || s == NULL)
 		return 0;
 	switch (n->kind) {
-	case NAssign:
-		if (n->a && n->a->kind == NName && n->a->symbol == s)
+	case NdAssign:
+		if (n->a && n->a->kind == NdName && n->a->symbol == s)
 			return 1;
 		return expr_modifies_symbol(n->a, s) || expr_modifies_symbol(n->b, s);
-	case NPost:
-	case NUn:
-		if ((n->op == PPlusPlus || n->op == PMinusMinus) && n->a && n->a->kind == NName && n->a->symbol == s)
+	case NdPost:
+	case NdUn:
+		if ((n->op == PnPlusPlus || n->op == PnMinusMinus) && n->a && n->a->kind == NdName && n->a->symbol == s)
 			return 1;
 		return expr_modifies_symbol(n->a, s);
-	case NCond:
+	case NdCond:
 		return expr_modifies_symbol(n->a, s) || expr_modifies_symbol(n->b, s) || expr_modifies_symbol(n->c, s);
-	case NCall:
+	case NdCall:
 		if (expr_modifies_symbol(n->a, s))
 			return 1;
 		for (i = 0; i < n->children_len; i++)
 			if (expr_modifies_symbol(n->children[i], s))
 				return 1;
 		return 0;
-	case NComma:
-	case NBin:
-	case NIndex:
-	case NDot:
-	case NArrow:
+	case NdComma:
+	case NdBin:
+	case NdIndex:
+	case NdDot:
+	case NdArrow:
 		return expr_modifies_symbol(n->a, s) || expr_modifies_symbol(n->b, s);
-	case NCast:
-	case NAddr:
-	case NDeref:
-	case NSizeof:
+	case NdCast:
+	case NdAddr:
+	case NdDeref:
+	case NdSizeof:
 		return expr_modifies_symbol(n->a, s);
 	default:
 		for (i = 0; i < n->children_len; i++)
@@ -850,7 +850,7 @@ check_unseq_expr(Compiler* c, Node* n) {
 
 	if (n == NULL)
 		return;
-	if (n->kind == NAssign && n->a && n->a->kind == NName && n->a->symbol && user_source(c, n->span) && expr_modifies_symbol(n->b, n->a->symbol))
+	if (n->kind == NdAssign && n->a && n->a->kind == NdName && n->a->symbol && user_source(c, n->span) && expr_modifies_symbol(n->b, n->a->symbol))
 		error_at(c, n->span, "unsequenced modification of '%s'", n->a->symbol->name);
 	check_unseq_expr(c, n->a);
 	check_unseq_expr(c, n->b);
@@ -875,7 +875,7 @@ check_unseq_init(Compiler* c, Initializer* in) {
 // Per-function pass for unsequenced assignment diagnostics.
 static void
 check_unseq_func(Compiler* c, Node* fn) {
-	if (fn == NULL || fn->kind != NFunc || fn->a == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
@@ -903,31 +903,31 @@ walk_stmt(Compiler* c, Node* n, StmtVisitFn visit, void* ctx) {
 	if (visit && visit(c, n, ctx))
 		return;
 	switch (n->kind) {
-	case NBlock:
+	case NdBlock:
 		for (i = 0; i < n->children_len; i++)
 			walk_stmt(c, n->children[i], visit, ctx);
 		return;
-	case NIf:
+	case NdIf:
 		walk_stmt(c, n->b, visit, ctx);
 		walk_stmt(c, n->c, visit, ctx);
 		return;
-	case NWhile:
+	case NdWhile:
 		walk_stmt(c, n->b, visit, ctx);
 		return;
-	case NDo:
+	case NdDo:
 		walk_stmt(c, n->a, visit, ctx);
 		return;
-	case NFor:
+	case NdFor:
 		walk_stmt(c, n->a, visit, ctx);
 		if (n->children_len > 0)
 			walk_stmt(c, n->children[0], visit, ctx);
 		walk_stmt(c, n->c, visit, ctx);
 		return;
-	case NSwitch:
+	case NdSwitch:
 		walk_stmt(c, n->b, visit, ctx);
 		return;
-	case NLabel:
-	case NDefer:
+	case NdLabel:
+	case NdDefer:
 		walk_stmt(c, n->a, visit, ctx);
 		return;
 	default:
@@ -937,7 +937,7 @@ walk_stmt(Compiler* c, Node* n, StmtVisitFn visit, void* ctx) {
 
 static int
 is_void_cast(Node* n) {
-	return n && n->kind == NCast && n->type && n->type->kind == TY_VOID;
+	return n && n->kind == NdCast && n->type && n->type->kind == TyVoid;
 }
 
 static int
@@ -946,9 +946,9 @@ is_discarded_tuple_expr(Node* n) {
 		return 0;
 	if (is_void_cast(n))
 		return 0;
-	if (n->kind == NComma)
+	if (n->kind == NdComma)
 		return is_discarded_tuple_expr(n->b);
-	if (n->kind == NCall && is_tuple(n->type))
+	if (n->kind == NdCall && is_tuple(n->type))
 		return 1;
 	return 0;
 }
@@ -957,24 +957,24 @@ static int
 discard_tuple_visit(Compiler* c, Node* n, void* ctx) {
 	(void)ctx;
 	switch (n->kind) {
-	case NBlock:
-	case NIf:
-	case NWhile:
-	case NDo:
-	case NFor:
-	case NSwitch:
-	case NLabel:
-	case NDefer:
+	case NdBlock:
+	case NdIf:
+	case NdWhile:
+	case NdDo:
+	case NdFor:
+	case NdSwitch:
+	case NdLabel:
+	case NdDefer:
 		return 0;
-	case NCase:
-	case NDefault:
-	case NDecl:
-	case NReturn:
-	case NBreak:
-	case NContinue:
-	case NGoto:
-	case NFallthrough:
-	case NSkip:
+	case NdCase:
+	case NdDefault:
+	case NdDecl:
+	case NdReturn:
+	case NdBreak:
+	case NdContinue:
+	case NdGoto:
+	case NdFallthrough:
+	case NdSkip:
 		return 1;
 	default:
 		if (user_source(c, n->span) && is_discarded_tuple_expr(n))
@@ -1000,18 +1000,18 @@ static void
 check_unused_func(Compiler* c, Node* fn) {
 	Symbol *s, *owner;
 
-	if (fn == NULL || fn->kind != NFunc || fn->symbol == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->symbol == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
 	owner = fn->symbol;
 	mark_symbol_used(fn->a);
 	for (s = c->symbols; s; s = s->next) {
-		if (s->owner != owner || s->kind != SK_VAR || s->used)
+		if (s->owner != owner || s->kind != SkVar || s->used)
 			continue;
 		if (is_compiler_temp_name(s->name))
 			continue;
-		if (s->storage == ST_PARAM)
+		if (s->storage == StParam)
 			error_at(c, s->span.file ? s->span : fn->span,
 				 "unused parameter '%s'", s->name);
 		else
@@ -1023,7 +1023,7 @@ check_unused_func(Compiler* c, Node* fn) {
 // Per-function pass for discarded tuple return diagnostics.
 static void
 check_discard_tuple_func(Compiler* c, Node* fn) {
-	if (fn == NULL || fn->kind != NFunc || fn->a == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
@@ -1098,9 +1098,9 @@ static int
 ir_node_is_symbol(Node* n, Symbol* s) {
 	if (n == NULL || s == NULL)
 		return 0;
-	if (n->kind == NComma)
+	if (n->kind == NdComma)
 		return ir_node_is_symbol(n->b, s);
-	return n->kind == NName && n->symbol == s;
+	return n->kind == NdName && n->symbol == s;
 }
 
 // True if n is the param, a local alias of it, or a pointer derived from it
@@ -1111,31 +1111,31 @@ ir_derived(Node* n, Symbol* param, IRAlias* a) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NComma:
+	case NdComma:
 		return ir_derived(n->b, param, a);
-	case NName:
+	case NdName:
 		return ir_is_alias(a, param, n->symbol);
-	case NCast:
+	case NdCast:
 		return ir_derived(n->a, param, a);
-	case NBin:
-		if (n->op == PPlus || n->op == PMinus)
+	case NdBin:
+		if (n->op == PnPlus || n->op == PnMinus)
 			return ir_derived(n->a, param, a) || ir_derived(n->b, param, a);
 		return 0;
-	case NIndex:
-	case NSubrange:
+	case NdIndex:
+	case NdSubrange:
 		return ir_derived(n->a, param, a);
-	case NAddr:
+	case NdAddr:
 		if (n->a == NULL)
 			return 0;
-		if (n->a->kind == NIndex)
+		if (n->a->kind == NdIndex)
 			return ir_derived(n->a->a, param, a);
-		if (n->a->kind == NDeref)
+		if (n->a->kind == NdDeref)
 			return ir_derived(n->a->a, param, a);
 		return ir_node_is_symbol(n->a, param);
-	case NCond:
+	case NdCond:
 		return ir_derived(n->b, param, a) || ir_derived(n->c, param, a);
-	case NUn:
-		if (n->op == PPlus || n->op == PMinus)
+	case NdUn:
+		if (n->op == PnPlus || n->op == PnMinus)
 			return ir_derived(n->a, param, a);
 		return 0;
 	default:
@@ -1167,11 +1167,11 @@ static int
 ir_store_taints(Node* lval, Symbol* param, IRAlias* a) {
 	if (lval == NULL)
 		return 0;
-	if (lval->kind == NComma)
+	if (lval->kind == NdComma)
 		return ir_store_taints(lval->b, param, a);
-	if (lval->kind == NDeref)
+	if (lval->kind == NdDeref)
 		return ir_derived(lval->a, param, a);
-	if (lval->kind == NIndex)
+	if (lval->kind == NdIndex)
 		return ir_derived(lval->a, param, a);
 	return 0;
 }
@@ -1180,9 +1180,9 @@ static int
 ir_escape_lhs(Node* lval) {
 	if (lval == NULL)
 		return 0;
-	if (lval->kind == NComma)
+	if (lval->kind == NdComma)
 		return ir_escape_lhs(lval->b);
-	return lval->kind == NDot || lval->kind == NArrow || lval->kind == NDeref || lval->kind == NIndex;
+	return lval->kind == NdDot || lval->kind == NdArrow || lval->kind == NdDeref || lval->kind == NdIndex;
 }
 
 // True if the expression may mutate or expose the tracked pointer parameter.
@@ -1194,29 +1194,29 @@ ir_expr_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NAssign:
+	case NdAssign:
 		if (ir_expr_taints(c, n->b, param, a) || ir_expr_taints(c, n->a, param, a))
 			return 1;
 		if (ir_store_taints(n->a, param, a))
 			return 1;
-		if (n->op == PEq && ir_derived(n->b, param, a)) {
-			if (n->a && n->a->kind == NName && n->a->symbol)
+		if (n->op == PnEq && ir_derived(n->b, param, a)) {
+			if (n->a && n->a->kind == NdName && n->a->symbol)
 				ir_add_alias(a, n->a->symbol);
 			else if (ir_escape_lhs(n->a))
 				return 1; /* into memory we do not track */
 		}
 		return 0;
-	case NUn:
+	case NdUn:
 		if (ir_expr_taints(c, n->a, param, a))
 			return 1;
-		if ((n->op == PPlusPlus || n->op == PMinusMinus) && ir_store_taints(n->a, param, a))
+		if ((n->op == PnPlusPlus || n->op == PnMinusMinus) && ir_store_taints(n->a, param, a))
 			return 1;
 		return 0;
-	case NPost:
+	case NdPost:
 		if (ir_expr_taints(c, n->a, param, a))
 			return 1;
 		return ir_store_taints(n->a, param, a);
-	case NCall:
+	case NdCall:
 		if (ir_expr_taints(c, n->a, param, a))
 			return 1;
 		ft = ir_call_fn_type(n);
@@ -1234,14 +1234,14 @@ ir_expr_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a) {
 				return 1;
 		}
 		return 0;
-	case NCast:
+	case NdCast:
 		if (ir_expr_taints(c, n->a, param, a))
 			return 1;
 		/* Cast of derived pointer to mutable pointer escapes READONLY. */
 		if (ir_derived(n->a, param, a) && n->type && is_ptr(n->type) && !n->type->is_readonly)
 			return 1;
 		return 0;
-	case NAddr:
+	case NdAddr:
 		if (ir_node_is_symbol(n->a, param))
 			return 1;
 		return ir_expr_taints(c, n->a, param, a);
@@ -1281,21 +1281,21 @@ ir_stmt_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NBlock:
+	case NdBlock:
 		t = 0;
 		for (i = 0; i < n->children_len; i++)
 			t |= ir_stmt_taints(c, n->children[i], param, a);
 		return t;
-	case NDecl:
+	case NdDecl:
 		return ir_init_taints(c, n->init, param, a, n->symbol);
-	case NIf:
+	case NdIf:
 		return ir_expr_taints(c, n->a, param, a) || ir_stmt_taints(c, n->b, param, a) || ir_stmt_taints(c, n->c, param, a);
-	case NWhile:
+	case NdWhile:
 		return ir_expr_taints(c, n->a, param, a) || ir_stmt_taints(c, n->b, param, a);
-	case NDo:
+	case NdDo:
 		return ir_stmt_taints(c, n->a, param, a) || ir_expr_taints(c, n->b, param, a);
-	case NFor:
-		if (n->a && n->a->kind == NDecl)
+	case NdFor:
+		if (n->a && n->a->kind == NdDecl)
 			t = ir_stmt_taints(c, n->a, param, a);
 		else
 			t = ir_expr_taints(c, n->a, param, a);
@@ -1303,21 +1303,21 @@ ir_stmt_taints(Compiler* c, Node* n, Symbol* param, IRAlias* a) {
 		if (n->children_len > 0)
 			t |= ir_stmt_taints(c, n->children[0], param, a);
 		return t;
-	case NSwitch:
+	case NdSwitch:
 		return ir_expr_taints(c, n->a, param, a) || ir_stmt_taints(c, n->b, param, a);
-	case NReturn:
-	case NDefer:
-		return n->kind == NReturn ? ir_expr_taints(c, n->a, param, a)
+	case NdReturn:
+	case NdDefer:
+		return n->kind == NdReturn ? ir_expr_taints(c, n->a, param, a)
 					  : ir_stmt_taints(c, n->a, param, a);
-	case NLabel:
+	case NdLabel:
 		return ir_stmt_taints(c, n->a, param, a);
-	case NCase:
-	case NDefault:
-	case NBreak:
-	case NContinue:
-	case NGoto:
-	case NFallthrough:
-	case NSkip:
+	case NdCase:
+	case NdDefault:
+	case NdBreak:
+	case NdContinue:
+	case NdGoto:
+	case NdFallthrough:
+	case NdSkip:
 		return 0;
 	default:
 		return ir_expr_taints(c, n, param, a);
@@ -1339,7 +1339,7 @@ ir_param_symbol(Compiler* c, Symbol* fn, int idx) {
 	if (want == NULL)
 		return NULL;
 	for (s = c->symbols; s; s = s->next)
-		if (s->owner == fn && s->storage == ST_PARAM && s->name && strcmp(s->name, want) == 0)
+		if (s->owner == fn && s->storage == StParam && s->name && strcmp(s->name, want) == 0)
 			return s;
 	return NULL;
 }
@@ -1419,33 +1419,33 @@ ir_derived_readonly(Node* n, Compiler* c, Node* fn, IRAlias* ro) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NComma:
+	case NdComma:
 		return ir_derived_readonly(n->b, c, fn, ro);
-	case NName:
+	case NdName:
 		return ir_is_readonly_symbol(c, fn, ro, n->symbol);
-	case NCast:
+	case NdCast:
 		if (n->type && is_ptr(n->type) && !n->type->is_readonly)
 			return 0;
 		return ir_derived_readonly(n->a, c, fn, ro);
-	case NBin:
-		if (n->op == PPlus || n->op == PMinus)
+	case NdBin:
+		if (n->op == PnPlus || n->op == PnMinus)
 			return ir_derived_readonly(n->a, c, fn, ro) || ir_derived_readonly(n->b, c, fn, ro);
 		return 0;
-	case NIndex:
-	case NSubrange:
+	case NdIndex:
+	case NdSubrange:
 		return ir_derived_readonly(n->a, c, fn, ro);
-	case NAddr:
+	case NdAddr:
 		if (n->a == NULL)
 			return 0;
-		if (n->a->kind == NIndex)
+		if (n->a->kind == NdIndex)
 			return ir_derived_readonly(n->a->a, c, fn, ro);
-		if (n->a->kind == NDeref)
+		if (n->a->kind == NdDeref)
 			return ir_derived_readonly(n->a->a, c, fn, ro);
 		return ir_is_readonly_symbol(c, fn, ro, n->a->symbol);
-	case NCond:
+	case NdCond:
 		return ir_derived_readonly(n->b, c, fn, ro) || ir_derived_readonly(n->c, c, fn, ro);
-	case NUn:
-		if (n->op == PPlus || n->op == PMinus)
+	case NdUn:
+		if (n->op == PnPlus || n->op == PnMinus)
 			return ir_derived_readonly(n->a, c, fn, ro);
 		return 0;
 	default:
@@ -1462,28 +1462,28 @@ ir_expr_readonly_safe(Compiler* c, Node* fn, Node* n, IRAlias* ro) {
 	if (ac_immut_source(n))
 		return 1;
 	switch (n->kind) {
-	case NComma:
+	case NdComma:
 		return ir_expr_readonly_safe(c, fn, n->b, ro);
-	case NCall:
+	case NdCall:
 		ft = ir_call_fn_type(n);
 		if (ft && is_ptr(ft->base) && ft->base->is_readonly && !is_void_ptr(ft->base))
 			return 1;
 		return 0;
-	case NName:
+	case NdName:
 		return ir_is_readonly_symbol(c, fn, ro, n->symbol);
-	case NCast:
+	case NdCast:
 		if (n->type && is_ptr(n->type) && !n->type->is_readonly)
 			return 0;
 		return ir_expr_readonly_safe(c, fn, n->a, ro);
-	case NBin:
-		if (n->op == PPlus || n->op == PMinus)
+	case NdBin:
+		if (n->op == PnPlus || n->op == PnMinus)
 			return ir_derived_readonly(n, c, fn, ro);
 		return 0;
-	case NIndex:
-	case NSubrange:
-	case NAddr:
-	case NCond:
-	case NUn:
+	case NdIndex:
+	case NdSubrange:
+	case NdAddr:
+	case NdCond:
+	case NdUn:
 		return ir_derived_readonly(n, c, fn, ro);
 	default:
 		return 0;
@@ -1512,23 +1512,23 @@ ir_return_visit(Compiler* c, Node* n, void* ctx) {
 	Type* ret;
 
 	switch (n->kind) {
-	case NBlock:
-	case NIf:
-	case NWhile:
-	case NDo:
-	case NFor:
-	case NSwitch:
-	case NLabel:
+	case NdBlock:
+	case NdIf:
+	case NdWhile:
+	case NdDo:
+	case NdFor:
+	case NdSwitch:
+	case NdLabel:
 		return 0;
-	case NDecl:
+	case NdDecl:
 		if (n->init && n->init->expr)
 			ir_readonly_local_bind(c, x->fn, n->symbol, n->init->expr, x->ro);
 		return 1;
-	case NAssign:
-		if (n->op == PEq && n->a && n->a->kind == NName && n->a->symbol)
+	case NdAssign:
+		if (n->op == PnEq && n->a && n->a->kind == NdName && n->a->symbol)
 			ir_readonly_local_bind(c, x->fn, n->a->symbol, n->b, x->ro);
 		return 1;
-	case NReturn:
+	case NdReturn:
 		ret = x->fn->type && is_func(x->fn->type) ? x->fn->type->base : NULL;
 		if (ret && is_ptr(ret) && !is_void_ptr(ret) && n->a &&
 		    !ir_expr_readonly_safe(c, x->fn, n->a, x->ro))
@@ -1647,9 +1647,9 @@ static int
 ac_tracked_local(Symbol* s) {
 	Type* t;
 
-	if (s == NULL || s->kind != SK_VAR)
+	if (s == NULL || s->kind != SkVar)
 		return 0;
-	if (s->storage != ST_LOCAL && s->storage != ST_PARAM)
+	if (s->storage != StLocal && s->storage != StParam)
 		return 0;
 	t = s->type;
 	return t && (is_ptr(t) || is_array(t) || is_ranged(t));
@@ -1657,7 +1657,7 @@ ac_tracked_local(Symbol* s) {
 
 static int
 ac_char_ranged(Type* t) {
-	return t && is_ranged(t) && t->base && (t->base->kind == TY_CHAR || t->base->kind == TY_UCHAR);
+	return t && is_ranged(t) && t->base && (t->base->kind == TyChar || t->base->kind == TyUChar);
 }
 
 static void
@@ -1719,9 +1719,9 @@ static int
 ac_immut_source(Node* n) {
 	if (n == NULL)
 		return 0;
-	if (n->kind == NComma)
+	if (n->kind == NdComma)
 		return ac_immut_source(n->b);
-	if (n->kind == NCall && n->a && n->a->kind == NName && n->a->s && strcmp(n->a->s, "ranged") == 0 && n->children_len >= 1 && ac_immut_source(n->children[0]))
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && strcmp(n->a->s, "ranged") == 0 && n->children_len >= 1 && ac_immut_source(n->children[0]))
 		return 1;
 	if (expr_is_immutable(n))
 		return 1;
@@ -1734,13 +1734,13 @@ static int
 ac_expr_immut(ACState* st, Node* n) {
 	if (n == NULL)
 		return 0;
-	if (n->kind == NComma)
+	if (n->kind == NdComma)
 		return ac_expr_immut(st, n->b);
 	if (ac_immut_source(n))
 		return 1;
-	if (n->kind == NDot && n->a && n->a->kind == NName && n->a->symbol && ac_char_ranged(n->a->symbol->type) && n->s && strcmp(n->s, "ptr") == 0 && ac_get(st, n->a->symbol) == ACImmut)
+	if (n->kind == NdDot && n->a && n->a->kind == NdName && n->a->symbol && ac_char_ranged(n->a->symbol->type) && n->s && strcmp(n->s, "ptr") == 0 && ac_get(st, n->a->symbol) == ACImmut)
 		return 1;
-	if (n->kind == NName && n->symbol && ac_get(st, n->symbol) == ACImmut)
+	if (n->kind == NdName && n->symbol && ac_get(st, n->symbol) == ACImmut)
 		return 1;
 	return 0;
 }
@@ -1778,18 +1778,18 @@ ac_store_through(Compiler* c, Node* lval, ACState* st) {
 
 	if (lval == NULL)
 		return;
-	if (lval->kind == NDeref) {
+	if (lval->kind == NdDeref) {
 		p = lval->a;
-		if (p && p->kind == NName && p->symbol) {
+		if (p && p->kind == NdName && p->symbol) {
 			if (ac_get(st, p->symbol) == ACImmut)
 				error_at(c, lval->span, "store through immutable pointer");
 			ac_set(st, p->symbol, ACMutated);
 		}
 		return;
 	}
-	if (lval->kind == NIndex) {
+	if (lval->kind == NdIndex) {
 		p = lval->a;
-		if (p && p->kind == NName && p->symbol) {
+		if (p && p->kind == NdName && p->symbol) {
 			if (is_ptr(p->symbol->type)) {
 				if (ac_get(st, p->symbol) == ACImmut)
 					error_at(c, lval->span, "store through immutable pointer");
@@ -1800,7 +1800,7 @@ ac_store_through(Compiler* c, Node* lval, ACState* st) {
 		/* char buf[] = "hi" is a mutable array copy — indexing is fine */
 		return;
 	}
-	if (lval->kind == NComma)
+	if (lval->kind == NdComma)
 		ac_store_through(c, lval->b, st);
 }
 
@@ -1854,42 +1854,42 @@ ac_expr(Compiler* c, Node* n, ACState* st) {
 	if (n == NULL)
 		return;
 	switch (n->kind) {
-	case NLit:
-	case NStr:
-	case NSizeofT:
-	case NSkip:
+	case NdLit:
+	case NdStr:
+	case NdSizeofT:
+	case NdSkip:
 		return;
-	case NSizeof:
+	case NdSizeof:
 		return;
-	case NName:
+	case NdName:
 		return;
-	case NAddr:
+	case NdAddr:
 		ac_expr(c, n->a, st);
-		if (n->a && n->a->kind == NName && n->a->symbol)
+		if (n->a && n->a->kind == NdName && n->a->symbol)
 			ac_set(st, n->a->symbol, ACPlain); /* escape */
 		return;
-	case NAssign:
+	case NdAssign:
 		ac_expr(c, n->b, st);
 		ac_expr(c, n->a, st);
-		if (n->op == PEq && n->a && n->a->kind == NName && n->a->symbol)
+		if (n->op == PnEq && n->a && n->a->kind == NdName && n->a->symbol)
 			ac_assign_ptr(c, n->a->symbol, n->b, st, n->span);
 		else
 			ac_store_through(c, n->a, st);
 		return;
-	case NUn:
+	case NdUn:
 		ac_expr(c, n->a, st);
-		if (n->op == PPlusPlus || n->op == PMinusMinus)
+		if (n->op == PnPlusPlus || n->op == PnMinusMinus)
 			ac_store_through(c, n->a, st);
 		return;
-	case NPost:
+	case NdPost:
 		ac_expr(c, n->a, st);
 		ac_store_through(c, n->a, st);
 		return;
-	case NBin:
+	case NdBin:
 		ac_expr(c, n->a, st);
 		ac_expr(c, n->b, st);
 		return;
-	case NCond:
+	case NdCond:
 		ac_expr(c, n->a, st);
 		ac_copy(&a, st);
 		ac_copy(&b, st);
@@ -1897,11 +1897,11 @@ ac_expr(Compiler* c, Node* n, ACState* st) {
 		ac_expr(c, n->c, &b);
 		ac_join(st, &a, &b);
 		return;
-	case NComma:
+	case NdComma:
 		ac_expr(c, n->a, st);
 		ac_expr(c, n->b, st);
 		return;
-	case NCall:
+	case NdCall:
 		ac_expr(c, n->a, st);
 		ft = n->a ? n->a->type : NULL;
 		if (ft && is_ptr(ft) && ft->base && is_func(ft->base))
@@ -1909,7 +1909,7 @@ ac_expr(Compiler* c, Node* n, ACState* st) {
 		if ((ft == NULL || !is_func(ft)) && n->a && n->a->symbol && n->a->symbol->type && is_func(n->a->symbol->type))
 			ft = n->a->symbol->type;
 		/* Builtin ranged("…") / len(): not a mutable C pointer sink. */
-		if (n->a && n->a->kind == NName && n->a->s && (strcmp(n->a->s, "ranged") == 0 || strcmp(n->a->s, "len") == 0)) {
+		if (n->a && n->a->kind == NdName && n->a->s && (strcmp(n->a->s, "ranged") == 0 || strcmp(n->a->s, "len") == 0)) {
 			for (i = 0; i < n->children_len; i++)
 				ac_expr(c, n->children[i], st);
 			return;
@@ -1919,15 +1919,15 @@ ac_expr(Compiler* c, Node* n, ACState* st) {
 			pt = (ft && is_func(ft) && i < ft->params_len) ? ft->params[i] : NULL;
 			ac_check_arg(c, n->children[i], pt, st);
 			/* may-mutate: drop IMMUTABLE on pointer args passed to mutable params */
-			if (n->children[i] && n->children[i]->kind == NName && n->children[i]->symbol && (pt == NULL || ac_mutable_ptr_type(pt)))
+			if (n->children[i] && n->children[i]->kind == NdName && n->children[i]->symbol && (pt == NULL || ac_mutable_ptr_type(pt)))
 				ac_set(st, n->children[i]->symbol, ACMutated);
 		}
 		return;
-	case NIndex:
-	case NDeref:
-	case NDot:
-	case NArrow:
-	case NCast:
+	case NdIndex:
+	case NdDeref:
+	case NdDot:
+	case NdArrow:
+	case NdCast:
 		ac_expr(c, n->a, st);
 		ac_expr(c, n->b, st);
 		ac_expr(c, n->c, st);
@@ -1945,7 +1945,7 @@ ac_expr(Compiler* c, Node* n, ACState* st) {
 // For-loop init may be a declaration or an expression (auto-const variant).
 static void
 for_init_ac(Compiler* c, Node* init, ACState* st) {
-	if (init && init->kind == NDecl)
+	if (init && init->kind == NdDecl)
 		ac_stmt(c, init, st);
 	else
 		ac_expr(c, init, st);
@@ -1959,15 +1959,15 @@ ac_stmt(Compiler* c, Node* n, ACState* st) {
 	if (n == NULL)
 		return;
 	switch (n->kind) {
-	case NBlock:
+	case NdBlock:
 		for (i = 0; i < n->children_len; i++)
 			ac_stmt(c, n->children[i], st);
 		return;
-	case NDecl:
+	case NdDecl:
 		if (n->init)
 			ac_init(c, n->init, st, n->symbol);
 		return;
-	case NIf:
+	case NdIf:
 		ac_expr(c, n->a, st);
 		ac_copy(&a, st);
 		ac_copy(&b, st);
@@ -1975,19 +1975,19 @@ ac_stmt(Compiler* c, Node* n, ACState* st) {
 		ac_stmt(c, n->c, &b);
 		ac_join(st, &a, &b);
 		return;
-	case NWhile:
+	case NdWhile:
 		ac_expr(c, n->a, st);
 		ac_copy(&a, st);
 		ac_stmt(c, n->b, &a);
 		ac_join(st, st, &a);
 		return;
-	case NDo:
+	case NdDo:
 		ac_copy(&a, st);
 		ac_stmt(c, n->a, &a);
 		ac_expr(c, n->b, &a);
 		ac_join(st, st, &a);
 		return;
-	case NFor:
+	case NdFor:
 		for_init_ac(c, n->a, st);
 		ac_expr(c, n->b, st);
 		ac_copy(&a, st);
@@ -1996,29 +1996,29 @@ ac_stmt(Compiler* c, Node* n, ACState* st) {
 		ac_expr(c, n->c, &a);
 		ac_join(st, st, &a);
 		return;
-	case NSwitch:
+	case NdSwitch:
 		ac_expr(c, n->a, st);
 		ac_stmt(c, n->b, st);
 		return;
-	case NReturn:
+	case NdReturn:
 		ac_expr(c, n->a, st);
 		if (ac_fnret && user_source(c, n->span) && n->a && ac_expr_immut(st, n->a) && is_ptr(ac_fnret) && !ac_fnret->is_readonly)
 			error_at(c, n->a->span,
 				 "returning immutable string through mutable pointer return type");
 		return;
-	case NDefer:
+	case NdDefer:
 		ac_stmt(c, n->a, st);
 		return;
-	case NLabel:
+	case NdLabel:
 		ac_stmt(c, n->a, st);
 		return;
-	case NCase:
-	case NDefault:
-	case NBreak:
-	case NContinue:
-	case NGoto:
-	case NFallthrough:
-	case NSkip:
+	case NdCase:
+	case NdDefault:
+	case NdBreak:
+	case NdContinue:
+	case NdGoto:
+	case NdFallthrough:
+	case NdSkip:
 		return;
 	default:
 		ac_expr(c, n, st);
@@ -2031,7 +2031,7 @@ static void
 check_autoconst_func(Compiler* c, Node* fn) {
 	ACState st;
 
-	if (fn == NULL || fn->kind != NFunc || fn->a == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
@@ -2052,7 +2052,7 @@ check_autoconst_globals(Compiler* c) {
 
 	for (i = 0; i < c->globals_len; i++) {
 		d = c->globals[i];
-		if (d == NULL || d->kind != NDecl || d->symbol == NULL || d->init == NULL)
+		if (d == NULL || d->kind != NdDecl || d->symbol == NULL || d->init == NULL)
 			continue;
 		if (!user_source(c, d->span))
 			continue;

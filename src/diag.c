@@ -4,7 +4,7 @@
  * Compilation pipeline: lex → pp → parse → type check → emit → QBE
  * (cross-cutting: used by every stage; not a pipeline step.)
  *
- * error_at / error_tok print caret spans; after MAXERR errors we stop.
+ * error_at / error_tok print caret spans; after MaxErr errors we stop.
  * node / node1 / node2 / node_add build the tree used by parse and type.
  * xmalloc always zero-fills.
  */
@@ -170,7 +170,7 @@ void die(const char* fmt, ...) {
 	exit(1);
 }
 
-// User-facing error at a source span: message, caret underline, and fatal after MAXERR.
+// User-facing error at a source span: message, caret underline, and fatal after MaxErr.
 void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	va_list ap;
 	int i, col, len;
@@ -215,7 +215,7 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 		fputc('^', stderr);
 		fputc('\n', stderr);
 	}
-	if (c->error_count >= MAXERR)
+	if (c->error_count >= MaxErr)
 		c->fatal = 1;
 }
 

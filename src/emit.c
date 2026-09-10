@@ -180,24 +180,24 @@ storeop(Compiler* c, Type* t) {
 	w = storewidth(c, t);
 	if (t) {
 		switch (t->kind) {
-		case TY_CHAR:
-		case TY_UCHAR:
-		case TY_BOOL:
+		case TyChar:
+		case TyUChar:
+		case TyBool:
 			return "storeb";
-		case TY_SHORT:
-		case TY_USHORT:
+		case TyShort:
+		case TyUShort:
 			return "storeh";
-		case TY_LONG:
-		case TY_ULONG:
-		case TY_LLONG:
-		case TY_ULLONG:
-		case TY_PTR:
-		case TY_ARRAY:
-		case TY_FUNC:
+		case TyLong:
+		case TyULong:
+		case TyLLong:
+		case TyULLong:
+		case TyPtr:
+		case TyArray:
+		case TyFunc:
 			return t->size == 4 ? "storew" : "storel";
-		case TY_FLOAT:
+		case TyFloat:
 			return "stores";
-		case TY_DOUBLE:
+		case TyDouble:
 			return "stored";
 		default:
 			break;
@@ -218,27 +218,27 @@ loadop(Type* t) {
 	if (t == NULL)
 		return "loadw";
 	switch (t->kind) {
-	case TY_CHAR:
-	case TY_UCHAR:
-	case TY_BOOL:
+	case TyChar:
+	case TyUChar:
+	case TyBool:
 		return "loadub";
-	case TY_SHORT:
+	case TyShort:
 		return "loadsh";
-	case TY_USHORT:
+	case TyUShort:
 		return "loaduh";
-	case TY_LONG:
-	case TY_ULONG:
-	case TY_LLONG:
-	case TY_ULLONG:
-	case TY_PTR:
-	case TY_ARRAY:
-	case TY_FUNC:
+	case TyLong:
+	case TyULong:
+	case TyLLong:
+	case TyULLong:
+	case TyPtr:
+	case TyArray:
+	case TyFunc:
 		if (t->size == 4)
 			return t->is_unsigned ? "loaduw" : "loadsw";
 		return "loadl";
-	case TY_FLOAT:
+	case TyFloat:
 		return "loads";
-	case TY_DOUBLE:
+	case TyDouble:
 		return "loadd";
 	default:
 		return "loadw";
@@ -248,7 +248,7 @@ loadop(Type* t) {
 // Print a single QBE value class for function signatures and returns.
 static void
 print_abi_type(Type* t) {
-	if (t && (t->kind == TY_PTR || t->kind == TY_ARRAY || t->kind == TY_FUNC)) {
+	if (t && (t->kind == TyPtr || t->kind == TyArray || t->kind == TyFunc)) {
 		fputc('l', outf);
 		return;
 	}
@@ -269,7 +269,7 @@ emit_subtype(Compiler* c, Type* t) {
 		fputc('w', outf);
 		return;
 	}
-	if (t->kind == TY_ARRAY) {
+	if (t->kind == TyArray) {
 		n = t->len > 0 ? (int)t->len : 0;
 		emit_subtype(c, t->base);
 		if (n > 1)
@@ -282,26 +282,26 @@ emit_subtype(Compiler* c, Type* t) {
 		return;
 	}
 	switch (t->kind) {
-	case TY_CHAR:
-	case TY_UCHAR:
-	case TY_BOOL:
+	case TyChar:
+	case TyUChar:
+	case TyBool:
 		fputc('b', outf);
 		break;
-	case TY_SHORT:
-	case TY_USHORT:
+	case TyShort:
+	case TyUShort:
 		fputc('h', outf);
 		break;
-	case TY_FLOAT:
+	case TyFloat:
 		fputc('s', outf);
 		break;
-	case TY_DOUBLE:
+	case TyDouble:
 		fputc('d', outf);
 		break;
-	case TY_LONG:
-	case TY_ULONG:
-	case TY_LLONG:
-	case TY_ULLONG:
-	case TY_PTR:
+	case TyLong:
+	case TyULong:
+	case TyLLong:
+	case TyULLong:
+	case TyPtr:
 		fputc(t->size == 4 ? 'w' : 'l', outf);
 		break;
 	default:
@@ -321,7 +321,7 @@ emitsutype(Compiler* c, Type* t) {
 	if (t->emit_id < 0)
 		return;
 	al = type_align(c, t);
-	if (t->kind == TY_UNION) {
+	if (t->kind == TyUnion) {
 		fprintf(outf, "type :%s = align %d { b %d }\n\n",
 			aggregate_name(t), al > 0 ? al : 1, storewidth(c, t));
 		return;
@@ -356,7 +356,7 @@ emitsutype(Compiler* c, Type* t) {
 // File-scope static locals get synthetic linker names (__stN).
 static int
 is_static_local(Symbol* s) {
-	return s && s->kind == SK_VAR && s->storage == ST_STATIC && s->int_val > 0;
+	return s && s->kind == SkVar && s->storage == StStatic && s->int_val > 0;
 }
 
 // Linker symbol for a global, static, overload, or ordinary name.
@@ -378,9 +378,9 @@ symbol_link_name(Symbol* s) {
 // True for file-scope or extern variables (not stack slots).
 static int
 is_global_symbol(Symbol* s) {
-	if (s == NULL || s->kind != SK_VAR)
+	if (s == NULL || s->kind != SkVar)
 		return 0;
-	if (s->storage == ST_PARAM || s->storage == ST_LOCAL)
+	if (s->storage == StParam || s->storage == StLocal)
 		return 0;
 	return 1;
 }
@@ -392,7 +392,7 @@ addlocal(Symbol* s, Type* t, int isparam) {
 
 	if (s == NULL || is_global_symbol(s) || is_static_local(s))
 		return;
-	if (s->kind != SK_VAR)
+	if (s->kind != SkVar)
 		return;
 	for (i = 0; i < locals_len; i++)
 		if (locals[i] == s) {
@@ -413,15 +413,15 @@ ensure_ranged_symbol(Node* n) {
 	static int nrngtmp;
 	char buf[32];
 
-	if (n == NULL || n->kind != NCall || n->a == NULL || n->a->kind != NName || n->a->s == NULL || strcmp(n->a->s, "ranged") != 0 || n->type == NULL || !is_aggr(n->type))
+	if (n == NULL || n->kind != NdCall || n->a == NULL || n->a->kind != NdName || n->a->s == NULL || strcmp(n->a->s, "ranged") != 0 || n->type == NULL || !is_aggr(n->type))
 		return;
 	if (n->symbol != NULL)
 		return;
 	snprintf(buf, sizeof(buf), "__rng%d", nrngtmp++);
 	n->symbol = xmalloc(sizeof(*n->symbol));
 	n->symbol->name = xstrdup(buf);
-	n->symbol->kind = SK_VAR;
-	n->symbol->storage = ST_LOCAL;
+	n->symbol->kind = SkVar;
+	n->symbol->storage = StLocal;
 	n->symbol->type = n->type;
 }
 
@@ -434,14 +434,14 @@ collect(Compiler* c, Node* n) {
 		return;
 	if (n->type && is_aggr(n->type))
 		ensure_aggregate(n->type);
-	if (n->kind == NCall && n->a && n->a->kind == NName && n->a->s && strcmp(n->a->s, "ranged") == 0 && n->type && is_aggr(n->type)) {
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && strcmp(n->a->s, "ranged") == 0 && n->type && is_aggr(n->type)) {
 		ensure_ranged_symbol(n);
 		addlocal(n->symbol, n->type, 0);
 	}
-	if (n->kind == NName && n->symbol)
-		addlocal(n->symbol, n->type, n->symbol->storage == ST_PARAM);
-	if (n->kind == NDecl && n->symbol)
-		addlocal(n->symbol, n->type, n->symbol->storage == ST_PARAM);
+	if (n->kind == NdName && n->symbol)
+		addlocal(n->symbol, n->type, n->symbol->storage == StParam);
+	if (n->kind == NdDecl && n->symbol)
+		addlocal(n->symbol, n->type, n->symbol->storage == StParam);
 	collect(c, n->a);
 	collect(c, n->b);
 	collect(c, n->c);
@@ -460,11 +460,11 @@ inline_body_walk(Node* n, int* nnodes) {
 	if (*nnodes > InlineNodeBudget)
 		return 0;
 	switch (n->kind) {
-	case NDefer:
-	case NGoto:
-	case NLabel:
-	case NSwitch:
-	case NFunc:
+	case NdDefer:
+	case NdGoto:
+	case NdLabel:
+	case NdSwitch:
+	case NdFunc:
 		return 0;
 	default:
 		break;
@@ -488,10 +488,10 @@ inline_eligible(Symbol* s) {
 	Type *ty, *ret;
 	int nnodes;
 
-	if (s == NULL || s->kind != SK_FUNC)
+	if (s == NULL || s->kind != SkFunc)
 		return 0;
 	fn = s->node;
-	if (fn == NULL || fn->kind != NFunc)
+	if (fn == NULL || fn->kind != NdFunc)
 		return 0;
 	body = fn->a;
 	if (body == NULL)
@@ -551,7 +551,7 @@ inl_add_map(Compiler* c, InlineSite* site, Symbol* s, int id) {
 	int i;
 
 	(void)c;
-	if (s == NULL || s->kind != SK_VAR)
+	if (s == NULL || s->kind != SkVar)
 		return;
 	if (is_global_symbol(s) || is_static_local(s))
 		return;
@@ -567,8 +567,8 @@ inl_add_map(Compiler* c, InlineSite* site, Symbol* s, int id) {
 	ls = xmalloc(sizeof(*ls));
 	memset(ls, 0, sizeof(*ls));
 	ls->name = xstrdup(buf);
-	ls->kind = SK_VAR;
-	ls->storage = ST_LOCAL;
+	ls->kind = SkVar;
+	ls->storage = StLocal;
 	ls->type = s->type;
 	addlocal(ls, s->type, 0);
 }
@@ -582,13 +582,13 @@ inl_collect_map(Compiler* c, InlineSite* site, Node* n, int id) {
 		return;
 	if (n->type && is_aggr(n->type))
 		ensure_aggregate(n->type);
-	if (n->kind == NCall && n->a && n->a->kind == NName && n->a->s && strcmp(n->a->s, "ranged") == 0 && n->type && is_aggr(n->type)) {
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && strcmp(n->a->s, "ranged") == 0 && n->type && is_aggr(n->type)) {
 		ensure_ranged_symbol(n);
 		inl_add_map(c, site, n->symbol, id);
 	}
-	if (n->kind == NName && n->symbol)
+	if (n->kind == NdName && n->symbol)
 		inl_add_map(c, site, n->symbol, id);
-	if (n->kind == NDecl && n->symbol)
+	if (n->kind == NdDecl && n->symbol)
 		inl_add_map(c, site, n->symbol, id);
 	inl_collect_map(c, site, n->a, id);
 	inl_collect_map(c, site, n->b, id);
@@ -605,7 +605,7 @@ inl_find_param_symbol(Node* n, const char* name) {
 
 	if (n == NULL || name == NULL)
 		return NULL;
-	if (n->kind == NName && n->symbol && n->symbol->name && strcmp(n->symbol->name, name) == 0 && (n->symbol->storage == ST_PARAM || n->symbol->kind == SK_VAR))
+	if (n->kind == NdName && n->symbol && n->symbol->name && strcmp(n->symbol->name, name) == 0 && (n->symbol->storage == StParam || n->symbol->kind == SkVar))
 		return n->symbol;
 	s = inl_find_param_symbol(n->a, name);
 	if (s)
@@ -649,7 +649,7 @@ register_inline_site(Compiler* c, Node* call, Symbol* callee) {
 	site->call = call;
 	site->callee = callee;
 	ty = callee->type;
-	body = callee->node && callee->node->kind == NFunc ? callee->node->a : NULL;
+	body = callee->node && callee->node->kind == NdFunc ? callee->node->a : NULL;
 	if (ty) {
 		for (i = 0; i < ty->params_len; i++) {
 			if (!ty->param_names || !ty->param_names[i])
@@ -659,8 +659,8 @@ register_inline_site(Compiler* c, Node* call, Symbol* callee) {
 				ps = xmalloc(sizeof(*ps));
 				memset(ps, 0, sizeof(*ps));
 				ps->name = ty->param_names[i];
-				ps->kind = SK_VAR;
-				ps->storage = ST_PARAM;
+				ps->kind = SkVar;
+				ps->storage = StParam;
 				ps->type = ty->params[i];
 			}
 			inl_add_map(c, site, ps, id);
@@ -668,14 +668,14 @@ register_inline_site(Compiler* c, Node* call, Symbol* callee) {
 	}
 	inl_collect_map(c, site, body, id);
 	ret = ty ? ty->base : NULL;
-	if (ret && ret->kind != TY_VOID) {
+	if (ret && ret->kind != TyVoid) {
 		site->has_ret = 1;
 		snprintf(site->retname, sizeof(site->retname), "il%d__ret", id);
 		ps = xmalloc(sizeof(*ps));
 		memset(ps, 0, sizeof(*ps));
 		ps->name = xstrdup(site->retname);
-		ps->kind = SK_VAR;
-		ps->storage = ST_LOCAL;
+		ps->kind = SkVar;
+		ps->storage = StLocal;
 		ps->type = ret;
 		addlocal(ps, ret, 0);
 	}
@@ -689,7 +689,7 @@ register_inline_sites(Compiler* c, Node* n) {
 
 	if (n == NULL)
 		return;
-	if (n->kind == NCall && n->a && n->a->kind == NName && n->a->symbol && n->a->symbol->kind == SK_FUNC) {
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->symbol && n->a->symbol->kind == SkFunc) {
 		cal = n->a->symbol;
 		if (n->a->s == NULL || (strcmp(n->a->s, "ranged") != 0 && strcmp(n->a->s, "len") != 0 && strncmp(n->a->s, "__builtin_", 10) != 0))
 			register_inline_site(c, n, cal);
@@ -793,7 +793,7 @@ fpconst(Val* v, Type* t, const char* raw) {
 		else
 			break;
 	}
-	if (t && t->kind == TY_FLOAT) {
+	if (t && t->kind == TyFloat) {
 		v->cls = 's';
 		snprintf(v->text, sizeof(v->text), "s_%s", num);
 	} else {
@@ -832,17 +832,17 @@ static const char*
 cmpinst(int op, char cls, int uns) {
 	if (cls == 'd') {
 		switch (op) {
-		case PEqEq:
+		case PnEqEq:
 			return "ceqd";
-		case PBangEq:
+		case PnBangEq:
 			return "cned";
-		case PLt:
+		case PnLt:
 			return "cltd";
-		case PLe:
+		case PnLe:
 			return "cled";
-		case PGt:
+		case PnGt:
 			return "cgtd";
-		case PGe:
+		case PnGe:
 			return "cged";
 		default:
 			return "ceqd";
@@ -850,17 +850,17 @@ cmpinst(int op, char cls, int uns) {
 	}
 	if (cls == 's') {
 		switch (op) {
-		case PEqEq:
+		case PnEqEq:
 			return "ceqs";
-		case PBangEq:
+		case PnBangEq:
 			return "cnes";
-		case PLt:
+		case PnLt:
 			return "clts";
-		case PLe:
+		case PnLe:
 			return "cles";
-		case PGt:
+		case PnGt:
 			return "cgts";
-		case PGe:
+		case PnGe:
 			return "cges";
 		default:
 			return "ceqs";
@@ -868,34 +868,34 @@ cmpinst(int op, char cls, int uns) {
 	}
 	if (cls == 'l') {
 		switch (op) {
-		case PEqEq:
+		case PnEqEq:
 			return "ceql";
-		case PBangEq:
+		case PnBangEq:
 			return "cnel";
-		case PLt:
+		case PnLt:
 			return uns ? "cultl" : "csltl";
-		case PLe:
+		case PnLe:
 			return uns ? "culel" : "cslel";
-		case PGt:
+		case PnGt:
 			return uns ? "cugtl" : "csgtl";
-		case PGe:
+		case PnGe:
 			return uns ? "cugel" : "csgel";
 		default:
 			return "ceql";
 		}
 	}
 	switch (op) {
-	case PEqEq:
+	case PnEqEq:
 		return "ceqw";
-	case PBangEq:
+	case PnBangEq:
 		return "cnew";
-	case PLt:
+	case PnLt:
 		return uns ? "cultw" : "csltw";
-	case PLe:
+	case PnLe:
 		return uns ? "culew" : "cslew";
-	case PGt:
+	case PnGt:
 		return uns ? "cugtw" : "csgtw";
-	case PGe:
+	case PnGe:
 		return uns ? "cugew" : "csgew";
 	default:
 		return "ceqw";
@@ -918,7 +918,7 @@ emitgaddr(Compiler* c, Node* n) {
 	memset(&v, 0, sizeof(v));
 	v.cls = 'l';
 	v.type = n->type;
-	if (n->kind == NStr || (n->symbol == NULL && n->kind == NName && n->s && n->s[0] == 0)) {
+	if (n->kind == NdStr || (n->symbol == NULL && n->kind == NdName && n->s && n->s[0] == 0)) {
 		off = (int)n->int_val;
 		if (off == 0)
 			snprintf(v.text, sizeof(v.text), "$%s", emit_str_symbol);
@@ -928,7 +928,7 @@ emitgaddr(Compiler* c, Node* n) {
 		}
 		return v;
 	}
-	if (n->kind == NName && n->symbol && n->symbol->kind == SK_FUNC) {
+	if (n->kind == NdName && n->symbol && n->symbol->kind == SkFunc) {
 		snprintf(v.text, sizeof(v.text), "$%s", n->symbol->name);
 		return v;
 	}
@@ -940,7 +940,7 @@ emitgaddr(Compiler* c, Node* n) {
 // True for ordinary stack locals (not globals or static locals).
 static int
 isslot(Node* n) {
-	return n && n->kind == NName && n->symbol && !is_global_symbol(n->symbol) && !is_static_local(n->symbol) && n->symbol->kind == SK_VAR;
+	return n && n->kind == NdName && n->symbol && !is_global_symbol(n->symbol) && !is_static_local(n->symbol) && n->symbol->kind == SkVar;
 }
 
 /* ---- expressions ---- */
@@ -963,14 +963,14 @@ emitlval(Compiler* c, Node* n) {
 		snprintf(v.text, sizeof(v.text), "%%%s.addr", slot_basename(n->symbol));
 		return v;
 	}
-	if (n->kind == NName && n->symbol && (is_global_symbol(n->symbol) || is_static_local(n->symbol) || n->symbol->kind == SK_FUNC))
+	if (n->kind == NdName && n->symbol && (is_global_symbol(n->symbol) || is_static_local(n->symbol) || n->symbol->kind == SkFunc))
 		return emitgaddr(c, n);
-	if (n->kind == NStr)
+	if (n->kind == NdStr)
 		return emitgaddr(c, n);
-	if (n->kind == NDeref)
+	if (n->kind == NdDeref)
 		return emitexpr(c, n->a);
-	if (n->kind == NDot || n->kind == NArrow) {
-		if (n->kind == NArrow)
+	if (n->kind == NdDot || n->kind == NdArrow) {
+		if (n->kind == NdArrow)
 			b = emitexpr(c, n->a);
 		else if (n->a && is_aggr(n->a->type))
 			b = emitlval(c, n->a);
@@ -982,7 +982,7 @@ emitlval(Compiler* c, Node* n) {
 		fprintf(outf, "\t%s =l add %s, %d\n", v.text, b.text, (int)n->int_val);
 		return v;
 	}
-	if (n->kind == NIndex) {
+	if (n->kind == NdIndex) {
 		if (n->a && is_ranged(n->a->type) && n->a->type->base) {
 			b = emitexpr(c, n->a);
 			if (b.cls != 'l' && b.cls != '@')
@@ -1010,7 +1010,7 @@ emitlval(Compiler* c, Node* n) {
 		b = emitexpr(c, n->a);
 		i = emitexpr(c, n->b);
 		bt = n->a && n->a->type ? n->a->type : NULL;
-		if (bt && (bt->kind == TY_ARRAY || bt->kind == TY_PTR) && bt->base)
+		if (bt && (bt->kind == TyArray || bt->kind == TyPtr) && bt->base)
 			step = type_size(c, bt->base);
 		else if (n->type)
 			step = type_size(c, n->type);
@@ -1043,7 +1043,7 @@ emitinc(Compiler* c, Node* n, int pre, int plus) {
 	cur = emitexpr(c, n->a);
 	t = n->a ? n->a->type : NULL;
 	step = 1;
-	if (t && t->kind == TY_PTR && t->base)
+	if (t && t->kind == TyPtr && t->base)
 		step = type_size(c, t->base);
 	neu = vtmp(cur.cls, t);
 	fprintf(outf, "\t%s =%c %s %s, %d\n",
@@ -1061,9 +1061,9 @@ emitinc(Compiler* c, Node* n, int pre, int plus) {
 // Index of the ... in a varargs function type, or -1 if not varargs.
 static int
 fixedparams(Type* t) {
-	if (t && t->kind == TY_PTR && t->base && t->base->kind == TY_FUNC)
+	if (t && t->kind == TyPtr && t->base && t->base->kind == TyFunc)
 		t = t->base;
-	if (t && t->kind == TY_FUNC && t->is_varargs)
+	if (t && t->kind == TyFunc && t->is_varargs)
 		return t->params_len;
 	return -1;
 }
@@ -1072,35 +1072,35 @@ fixedparams(Type* t) {
 static const char*
 qbe_arith_op(int punct, int is_unsigned) {
 	switch (punct) {
-	case PPlus:
-	case PPlusEq:
+	case PnPlus:
+	case PnPlusEq:
 		return "add";
-	case PMinus:
-	case PMinusEq:
+	case PnMinus:
+	case PnMinusEq:
 		return "sub";
-	case PStar:
-	case PStarEq:
+	case PnStar:
+	case PnStarEq:
 		return "mul";
-	case PSlash:
-	case PSlashEq:
+	case PnSlash:
+	case PnSlashEq:
 		return is_unsigned ? "udiv" : "div";
-	case PPercent:
-	case PPercentEq:
+	case PnPercent:
+	case PnPercentEq:
 		return is_unsigned ? "urem" : "rem";
-	case PAmp:
-	case PAmpEq:
+	case PnAmp:
+	case PnAmpEq:
 		return "and";
-	case PPipe:
-	case PPipeEq:
+	case PnPipe:
+	case PnPipeEq:
 		return "or";
-	case PCaret:
-	case PCaretEq:
+	case PnCaret:
+	case PnCaretEq:
 		return "xor";
-	case PShl:
-	case PShlEq:
+	case PnShl:
+	case PnShlEq:
 		return "shl";
-	case PShr:
-	case PShrEq:
+	case PnShr:
+	case PnShrEq:
 		return is_unsigned ? "shr" : "sar";
 	default:
 		return "add";
@@ -1115,13 +1115,13 @@ emitexpr_assign(Compiler* c, Node* n) {
 	int uns;
 
 	r = emitexpr(c, n->b);
-	if (n->op != PEq && n->a) {
+	if (n->op != PnEq && n->a) {
 		l = emitexpr(c, n->a);
 		uns = n->a->type && n->a->type->is_unsigned;
 		op = qbe_arith_op(n->op, uns);
 		if (r.cls != l.cls)
 			r = coerce(r, l.cls, n->a->type);
-		if (n->op == PShlEq || n->op == PShrEq)
+		if (n->op == PnShlEq || n->op == PnShrEq)
 			r = mask_shift_count(c, r, n->a->type);
 		v = vtmp(l.cls, n->a->type);
 		fprintf(outf, "\t%s =%c %s %s, %s\n", v.text, l.cls, op, l.text, r.text);
@@ -1153,10 +1153,10 @@ try_inline_call(Compiler* c, Node* n, Val* out) {
 	memset(&v, 0, sizeof(v));
 	if (inl.active)
 		return 0;
-	if (n == NULL || n->a == NULL || n->a->kind != NName || n->a->symbol == NULL)
+	if (n == NULL || n->a == NULL || n->a->kind != NdName || n->a->symbol == NULL)
 		return 0;
 	callee = n->a->symbol;
-	if (callee->kind != SK_FUNC || !inline_eligible(callee) || inline_on_stack(callee))
+	if (callee->kind != SkFunc || !inline_eligible(callee) || inline_on_stack(callee))
 		return 0;
 	site = find_inline_site(n);
 	if (site == NULL || site->callee != callee)
@@ -1206,7 +1206,7 @@ try_inline_call(Compiler* c, Node* n, Val* out) {
 	inl.site = NULL;
 	inl.stack_len--;
 
-	if (ret && ret->kind == TY_VOID) {
+	if (ret && ret->kind == TyVoid) {
 		strcpy(v.text, "0");
 		v.cls = 'w';
 		v.type = ret;
@@ -1234,7 +1234,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 	char* bn;
 	int i, fixed;
 
-	bn = (n->a && n->a->kind == NName && n->a->s) ? n->a->s : NULL;
+	bn = (n->a && n->a->kind == NdName && n->a->s) ? n->a->s : NULL;
 	if (bn && strcmp(bn, "__builtin_va_start") == 0) {
 		if (n->children_len >= 1) {
 			l = emitexpr(c, n->children[0]);
@@ -1302,7 +1302,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		ln = vtmp('l', c->type_ullong);
 		fprintf(outf, "\t%s =l add %s, %d\n", ln.text, slot.text, off);
 		alen = 0;
-		if (n->children_len == 1 && n->children[0] && n->children[0]->kind == NStr && n->children[0]->type && n->children[0]->type->base && (n->children[0]->type->base->kind == TY_CHAR || n->children[0]->type->base->kind == TY_UCHAR) && n->children[0]->type->len > 0)
+		if (n->children_len == 1 && n->children[0] && n->children[0]->kind == NdStr && n->children[0]->type && n->children[0]->type->base && (n->children[0]->type->base->kind == TyChar || n->children[0]->type->base->kind == TyUChar) && n->children[0]->type->len > 0)
 			alen = n->children[0]->type->len - 1;
 		else if (n->children_len == 1 && n->children[0] && is_array(n->children[0]->type))
 			alen = n->children[0]->type->len;
@@ -1343,7 +1343,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		}
 		if (x && is_array(x->type) && x->type->len >= 0)
 			return vimm('l', x->type->len, c->type_ullong);
-		if (x && x->kind == NName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0)
+		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0)
 			return vimm('l', x->symbol->param_fixed_len, c->type_ullong);
 		if (x) {
 			Type* ag;
@@ -1377,9 +1377,9 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 	ft = n->a ? n->a->type : NULL;
 	if (ft && is_ptr(ft) && is_func(ft->base))
 		ft = ft->base;
-	if (ft && is_func(ft) == 0 && n->a && n->a->kind == NName && n->a->symbol)
+	if (ft && is_func(ft) == 0 && n->a && n->a->kind == NdName && n->a->symbol)
 		ft = n->a->symbol->type;
-	if (n->a && n->a->kind == NName && n->a->symbol && n->a->symbol->kind == SK_FUNC)
+	if (n->a && n->a->kind == NdName && n->a->symbol && n->a->symbol->kind == SkFunc)
 		snprintf(tgt.text, sizeof(tgt.text), "$%s", symbol_link_name(n->a->symbol));
 	else
 		tgt = emitexpr(c, n->a);
@@ -1396,7 +1396,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 			args[i] = emitexpr(c, n->children[i]);
 			args[i] = coerce(args[i], qbe_class(pt), pt);
 		}
-		if (n->type && n->type->kind == TY_VOID) {
+		if (n->type && n->type->kind == TyVoid) {
 			strcpy(v.text, "0");
 			v.cls = 'w';
 			fprintf(outf, "\tcall %s(", tgt.text);
@@ -1439,13 +1439,13 @@ emitexpr_bin(Compiler* c, Node* n) {
 	int ttrue, tfalse, tjoin, tright;
 	const char* op;
 
-	if (n->op == PAmpAmp || n->op == PPipePipe) {
+	if (n->op == PnAmpAmp || n->op == PnPipePipe) {
 		ttrue = newlbl();
 		tfalse = newlbl();
 		tjoin = newlbl();
 		tright = newlbl();
 		l = asbool(emitexpr(c, n->a));
-		if (n->op == PAmpAmp)
+		if (n->op == PnAmpAmp)
 			emitjnz(l.text, tright, tfalse);
 		else
 			emitjnz(l.text, ttrue, tright);
@@ -1461,12 +1461,12 @@ emitexpr_bin(Compiler* c, Node* n) {
 		fprintf(outf, "\t%s =w phi @L%d 1, @L%d 0\n", v.text, ttrue, tfalse);
 		return v;
 	}
-	if (n->op == PEqEq || n->op == PBangEq || n->op == PLt || n->op == PGt || n->op == PLe || n->op == PGe) {
+	if (n->op == PnEqEq || n->op == PnBangEq || n->op == PnLt || n->op == PnGt || n->op == PnLe || n->op == PnGe) {
 		l = emitexpr(c, n->a);
 		r = emitexpr(c, n->b);
-		if (n->type && n->type->kind == TY_DOUBLE)
+		if (n->type && n->type->kind == TyDouble)
 			cls = 'd';
-		else if (n->type && n->type->kind == TY_FLOAT)
+		else if (n->type && n->type->kind == TyFloat)
 			cls = 's';
 		else if (r.cls == 'l' || l.cls == 'l' || is_ptr(n->a->type) || is_ptr(n->b->type))
 			cls = 'l';
@@ -1486,7 +1486,7 @@ emitexpr_bin(Compiler* c, Node* n) {
 	}
 	l = emitexpr(c, n->a);
 	r = emitexpr(c, n->b);
-	if (n->op == PPlus || n->op == PMinus) {
+	if (n->op == PnPlus || n->op == PnMinus) {
 		if (is_ptr(n->a->type) && is_int(n->b->type)) {
 			int step = n->a->type->base ? type_size(c, n->a->type->base) : 1;
 			if (r.cls != 'l')
@@ -1500,10 +1500,10 @@ emitexpr_bin(Compiler* c, Node* n) {
 				l = coerce(l, 'l', n->a->type);
 			v = vtmp('l', n->type);
 			fprintf(outf, "\t%s =l %s %s, %s\n",
-				v.text, n->op == PPlus ? "add" : "sub", l.text, r.text);
+				v.text, n->op == PnPlus ? "add" : "sub", l.text, r.text);
 			return v;
 		}
-		if (n->op == PPlus && is_int(n->a->type) && is_ptr(n->b->type)) {
+		if (n->op == PnPlus && is_int(n->a->type) && is_ptr(n->b->type)) {
 			int step = n->b->type->base ? type_size(c, n->b->type->base) : 1;
 			if (l.cls != 'l')
 				l = coerce(l, 'l', c->type_llong);
@@ -1518,7 +1518,7 @@ emitexpr_bin(Compiler* c, Node* n) {
 			fprintf(outf, "\t%s =l add %s, %s\n", v.text, r.text, l.text);
 			return v;
 		}
-		if (n->op == PMinus && is_ptr(n->a->type) && is_ptr(n->b->type)) {
+		if (n->op == PnMinus && is_ptr(n->a->type) && is_ptr(n->b->type)) {
 			int step = n->a->type->base ? type_size(c, n->a->type->base) : 1;
 			if (l.cls != 'l')
 				l = coerce(l, 'l', n->a->type);
@@ -1539,7 +1539,7 @@ emitexpr_bin(Compiler* c, Node* n) {
 		l = coerce(l, cls, n->type);
 	if (r.cls != cls)
 		r = coerce(r, cls, n->type);
-	if (n->op == PShl || n->op == PShr)
+	if (n->op == PnShl || n->op == PnShr)
 		r = mask_shift_count(c, r, n->type);
 	op = qbe_arith_op(n->op, n->type && n->type->is_unsigned);
 	v = vtmp(cls, n->type);
@@ -1597,22 +1597,22 @@ emitexpr(Compiler* c, Node* n) {
 		v.cls = qbe_class(n->type);
 
 	switch (n->kind) {
-	case NLit:
-		if (n->type && (n->type->kind == TY_FLOAT || n->type->kind == TY_DOUBLE)) {
+	case NdLit:
+		if (n->type && (n->type->kind == TyFloat || n->type->kind == TyDouble)) {
 			fpconst(&v, n->type, n->s);
 			return v;
 		}
 		snprintf(v.text, sizeof(v.text), "%lld", (long long)n->int_val);
 		return v;
-	case NStr:
+	case NdStr:
 		return emitgaddr(c, n);
-	case NName:
-		if (n->symbol && n->symbol->kind == SK_FUNC) {
+	case NdName:
+		if (n->symbol && n->symbol->kind == SkFunc) {
 			snprintf(v.text, sizeof(v.text), "$%s", n->symbol->name);
 			v.cls = 'l';
 			return v;
 		}
-		if (n->type && n->type->kind == TY_ARRAY) {
+		if (n->type && n->type->kind == TyArray) {
 			v.cls = 'l';
 			if (isslot(n)) {
 				snprintf(v.text, sizeof(v.text), "%%%s.addr", slot_basename(n->symbol));
@@ -1642,15 +1642,15 @@ emitexpr(Compiler* c, Node* n) {
 		}
 		strcpy(v.text, "0");
 		return v;
-	case NSizeof:
-	case NSizeofT:
+	case NdSizeof:
+	case NdSizeofT:
 		snprintf(v.text, sizeof(v.text), "%d", (int)n->int_val);
 		v.cls = 'w';
 		return v;
-	case NCast:
-		if (n->type && n->type->kind == TY_VOID) {
+	case NdCast:
+		if (n->type && n->type->kind == TyVoid) {
 			/* (void)name; — no load (unused silence) */
-			if (n->a && n->a->kind != NName)
+			if (n->a && n->a->kind != NdName)
 				emitexpr(c, n->a);
 			strcpy(v.text, "0");
 			v.cls = 'w';
@@ -1664,15 +1664,15 @@ emitexpr(Compiler* c, Node* n) {
 			return coerce(l, cls, n->type);
 		l.type = n->type;
 		return l;
-	case NAddr:
+	case NdAddr:
 		return emitlval(c, n->a);
-	case NDeref:
+	case NdDeref:
 		if (n->a && n->a->type) {
 			Type* pt = decay(c, n->a->type);
 			if (pt && is_ptr(pt) && is_func(pt->base))
 				return emitexpr(c, n->a);
 		}
-		if (n->type && (n->type->kind == TY_ARRAY || n->type->kind == TY_FUNC || is_aggr(n->type))) {
+		if (n->type && (n->type->kind == TyArray || n->type->kind == TyFunc || is_aggr(n->type))) {
 			v = emitexpr(c, n->a);
 			v.cls = is_aggr(n->type) ? '@' : 'l';
 			return v;
@@ -1681,10 +1681,10 @@ emitexpr(Compiler* c, Node* n) {
 		v = vtmp(v.cls, n->type);
 		fprintf(outf, "\t%s =%c %s %s\n", v.text, v.cls, loadop(n->type), l.text);
 		return v;
-	case NDot:
-	case NArrow:
-	case NIndex:
-		if (n->type && (n->type->kind == TY_ARRAY || is_aggr(n->type))) {
+	case NdDot:
+	case NdArrow:
+	case NdIndex:
+		if (n->type && (n->type->kind == TyArray || is_aggr(n->type))) {
 			v = emitlval(c, n);
 			v.cls = is_aggr(n->type) ? '@' : 'l';
 			v.type = n->type;
@@ -1694,7 +1694,7 @@ emitexpr(Compiler* c, Node* n) {
 		v = vtmp(v.cls, n->type);
 		fprintf(outf, "\t%s =%c %s %s\n", v.text, v.cls, loadop(n->type), l.text);
 		return v;
-	case NSubrange: {
+	case NdSubrange: {
 		Val slot, base, ptr, lenv, lo, hi, tmp, off;
 		Type *bt, *elem;
 		int stride, lenoff;
@@ -1764,39 +1764,39 @@ emitexpr(Compiler* c, Node* n) {
 		v.type = n->type;
 		return v;
 	}
-	case NTupleLit:
+	case NdTupleLit:
 		return emitexpr_tuple(c, n);
-	case NAssign:
+	case NdAssign:
 		return emitexpr_assign(c, n);
-	case NUn:
-		if (n->op == PPlusPlus)
+	case NdUn:
+		if (n->op == PnPlusPlus)
 			return emitinc(c, n, 1, 1);
-		if (n->op == PMinusMinus)
+		if (n->op == PnMinusMinus)
 			return emitinc(c, n, 1, 0);
 		l = emitexpr(c, n->a);
-		if (n->op == PBang) {
+		if (n->op == PnBang) {
 			l = asbool(l);
 			v = vtmp('w', c->type_bool);
 			fprintf(outf, "\t%s =w ceqw %s, 0\n", v.text, l.text);
 			return v;
 		}
-		if (n->op == PPlus)
+		if (n->op == PnPlus)
 			return l;
 		v = vtmp(l.cls, n->type);
-		if (n->op == PMinus)
+		if (n->op == PnMinus)
 			fprintf(outf, "\t%s =%c sub 0, %s\n", v.text, l.cls, l.text);
-		else if (n->op == PTilde)
+		else if (n->op == PnTilde)
 			fprintf(outf, "\t%s =%c xor %s, -1\n", v.text, l.cls, l.text);
 		else
 			return l;
 		return v;
-	case NPost:
-		return emitinc(c, n, 0, n->op == PPlusPlus);
-	case NCall:
+	case NdPost:
+		return emitinc(c, n, 0, n->op == PnPlusPlus);
+	case NdCall:
 		return emitexpr_call(c, n, v);
-	case NBin:
+	case NdBin:
 		return emitexpr_bin(c, n);
-	case NCond:
+	case NdCond:
 		ttrue = newlbl();
 		tfalse = newlbl();
 		tjoin = newlbl();
@@ -1816,7 +1816,7 @@ emitexpr(Compiler* c, Node* n) {
 		fprintf(outf, "\t%s =%c phi @L%d %s, @L%d %s\n",
 			v.text, cls, ttrue, r.text, tfalse, l.text);
 		return v;
-	case NComma:
+	case NdComma:
 		emitexpr(c, n->a);
 		return emitexpr(c, n->b);
 	default:
@@ -1931,10 +1931,10 @@ collectcases(Node* n, Casearm* arms, int* narm, int* def) {
 
 	if (n == NULL)
 		return;
-	if (n->kind == NCase) {
+	if (n->kind == NdCase) {
 		if (*narm < MaxCase) {
 			arms[*narm].lo = n->int_val;
-			arms[*narm].hi = (n->b && n->b->kind == NLit) ? n->b->int_val : n->int_val;
+			arms[*narm].hi = (n->b && n->b->kind == NdLit) ? n->b->int_val : n->int_val;
 			if (n->op == 0)
 				n->op = newlbl(); /* reuse op as label */
 			arms[*narm].lbl = n->op;
@@ -1942,7 +1942,7 @@ collectcases(Node* n, Casearm* arms, int* narm, int* def) {
 		}
 		return;
 	}
-	if (n->kind == NDefault) {
+	if (n->kind == NdDefault) {
 		if (n->op == 0)
 			n->op = newlbl();
 		*def = n->op;
@@ -1975,10 +1975,10 @@ emitstmt_ret(Compiler* c, Node* n) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NSkip:
+	case NdSkip:
 		return 0;
-	case NDecl:
-		if (n->init && n->init->expr && n->symbol && n->symbol->storage == ST_LOCAL) {
+	case NdDecl:
+		if (n->init && n->init->expr && n->symbol && n->symbol->storage == StLocal) {
 			Val addr, r;
 			snprintf(addr.text, sizeof(addr.text), "%%%s.addr", slot_basename(n->symbol));
 			addr.cls = 'l';
@@ -1995,11 +1995,11 @@ emitstmt_ret(Compiler* c, Node* n) {
 			}
 		}
 		return 0;
-	case NBlock:
+	case NdBlock:
 		push_defer_frame((int)n->int_val);
 		fallen = 0;
 		for (i = 0; i < n->children_len; i++) {
-			if (n->children[i]->kind == NDefer)
+			if (n->children[i]->kind == NdDefer)
 				add_defer(c, n->children[i]->a);
 			else
 				fallen = emitstmt_ret(c, n->children[i]) || fallen;
@@ -2007,7 +2007,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		if (!fallen)
 			pop_defer_frame(c);
 		return fallen;
-	case NIf:
+	case NdIf:
 		t = newlbl();
 		t2 = newlbl();
 		t3 = n->c ? newlbl() : t2;
@@ -2022,7 +2022,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		}
 		emitlbl(t2);
 		return 0;
-	case NWhile:
+	case NdWhile:
 		t = newlbl();
 		t2 = newlbl();
 		t3 = newlbl();
@@ -2035,7 +2035,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		poploop();
 		emitlbl(t3);
 		return 0;
-	case NDo:
+	case NdDo:
 		t = newlbl();
 		t2 = newlbl();
 		t3 = newlbl();
@@ -2047,9 +2047,9 @@ emitstmt_ret(Compiler* c, Node* n) {
 		emitbooljmp(c, n->b, t, t3);
 		emitlbl(t3);
 		return 0;
-	case NFor:
+	case NdFor:
 		if (n->a) {
-			if (n->a->kind == NDecl)
+			if (n->a->kind == NdDecl)
 				emitstmt_ret(c, n->a);
 			else
 				emitexpr(c, n->a);
@@ -2074,22 +2074,22 @@ emitstmt_ret(Compiler* c, Node* n) {
 		poploop();
 		emitlbl(t3);
 		return 0;
-	case NBreak:
+	case NdBreak:
 		if (loops_len > 0)
 			emit_defers_pop_until(c, loop_defer[loops_len - 1]);
 		if (loops_len > 0)
 			emitjmp(loopbrk[loops_len - 1]);
 		return 1;
-	case NContinue:
+	case NdContinue:
 		if (loops_len > 0)
 			emit_defers_pop_until(c, loop_defer[loops_len - 1]);
 		if (loops_len > 0)
 			emitjmp(loopcont[loops_len - 1]);
 		return 1;
-	case NDefer:
+	case NdDefer:
 		add_defer(c, n->a);
 		return 0;
-	case NReturn:
+	case NdReturn:
 		/*
 		 * Evaluate the return value before running defers so
 		 * `defer free(p)` cannot free something still needed for ret.
@@ -2140,7 +2140,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 			fprintf(outf, "\tret\n");
 		}
 		return 1;
-	case NGoto:
+	case NdGoto:
 		if (n->symbol)
 			emit_defers_for_goto(c, 0);
 		if (n->symbol) {
@@ -2149,22 +2149,22 @@ emitstmt_ret(Compiler* c, Node* n) {
 			emitjmp(n->symbol->offset);
 		}
 		return 1;
-	case NLabel:
+	case NdLabel:
 		if (n->symbol) {
 			if (n->symbol->offset == 0)
 				n->symbol->offset = newlbl();
 			emitlbl(n->symbol->offset);
 		}
 		return emitstmt_ret(c, n->a);
-	case NCase:
+	case NdCase:
 		emitlbl(caselbl(n));
 		return 0;
-	case NDefault:
+	case NdDefault:
 		emitlbl(caselbl(n));
 		return 0;
-	case NFallthrough:
+	case NdFallthrough:
 		return 0;
-	case NSwitch: {
+	case NdSwitch: {
 		narm = 0;
 		def = 0;
 		collectcases(n->b, arms, &narm, &def);
@@ -2290,7 +2290,7 @@ emitfunc(Compiler* c, Node* fn) {
 	if (is_aggr(ret))
 		ensure_aggregate(ret);
 	fputs("export function ", outf);
-	if (ret && ret->kind == TY_VOID)
+	if (ret && ret->kind == TyVoid)
 		fprintf(outf, "$%s(", symbol_link_name(s));
 	else {
 		print_abi_type(ret);
@@ -2315,8 +2315,8 @@ emitfunc(Compiler* c, Node* fn) {
 				if (!found) {
 					Symbol* ps = xmalloc(sizeof(*ps));
 					ps->name = ty->param_names[i];
-					ps->kind = SK_VAR;
-					ps->storage = ST_PARAM;
+					ps->kind = SkVar;
+					ps->storage = StParam;
 					ps->type = ty->params[i];
 					addlocal(ps, ty->params[i], 1);
 				}
@@ -2334,7 +2334,7 @@ emitfunc(Compiler* c, Node* fn) {
 	returned = emitstmt_ret(c, fn->a);
 	emit_curfn = NULL;
 	if (!returned) {
-		if (ret && ret->kind == TY_VOID)
+		if (ret && ret->kind == TyVoid)
 			fputs("\tret\n", outf);
 		else
 			fputs("\tret 0\n", outf);
@@ -2411,18 +2411,18 @@ flatten_init_list(Compiler* c, Type* t, Initializer* in, int off) {
 	for (i = 0; i < in->items_len; i++) {
 		Initializer* it = &in->items[i];
 
-		if (it->designator == IDIndexEq) {
-			if (t->kind != TY_ARRAY) {
+		if (it->designator == IdIndexEq) {
+			if (t->kind != TyArray) {
 				error_at(c, (Span){0}, "array designator for non-array type");
 				continue;
 			}
 			w = type_size(c, t->base);
 			flatten_init(c, t->base, it, off + (int)(it->index * w));
-		} else if (it->designator == IDFieldDot) {
+		} else if (it->designator == IdFieldDot) {
 			ft = emit_field_path(c, t, it, &inner);
 			if (ft)
 				flatten_init(c, ft, it, off + inner);
-		} else if (t->kind == TY_ARRAY) {
+		} else if (t->kind == TyArray) {
 			w = type_size(c, t->base);
 			flatten_init(c, t->base, it, off + nextpos * w);
 			nextpos++;
@@ -2450,8 +2450,8 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 		flatten_init_list(c, t, in, off);
 		return;
 	}
-	if (t->kind == TY_ARRAY) {
-		if (in && in->expr && in->expr->kind == NStr && t->base && t->base->size == 1) {
+	if (t->kind == TyArray) {
+		if (in && in->expr && in->expr->kind == NdStr && t->base && t->base->size == 1) {
 			int k, n;
 			n = intern_str(c, in->expr->s); /* already interned; use int_val */
 			n = (int)in->expr->int_val;
@@ -2479,7 +2479,7 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 		return;
 	}
 	w = type_size(c, t);
-	if (in && in->expr && in->expr->kind == NStr) {
+	if (in && in->expr && in->expr->kind == NdStr) {
 		addgi(off, 8, 2, in->expr->int_val, NULL, (int)in->expr->int_val);
 		return;
 	}
@@ -2500,18 +2500,18 @@ emitgsym(Compiler* c, Node* d) {
 	GInit* gi;
 
 	s = d->symbol;
-	if (s == NULL || s->kind == SK_FUNC)
+	if (s == NULL || s->kind == SkFunc)
 		return;
 	t = s->type ? s->type : d->type;
 	if (t == NULL)
 		return;
-	if (s->storage == ST_EXTERN && !s->defined && d->init == NULL)
+	if (s->storage == StExtern && !s->defined && d->init == NULL)
 		return;
 	ginits_len = 0;
 	if (d->init)
 		flatten_init(c, t, d->init, 0);
 	size = type_size(c, t);
-	export = s->storage != ST_STATIC && s->storage != ST_LOCAL;
+	export = s->storage != StStatic && s->storage != StLocal;
 	if (export)
 		fputs("export ", outf);
 	fprintf(outf, "data $%s = {", symbol_link_name(s));
@@ -2587,7 +2587,7 @@ su_ready(Type* t) {
 	for (f = t->fields; f; f = f->next) {
 		if (is_aggr(f->type) && f->type->emit_id > 0)
 			return 0;
-		if (f->type && f->type->kind == TY_ARRAY && is_aggr(f->type->base) && f->type->base->emit_id > 0)
+		if (f->type && f->type->kind == TyArray && is_aggr(f->type->base) && f->type->base->emit_id > 0)
 			return 0;
 	}
 	return 1;

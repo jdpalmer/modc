@@ -13,7 +13,7 @@ static int switch_depth;
 /* Header `const` before a declarator: apply is_readonly to the first pointer level. */
 static int pending_pointee_const;
 
-// Current token; never advances. Past EOF, returns the final TEof.
+// Current token; never advances. Past EOF, returns the final TkEof.
 Tok* peek(Compiler* c) {
 	if (c->pos >= c->tokens_len)
 		return &c->tokens[c->tokens_len - 1];
@@ -35,7 +35,7 @@ Tok* take(Compiler* c) {
 	Tok* t;
 
 	t = peek(c);
-	if (t->kind != TEof && c->pos < c->tokens_len)
+	if (t->kind != TkEof && c->pos < c->tokens_len)
 		c->pos++;
 	return t;
 }
@@ -43,13 +43,13 @@ Tok* take(Compiler* c) {
 // True when the current token is the given punctuator.
 int at(Compiler* c, int punct) {
 	Tok* t = peek(c);
-	return t->kind == TPunct && t->punct == punct;
+	return t->kind == TkPunct && t->punct == punct;
 }
 
 // True when the current token is the given keyword.
 int atkw(Compiler* c, int kw) {
 	Tok* t = peek(c);
-	return t->kind == TKw && t->kw == kw;
+	return t->kind == TkKw && t->kw == kw;
 }
 
 // Consume the punctuator if present; returns whether it matched.
@@ -82,16 +82,16 @@ static void
 skip_to_balance(Compiler* c) {
 	int depth = 0;
 
-	while (peek(c)->kind != TEof) {
-		if (at(c, PLbrace)) {
+	while (peek(c)->kind != TkEof) {
+		if (at(c, PnLbrace)) {
 			depth++;
 			take(c);
-		} else if (at(c, PRbrace)) {
+		} else if (at(c, PnRbrace)) {
 			if (depth == 0)
 				return;
 			depth--;
 			take(c);
-		} else if (at(c, PSemi) && depth == 0) {
+		} else if (at(c, PnSemi) && depth == 0) {
 			take(c);
 			return;
 		} else
@@ -106,13 +106,13 @@ static void
 skip_braced(Compiler* c) {
 	int depth;
 
-	if (!eat(c, PLbrace))
+	if (!eat(c, PnLbrace))
 		return;
 	depth = 1;
-	while (peek(c)->kind != TEof && depth > 0) {
-		if (at(c, PLbrace))
+	while (peek(c)->kind != TkEof && depth > 0) {
+		if (at(c, PnLbrace))
 			depth++;
-		else if (at(c, PRbrace))
+		else if (at(c, PnRbrace))
 			depth--;
 		take(c);
 		if (c->fatal)
@@ -132,20 +132,20 @@ skip_toplevel_semi(Compiler* c) {
 
 	depth = 0;
 	saw_brace = 0;
-	while (peek(c)->kind != TEof) {
-		if (at(c, PLbrace)) {
+	while (peek(c)->kind != TkEof) {
+		if (at(c, PnLbrace)) {
 			depth++;
 			saw_brace = 1;
 			take(c);
-		} else if (at(c, PRbrace) && depth > 0) {
+		} else if (at(c, PnRbrace) && depth > 0) {
 			depth--;
 			take(c);
 			if (depth == 0 && saw_brace) {
-				if (at(c, PSemi))
+				if (at(c, PnSemi))
 					take(c);
 				return;
 			}
-		} else if (at(c, PSemi) && depth == 0) {
+		} else if (at(c, PnSemi) && depth == 0) {
 			take(c);
 			return;
 		} else
@@ -168,7 +168,7 @@ find_prescan_func(Compiler* c, const char* name, Type* ty, int isoverload) {
 	Symbol* s;
 
 	for (s = c->symbols; s; s = s->next) {
-		if (s->hidden || s->dead || s->kind != SK_FUNC || s->block != 0 || s->is_method)
+		if (s->hidden || s->dead || s->kind != SkFunc || s->block != 0 || s->is_method)
 			continue;
 		if (strcmp(s->name, name) != 0)
 			continue;
@@ -185,32 +185,32 @@ find_prescan_func(Compiler* c, const char* name, Type* ty, int isoverload) {
 int is_typename_tok(Compiler* c, Tok* t) {
 	Symbol* s;
 
-	if (t->kind == TKw) {
+	if (t->kind == TkKw) {
 		switch (t->kw) {
-		case K_void:
-		case K_char:
-		case K_short:
-		case K_int:
-		case K_long:
-		case K_float:
-		case K_double:
-		case K_signed:
-		case K_unsigned:
-		case K_struct:
-		case K_union:
-		case K_enum:
-		case K_bool:
-		case K_const:
-		case K_volatile:
-		case K_restrict:
+		case KwVoid:
+		case KwChar:
+		case KwShort:
+		case KwInt:
+		case KwLong:
+		case KwFloat:
+		case KwDouble:
+		case KwSigned:
+		case KwUnsigned:
+		case KwStruct:
+		case KwUnion:
+		case KwEnum:
+		case KwBool:
+		case KwConst:
+		case KwVolatile:
+		case KwRestrict:
 			return 1;
 		default:
 			return 0;
 		}
 	}
-	if (t->kind == TIdent) {
+	if (t->kind == TkIdent) {
 		s = symbol_lookup(c, t->s);
-		return s && (s->kind == SK_TYPEDEF || s->kind == SK_TAG);
+		return s && (s->kind == SkTypedef || s->kind == SkTag);
 	}
 	return 0;
 }
@@ -224,7 +224,7 @@ is_typename(Compiler* c) {
 // True when the current token is a storage-class or overload specifier.
 static int
 is_storage(Compiler* c) {
-	return atkw(c, K_typedef) || atkw(c, K_extern) || atkw(c, K_static) || atkw(c, K_auto) || atkw(c, K_register) || atkw(c, K_inline) || atkw(c, K_overload);
+	return atkw(c, KwTypedef) || atkw(c, KwExtern) || atkw(c, KwStatic) || atkw(c, KwAuto) || atkw(c, KwRegister) || atkw(c, KwInline) || atkw(c, KwOverload);
 }
 
 static Node* parse_expr(Compiler* c);
@@ -272,19 +272,19 @@ parse_static_assert(Compiler* c) {
 
 	sp = peek(c)->span;
 	take(c); /* static_assert / _Static_assert */
-	expect(c, PLparen, "'('");
+	expect(c, PnLparen, "'('");
 	cond = type_expr(c, parse_cond(c));
 	msg = NULL;
-	if (eat(c, PComma)) {
-		if (peek(c)->kind != TString) {
+	if (eat(c, PnComma)) {
+		if (peek(c)->kind != TkString) {
 			error_tok(c, peek(c), "expected string literal in static_assert");
 			skip_to_balance(c);
 			return;
 		}
 		msg = take(c)->s;
 	}
-	expect(c, PRparen, "')'");
-	expect(c, PSemi, "';'");
+	expect(c, PnRparen, "')'");
+	expect(c, PnSemi, "';'");
 	if (!eval_const(c, cond, &v))
 		error_at(c, sp, "static_assert expression is not a constant");
 	else if (v == 0) {
@@ -298,7 +298,7 @@ parse_static_assert(Compiler* c) {
 // Placeholder type for nested declarator parsing passes.
 static Type*
 dummy_type(Compiler* c) {
-	return type_new(c, TY_INT);
+	return type_new(c, TyInt);
 }
 
 /* ---- types / declarators ---- */
@@ -318,35 +318,35 @@ parse_struct(Compiler* c, int kind) {
 	sp = peek(c)->span;
 	while (eat_vendor_attr(c))
 		;
-	if (peek(c)->kind == TIdent) {
+	if (peek(c)->kind == TkIdent) {
 		tag = take(c)->s;
 	}
 	while (eat_vendor_attr(c))
 		;
 	t = type_struct(c, kind, tag, sp);
-	if (!eat(c, PLbrace))
+	if (!eat(c, PnLbrace))
 		return t;
 	if (t->complete && t->fields) {
 		error_at(c, sp, "redefinition of %s", tag ? tag : "struct");
 	}
 	tail = &t->fields;
-	while (!at(c, PRbrace) && peek(c)->kind != TEof) {
-		if (at(c, PSemi)) {
+	while (!at(c, PnRbrace) && peek(c)->kind != TkEof) {
+		if (at(c, PnSemi)) {
 			take(c);
 			continue;
 		}
-		storage = ST_NONE;
+		storage = StNone;
 		saw = 0;
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw)
 			base = c->type_int;
 		fname = NULL;
-		if (at(c, PColon))
+		if (at(c, PnColon))
 			ft = base;
 		else
 			ft = parse_declarator(c, base, &fname, 1);
 		/* Bit-fields: headers only. Width is accepted; layout still uses base size. */
-		if (eat(c, PColon)) {
+		if (eat(c, PnColon)) {
 			Node* w;
 
 			if (user_source(c, peek(c)->span))
@@ -359,7 +359,7 @@ parse_struct(Compiler* c, int kind) {
 			f->name = fname ? xstrdup(fname) : NULL;
 			f->type = ft;
 			f->pkg_private = 0;
-			if (storage == ST_STATIC) {
+			if (storage == StStatic) {
 				if (!is_ptr(ft))
 					error_at(c, sp,
 						 "static struct fields must be pointers (package-private handles)");
@@ -368,28 +368,28 @@ parse_struct(Compiler* c, int kind) {
 			}
 			*tail = f;
 			tail = &f->next;
-			if (!eat(c, PComma))
+			if (!eat(c, PnComma))
 				break;
 			if (user_source(c, peek(c)->span)) {
 				error_tok(c, peek(c), "%%C requires one variable declaration per line");
-				while (!at(c, PSemi) && !at(c, PRbrace) && peek(c)->kind != TEof)
+				while (!at(c, PnSemi) && !at(c, PnRbrace) && peek(c)->kind != TkEof)
 					take(c);
 				break;
 			}
 			fname = NULL;
 			ft = parse_declarator(c, base, &fname, 1);
-			if (eat(c, PColon)) {
+			if (eat(c, PnColon)) {
 				Node* w;
 
 				w = parse_cond(c);
 				(void)w;
 			}
 		}
-		expect(c, PSemi, "';'");
+		expect(c, PnSemi, "';'");
 		if (c->fatal)
 			break;
 	}
-	expect(c, PRbrace, "'}'");
+	expect(c, PnRbrace, "'}'");
 	t->complete = 1;
 	if (tag && user_source(c, sp) && c->infile) {
 		char root[1024];
@@ -398,7 +398,7 @@ parse_struct(Compiler* c, int kind) {
 		t->pkg_root = xstrdup(root);
 	}
 	type_layout(c, t);
-	if (kind == TY_UNION && user_source(c, sp)) {
+	if (kind == TyUnion && user_source(c, sp)) {
 		Field* uf;
 		int saw_ptr, saw_other;
 
@@ -433,32 +433,32 @@ parse_enum(Compiler* c) {
 	sp = peek(c)->span;
 	tag = NULL;
 	et = c->type_int;
-	if (peek(c)->kind == TIdent)
+	if (peek(c)->kind == TkIdent)
 		tag = take(c)->s;
 	if (tag)
-		et = type_struct(c, TY_ENUM, tag, sp);
-	if (!eat(c, PLbrace))
+		et = type_struct(c, TyEnum, tag, sp);
+	if (!eat(c, PnLbrace))
 		return et;
 	val = 0;
-	while (!at(c, PRbrace) && peek(c)->kind != TEof) {
-		if (peek(c)->kind != TIdent) {
+	while (!at(c, PnRbrace) && peek(c)->kind != TkEof) {
+		if (peek(c)->kind != TkIdent) {
 			error_tok(c, peek(c), "expected enumerator");
 			break;
 		}
 		enm = take(c)->s;
-		if (eat(c, PEq)) {
+		if (eat(c, PnEq)) {
 			n = parse_cond(c);
 			n = type_expr(c, n);
 			if (!eval_const(c, n, &val))
 				error_tok(c, peek(c), "enumerator is not a constant");
 		}
-		s = symbol_define(c, enm, SK_ENUMCON, et, ST_NONE, peek(c)->span);
+		s = symbol_define(c, enm, SkEnumCon, et, StNone, peek(c)->span);
 		s->int_val = val;
 		val++;
-		if (!eat(c, PComma))
+		if (!eat(c, PnComma))
 			break;
 	}
-	expect(c, PRbrace, "'}'");
+	expect(c, PnRbrace, "'}'");
 	if (tag) {
 		et->complete = 1;
 		et->size = 4;
@@ -488,14 +488,14 @@ static void
 skip_paren_group(Compiler* c) {
 	int depth;
 
-	if (!eat(c, PLparen))
+	if (!eat(c, PnLparen))
 		return;
 	depth = 1;
-	while (depth > 0 && peek(c)->kind != TEof) {
-		if (at(c, PLparen)) {
+	while (depth > 0 && peek(c)->kind != TkEof) {
+		if (at(c, PnLparen)) {
 			take(c);
 			depth++;
-		} else if (at(c, PRparen)) {
+		} else if (at(c, PnRparen)) {
 			take(c);
 			depth--;
 		} else
@@ -557,7 +557,7 @@ eat_vendor_attr(Compiler* c) {
 	const char* name;
 
 	t = peek(c);
-	if (t->kind != TIdent || !is_vendor_attr_ident(t->s))
+	if (t->kind != TkIdent || !is_vendor_attr_ident(t->s))
 		return 0;
 	name = t->s;
 	if (user_source(c, t->span))
@@ -579,7 +579,7 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	Span signed_sp, long_sp;
 
 	pending_pointee_const = 0;
-	*storage = ST_NONE;
+	*storage = StNone;
 	*saw_type = 0;
 	nlong = nshort = nsigned = nunsigned = 0;
 	nint = nchar = nvoid = nfloat = ndouble = nbool = 0;
@@ -589,23 +589,23 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	for (;;) {
 		if (eat_vendor_attr(c))
 			continue;
-		if (eatkw(c, K_typedef)) {
-			*storage = ST_TYPEDEF;
+		if (eatkw(c, KwTypedef)) {
+			*storage = StTypedef;
 			continue;
 		}
-		if (eatkw(c, K_extern)) {
-			if (*storage == ST_NONE)
-				*storage = ST_EXTERN;
+		if (eatkw(c, KwExtern)) {
+			if (*storage == StNone)
+				*storage = StExtern;
 			continue;
 		}
-		if (eatkw(c, K_static)) {
-			if (*storage == ST_NONE)
-				*storage = ST_STATIC;
+		if (eatkw(c, KwStatic)) {
+			if (*storage == StNone)
+				*storage = StStatic;
 			continue;
 		}
-		if (eatkw(c, K_auto))
+		if (eatkw(c, KwAuto))
 			error_tok(c, peek(c), "auto is only for initialized locals (auto x = expr)");
-		if (atkw(c, K_const)) {
+		if (atkw(c, KwConst)) {
 			Tok* ct;
 
 			ct = peek(c);
@@ -616,29 +616,29 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 				pending_pointee_const = 1;
 			continue;
 		}
-		if (eat_c_reject_kw(c, K_register, "register") || eat_c_reject_kw(c, K_inline, "inline") || eat_c_reject_kw(c, K_volatile, "volatile") || eat_c_reject_kw(c, K_restrict, "restrict"))
+		if (eat_c_reject_kw(c, KwRegister, "register") || eat_c_reject_kw(c, KwInline, "inline") || eat_c_reject_kw(c, KwVolatile, "volatile") || eat_c_reject_kw(c, KwRestrict, "restrict"))
 			continue;
-		if (eatkw(c, K_void)) {
+		if (eatkw(c, KwVoid)) {
 			nvoid++;
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_char)) {
+		if (eatkw(c, KwChar)) {
 			nchar++;
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_short)) {
+		if (eatkw(c, KwShort)) {
 			nshort++;
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_int)) {
+		if (eatkw(c, KwInt)) {
 			nint++;
 			*saw_type = 1;
 			continue;
 		}
-		if (atkw(c, K_long)) {
+		if (atkw(c, KwLong)) {
 			if (long_sp.file == NULL)
 				long_sp = peek(c)->span;
 			take(c);
@@ -646,17 +646,17 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_float)) {
+		if (eatkw(c, KwFloat)) {
 			nfloat++;
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_double)) {
+		if (eatkw(c, KwDouble)) {
 			ndouble++;
 			*saw_type = 1;
 			continue;
 		}
-		if (atkw(c, K_signed)) {
+		if (atkw(c, KwSigned)) {
 			if (signed_sp.file == NULL)
 				signed_sp = peek(c)->span;
 			take(c);
@@ -664,32 +664,32 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_unsigned)) {
+		if (eatkw(c, KwUnsigned)) {
 			nunsigned++;
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_bool)) {
+		if (eatkw(c, KwBool)) {
 			nbool++;
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_struct)) {
-			t = parse_struct(c, TY_STRUCT);
+		if (eatkw(c, KwStruct)) {
+			t = parse_struct(c, TyStruct);
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_union)) {
-			t = parse_struct(c, TY_UNION);
+		if (eatkw(c, KwUnion)) {
+			t = parse_struct(c, TyUnion);
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, K_enum)) {
+		if (eatkw(c, KwEnum)) {
 			t = parse_enum(c);
 			*saw_type = 1;
 			continue;
 		}
-		if (peek(c)->kind == TIdent && peek(c)->s && strcmp(peek(c)->s, "Slice") == 0) {
+		if (peek(c)->kind == TkIdent && peek(c)->s && strcmp(peek(c)->s, "Slice") == 0) {
 			Span sp;
 
 			sp = peek(c)->span;
@@ -699,7 +699,7 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 			continue;
 		}
 		/* MSVC __intN types (Windows SDK / CRT headers). */
-		if (peek(c)->kind == TIdent && peek(c)->s && peek(c)->s[0] == '_') {
+		if (peek(c)->kind == TkIdent && peek(c)->s && peek(c)->s[0] == '_') {
 			const char* in = peek(c)->s;
 			Type* it = NULL;
 
@@ -718,15 +718,15 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 				continue;
 			}
 		}
-		if (peek(c)->kind == TIdent && t == NULL && nvoid + nchar + nint + nlong + nshort + nfloat + ndouble + nbool + nsigned + nunsigned == 0) {
+		if (peek(c)->kind == TkIdent && t == NULL && nvoid + nchar + nint + nlong + nshort + nfloat + ndouble + nbool + nsigned + nunsigned == 0) {
 			s = symbol_lookup(c, peek(c)->s);
-			if (s && (s->kind == SK_TYPEDEF || s->kind == SK_TAG)) {
+			if (s && (s->kind == SkTypedef || s->kind == SkTag)) {
 				t = s->type;
 				*saw_type = 1;
 				take(c);
 				continue;
 			}
-			if (s && s->kind != SK_TAG && s->kind != SK_TYPEDEF) {
+			if (s && s->kind != SkTag && s->kind != SkTypedef) {
 				error_tok(c, peek(c), "%s is not a type", peek(c)->s);
 				take(c);
 				continue;
@@ -779,14 +779,14 @@ static int
 looks_nested(Compiler* c) {
 	Tok* n;
 
-	if (!at(c, PLparen))
+	if (!at(c, PnLparen))
 		return 0;
 	n = peekn(c, 1);
-	if (n->kind == TPunct && n->punct == PRparen)
+	if (n->kind == TkPunct && n->punct == PnRparen)
 		return 0;
-	if (n->kind == TPunct && (n->punct == PStar || n->punct == PLparen))
+	if (n->kind == TkPunct && (n->punct == PnStar || n->punct == PnLparen))
 		return 1;
-	if (n->kind == TIdent && !is_typename_tok(c, n))
+	if (n->kind == TkIdent && !is_typename_tok(c, n))
 		return 1;
 	return 0;
 }
@@ -805,21 +805,21 @@ parse_param_list(Compiler* c, Type* ret) {
 
 	n = 0;
 	va = 0;
-	if (atkw(c, K_void) && peekn(c, 1)->kind == TPunct && peekn(c, 1)->punct == PRparen) {
+	if (atkw(c, KwVoid) && peekn(c, 1)->kind == TkPunct && peekn(c, 1)->punct == PnRparen) {
 		take(c);
 		return type_func(c, ret, NULL, 0, 0);
 	}
-	if (at(c, PRparen))
+	if (at(c, PnRparen))
 		return type_func(c, ret, NULL, 0, 0);
-	while (!at(c, PRparen) && peek(c)->kind != TEof) {
+	while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
 		Span psp;
 
-		if (at(c, PEllipsis)) {
+		if (at(c, PnEllipsis)) {
 			take(c);
 			va = 1;
 			break;
 		}
-		storage = ST_NONE;
+		storage = StNone;
 		saw = 0;
 		psp = peek(c)->span;
 		base = parse_declspec(c, &storage, &saw);
@@ -851,7 +851,7 @@ parse_param_list(Compiler* c, Type* ret) {
 			names[n] = nm;
 			n++;
 		}
-		if (eat(c, PComma))
+		if (eat(c, PnComma))
 			continue;
 		break;
 	}
@@ -873,20 +873,20 @@ parse_suffix(Compiler* c, Type* base) {
 	Node* n;
 	int64_t len;
 
-	if (eat(c, PLbrack)) {
-		if (eat(c, PDotDot)) {
-			expect(c, PRbrack, "']'");
+	if (eat(c, PnLbrack)) {
+		if (eat(c, PnDotDot)) {
+			expect(c, PnRbrack, "']'");
 			base = type_ranged(c, base);
 			base = parse_pointers(c, base);
 			return parse_suffix(c, base);
 		}
-		if (eat(c, PRbrack)) {
+		if (eat(c, PnRbrack)) {
 			base = parse_suffix(c, base);
 			return type_array(c, base, -1);
 		}
 		n = parse_expr(c);
 		n = type_expr(c, n);
-		expect(c, PRbrack, "']'");
+		expect(c, PnRbrack, "']'");
 		if (!eval_const(c, n, &len) || len <= 0) {
 			/* Headers: C_ASSERT / SAL often need sizeof of structs we only
 			 * partially layout; keep parsing with a dummy length. */
@@ -897,9 +897,9 @@ parse_suffix(Compiler* c, Type* base) {
 		base = parse_suffix(c, base);
 		return type_array(c, base, len);
 	}
-	if (eat(c, PLparen)) {
+	if (eat(c, PnLparen)) {
 		base = parse_param_list(c, base);
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		base = parse_suffix(c, base);
 		return base;
 	}
@@ -912,11 +912,11 @@ parse_pointers(Compiler* c, Type* base) {
 	for (;;) {
 		while (eat_vendor_attr(c))
 			;
-		if (!eat(c, PStar))
+		if (!eat(c, PnStar))
 			break;
-		while (eat_vendor_attr(c) || eat_c_reject_kw(c, K_const, "const") ||
-		       eat_c_reject_kw(c, K_volatile, "volatile") ||
-		       eat_c_reject_kw(c, K_restrict, "restrict"))
+		while (eat_vendor_attr(c) || eat_c_reject_kw(c, KwConst, "const") ||
+		       eat_c_reject_kw(c, KwVolatile, "volatile") ||
+		       eat_c_reject_kw(c, KwRestrict, "restrict"))
 			;
 		base = type_ptr(c, base);
 		if (pending_pointee_const) {
@@ -947,19 +947,19 @@ parse_declarator(Compiler* c, Type* base, char** name, int abstract) {
 			parse_declarator(c, dummy_type(c), &dummy, 1);
 			pending_pointee_const = save_pc;
 		}
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		ty = parse_suffix(c, base);
 		end = c->pos;
 		c->pos = save;
 		take(c);
 		ty = parse_declarator(c, ty, name, abstract);
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		c->pos = end;
 		return ty;
 	}
-	if (peek(c)->kind != TIdent && at(c, PLbrack)) {
+	if (peek(c)->kind != TkIdent && at(c, PnLbrack)) {
 		ty = parse_suffix(c, base);
-		if (peek(c)->kind == TIdent)
+		if (peek(c)->kind == TkIdent)
 			*name = take(c)->s;
 		else if (!abstract)
 			error_tok(c, peek(c), "expected identifier");
@@ -967,7 +967,7 @@ parse_declarator(Compiler* c, Type* base, char** name, int abstract) {
 			;
 		return parse_suffix(c, ty);
 	}
-	if (peek(c)->kind == TIdent) {
+	if (peek(c)->kind == TkIdent) {
 		*name = take(c)->s;
 		while (eat_vendor_attr(c))
 			;
@@ -983,7 +983,7 @@ parse_typename(Compiler* c) {
 	Type* base;
 	char* name;
 
-	storage = ST_NONE;
+	storage = StNone;
 	saw = 0;
 	base = parse_declspec(c, &storage, &saw);
 	name = NULL;
@@ -998,17 +998,17 @@ peek_tuple_type(Compiler* c) {
 	Type *base, *ty;
 	char* dummy;
 
-	if (!at(c, PLparen))
+	if (!at(c, PnLparen))
 		return 0;
 	save = c->pos;
 	save_pc = pending_pointee_const;
 	take(c);
 	n = 0;
 	r = 0;
-	while (!at(c, PRparen) && peek(c)->kind != TEof) {
-		storage = ST_NONE;
+	while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
+		storage = StNone;
 		saw = 0;
-		if (!is_typename(c) && !atkw(c, K_void)) {
+		if (!is_typename(c) && !atkw(c, KwVoid)) {
 			c->pos = save;
 			pending_pointee_const = save_pc;
 			return 0;
@@ -1022,23 +1022,23 @@ peek_tuple_type(Compiler* c) {
 		dummy = NULL;
 		ty = parse_declarator(c, base, &dummy, 1);
 		(void)ty;
-		if (peek(c)->kind == TIdent) {
+		if (peek(c)->kind == TkIdent) {
 			c->pos = save;
 			pending_pointee_const = save_pc;
 			return 0;
 		}
 		n++;
-		if (eat(c, PComma))
+		if (eat(c, PnComma))
 			continue;
 		break;
 	}
-	if (!at(c, PRparen) || n == 0) {
+	if (!at(c, PnRparen) || n == 0) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
 		return 0;
 	}
 	take(c);
-	r = peek(c)->kind == TIdent || at(c, PLparen);
+	r = peek(c)->kind == TkIdent || at(c, PnLparen);
 	c->pos = save;
 	pending_pointee_const = save_pc;
 	return r;
@@ -1050,7 +1050,7 @@ parse_receiver_type(Compiler* c) {
 	int storage, saw;
 	Type* ty;
 
-	storage = ST_NONE;
+	storage = StNone;
 	saw = 0;
 	ty = parse_declspec(c, &storage, &saw);
 	if (!saw)
@@ -1064,14 +1064,14 @@ peek_method_receiver(Compiler* c) {
 	int save, save_pc;
 	Type* ty;
 
-	if (!at(c, PLparen))
+	if (!at(c, PnLparen))
 		return 0;
 	if (peek_tuple_type(c))
 		return 0;
 	save = c->pos;
 	save_pc = pending_pointee_const;
 	take(c);
-	if (!is_typename(c) && !atkw(c, K_struct) && !atkw(c, K_union) && !atkw(c, K_enum)) {
+	if (!is_typename(c) && !atkw(c, KwStruct) && !atkw(c, KwUnion) && !atkw(c, KwEnum)) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
 		return 0;
@@ -1082,25 +1082,25 @@ peek_method_receiver(Compiler* c) {
 		pending_pointee_const = save_pc;
 		return 0;
 	}
-	if (peek(c)->kind != TIdent) {
+	if (peek(c)->kind != TkIdent) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
 		return 0;
 	}
 	take(c);
-	if (!at(c, PRparen)) {
+	if (!at(c, PnRparen)) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
 		return 0;
 	}
 	take(c);
-	if (!at(c, PDot)) {
+	if (!at(c, PnDot)) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
 		return 0;
 	}
 	take(c);
-	if (peek(c)->kind != TIdent) {
+	if (peek(c)->kind != TkIdent) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
 		return 0;
@@ -1117,7 +1117,7 @@ peek_method_decl(Compiler* c) {
 
 	save = c->pos;
 	save_pc = pending_pointee_const;
-	while (at(c, PStar))
+	while (at(c, PnStar))
 		take(c);
 	r = peek_method_receiver(c);
 	c->pos = save;
@@ -1134,7 +1134,7 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 	int i, np;
 
 	*recv_tag = NULL;
-	expect(c, PLparen, "'('");
+	expect(c, PnLparen, "'('");
 	ft = parse_receiver_type(c);
 	if (!is_ptr(ft) || ft->base == NULL || !is_aggr(ft->base))
 		error_tok(c, peek(c), "method receiver must be a struct or union pointer");
@@ -1143,18 +1143,18 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 		error_tok(c, peek(c), "method receiver type needs a name");
 	*recv_ty = ft;
 	*recv_tag = xstrdup(tag);
-	if (peek(c)->kind != TIdent)
+	if (peek(c)->kind != TkIdent)
 		error_tok(c, peek(c), "expected receiver name");
 	rname = take(c)->s;
 	*recv_name = rname;
-	expect(c, PRparen, "')'");
-	expect(c, PDot, "'.'");
-	if (peek(c)->kind != TIdent)
+	expect(c, PnRparen, "')'");
+	expect(c, PnDot, "'.'");
+	if (peek(c)->kind != TkIdent)
 		error_tok(c, peek(c), "expected method name");
 	*name = take(c)->s;
-	expect(c, PLparen, "'('");
+	expect(c, PnLparen, "'('");
 	ft = parse_param_list(c, ret);
-	expect(c, PRparen, "')'");
+	expect(c, PnRparen, "')'");
 	np = ft->params_len + 1;
 	params = xmalloc((size_t)np * sizeof(Type*));
 	param_names = xmalloc((size_t)np * sizeof(char*));
@@ -1179,14 +1179,14 @@ parse_tuple_type(Compiler* c) {
 	int n, storage, saw;
 	char* dummy;
 
-	expect(c, PLparen, "'('");
+	expect(c, PnLparen, "'('");
 	n = 0;
-	while (!at(c, PRparen) && peek(c)->kind != TEof) {
+	while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
 		if (n >= 16) {
 			error_tok(c, peek(c), "too many tuple elements");
 			break;
 		}
-		storage = ST_NONE;
+		storage = StNone;
 		saw = 0;
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw)
@@ -1194,11 +1194,11 @@ parse_tuple_type(Compiler* c) {
 		dummy = NULL;
 		ty = parse_declarator(c, base, &dummy, 1);
 		elts[n++] = ty;
-		if (eat(c, PComma))
+		if (eat(c, PnComma))
 			continue;
 		break;
 	}
-	expect(c, PRparen, "')'");
+	expect(c, PnRparen, "')'");
 	return type_tuple(c, elts, n);
 }
 
@@ -1209,15 +1209,15 @@ parse_tuple_lit(Compiler* c, Type* tuple, Span sp) {
 	Field* f;
 	int i;
 
-	n = node(NTupleLit, sp);
+	n = node(NdTupleLit, sp);
 	n->type = tuple;
-	expect(c, PLparen, "'('");
+	expect(c, PnLparen, "'('");
 	for (f = tuple ? tuple->fields : NULL, i = 0; f; f = f->next, i++) {
 		if (i > 0)
-			expect(c, PComma, "','");
+			expect(c, PnComma, "','");
 		node_add(n, type_expr(c, parse_assign(c)));
 	}
-	expect(c, PRparen, "')'");
+	expect(c, PnRparen, "')'");
 	return type_expr(c, n);
 }
 
@@ -1233,28 +1233,28 @@ parse_tuple_bindings(Compiler* c, TupleBind* out, int max, int allauto) {
 	Type* base;
 	char* nm;
 
-	expect(c, PLparen, "'('");
+	expect(c, PnLparen, "'('");
 	n = 0;
-	while (!at(c, PRparen) && peek(c)->kind != TEof) {
+	while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
 		if (n >= max) {
 			error_tok(c, peek(c), "too many destructuring bindings");
 			break;
 		}
 		if (allauto) {
-			if (peek(c)->kind != TIdent) {
+			if (peek(c)->kind != TkIdent) {
 				error_tok(c, peek(c), "expected identifier");
 				break;
 			}
 			out[n].name = take(c)->s;
 			out[n].type = NULL;
 		} else {
-			storage = ST_NONE;
+			storage = StNone;
 			saw = 0;
 			base = parse_declspec(c, &storage, &saw);
 			if (!saw)
 				base = c->type_int;
 			base = parse_pointers(c, base);
-			if (peek(c)->kind != TIdent) {
+			if (peek(c)->kind != TkIdent) {
 				error_tok(c, peek(c), "expected binding name");
 				break;
 			}
@@ -1263,11 +1263,11 @@ parse_tuple_bindings(Compiler* c, TupleBind* out, int max, int allauto) {
 			out[n].type = base;
 		}
 		n++;
-		if (eat(c, PComma))
+		if (eat(c, PnComma))
 			continue;
 		break;
 	}
-	expect(c, PRparen, "')'");
+	expect(c, PnRparen, "')'");
 	return n;
 }
 
@@ -1278,46 +1278,46 @@ peek_destruct_decl(Compiler* c) {
 	Type* base;
 
 	save = c->pos;
-	if (atkw(c, K_auto)) {
+	if (atkw(c, KwAuto)) {
 		take(c);
-		if (!at(c, PLparen)) {
+		if (!at(c, PnLparen)) {
 			c->pos = save;
 			return 0;
 		}
 		take(c);
 		n = 0;
-		while (!at(c, PRparen) && peek(c)->kind != TEof) {
-			if (peek(c)->kind != TIdent) {
+		while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
+			if (peek(c)->kind != TkIdent) {
 				c->pos = save;
 				return 0;
 			}
 			take(c);
 			n++;
-			if (eat(c, PComma))
+			if (eat(c, PnComma))
 				continue;
 			break;
 		}
-		if (!at(c, PRparen) || n == 0) {
+		if (!at(c, PnRparen) || n == 0) {
 			c->pos = save;
 			return 0;
 		}
 		take(c);
-		r = at(c, PEq);
+		r = at(c, PnEq);
 		c->pos = save;
 		return r;
 	}
-	if (!at(c, PLparen)) {
+	if (!at(c, PnLparen)) {
 		c->pos = save;
 		return 0;
 	}
 	take(c);
 	n = 0;
-	while (!at(c, PRparen) && peek(c)->kind != TEof) {
-		if (!is_typename(c) && !atkw(c, K_void)) {
+	while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
+		if (!is_typename(c) && !atkw(c, KwVoid)) {
 			c->pos = save;
 			return 0;
 		}
-		storage = ST_NONE;
+		storage = StNone;
 		saw = 0;
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw) {
@@ -1325,22 +1325,22 @@ peek_destruct_decl(Compiler* c) {
 			return 0;
 		}
 		base = parse_pointers(c, base);
-		if (peek(c)->kind != TIdent) {
+		if (peek(c)->kind != TkIdent) {
 			c->pos = save;
 			return 0;
 		}
 		take(c);
 		n++;
-		if (eat(c, PComma))
+		if (eat(c, PnComma))
 			continue;
 		break;
 	}
-	if (!at(c, PRparen) || n == 0) {
+	if (!at(c, PnRparen) || n == 0) {
 		c->pos = save;
 		return 0;
 	}
 	take(c);
-	r = at(c, PEq);
+	r = at(c, PnEq);
 	c->pos = save;
 	return r;
 }
@@ -1351,17 +1351,17 @@ peek_auto_local(Compiler* c) {
 	int save, r;
 
 	save = c->pos;
-	if (!atkw(c, K_auto)) {
+	if (!atkw(c, KwAuto)) {
 		c->pos = save;
 		return 0;
 	}
 	take(c);
-	if (peek(c)->kind != TIdent || at(c, PLparen)) {
+	if (peek(c)->kind != TkIdent || at(c, PnLparen)) {
 		c->pos = save;
 		return 0;
 	}
 	take(c);
-	r = at(c, PEq);
+	r = at(c, PnEq);
 	c->pos = save;
 	return r;
 }
@@ -1380,11 +1380,11 @@ parse_destruct_decl(Compiler* c, Span sp, int allauto) {
 	Initializer* in;
 
 	if (allauto)
-		eatkw(c, K_auto);
+		eatkw(c, KwAuto);
 	n = parse_tuple_bindings(c, binds, 16, allauto);
-	expect(c, PEq, "'='");
+	expect(c, PnEq, "'='");
 	rhs = type_expr(c, parse_assign(c));
-	expect(c, PSemi, "';'");
+	expect(c, PnSemi, "';'");
 	tuplety = rhs ? rhs->type : NULL;
 	if (tuplety == NULL || !is_tuple(tuplety))
 		error_at(c, sp, "destructuring requires a multi-return value");
@@ -1394,11 +1394,11 @@ parse_destruct_decl(Compiler* c, Span sp, int allauto) {
 	if (n != nf)
 		error_at(c, sp, "destructuring arity mismatch");
 
-	outer = node(NBlock, sp);
+	outer = node(NdBlock, sp);
 	outer->int_val = c->block;
 	snprintf(tname, sizeof(tname), "__td%d", ntmp++);
-	tmp = symbol_define(c, tname, SK_VAR, tuplety, ST_LOCAL, sp);
-	d = node(NDecl, sp);
+	tmp = symbol_define(c, tname, SkVar, tuplety, StLocal, sp);
+	d = node(NdDecl, sp);
 	d->symbol = tmp;
 	d->type = tuplety;
 	in = xmalloc(sizeof(*in));
@@ -1411,11 +1411,11 @@ parse_destruct_decl(Compiler* c, Span sp, int allauto) {
 		vt = allauto ? f->type : binds[i].type;
 		if (!allauto && vt && f->type && !conv_implicit_ok(c, vt, f->type, dot))
 			error_at(c, sp, "destructuring type mismatch for %s", binds[i].name);
-		vsym = symbol_define(c, binds[i].name, SK_VAR, vt ? vt : f->type, ST_LOCAL, sp);
-		dot = node1(NDot, sp, mknames(tmp, sp));
+		vsym = symbol_define(c, binds[i].name, SkVar, vt ? vt : f->type, StLocal, sp);
+		dot = node1(NdDot, sp, mknames(tmp, sp));
 		dot->s = xstrdup(f->name);
 		dot = type_expr(c, dot);
-		d = node(NDecl, sp);
+		d = node(NdDecl, sp);
 		d->symbol = vsym;
 		d->type = vsym->type;
 		in = xmalloc(sizeof(*in));
@@ -1433,7 +1433,7 @@ is_cast_lparen(Compiler* c) {
 	int save, r;
 	Tok* n;
 
-	if (!at(c, PLparen))
+	if (!at(c, PnLparen))
 		return 0;
 	n = peekn(c, 1);
 	if (!is_typename_tok(c, n))
@@ -1445,11 +1445,11 @@ is_cast_lparen(Compiler* c) {
 		int storage, saw;
 		char* nm = NULL;
 		Type* b;
-		storage = ST_NONE;
+		storage = StNone;
 		saw = 0;
 		b = parse_declspec(c, &storage, &saw);
 		parse_declarator(c, b, &nm, 1);
-		r = at(c, PRparen);
+		r = at(c, PnRparen);
 	}
 	c->pos = save;
 	return r;
@@ -1460,7 +1460,7 @@ static Node*
 mkbin(int op, Span sp, Node* a, Node* b) {
 	Node* n;
 
-	n = node2(NBin, sp, a, b);
+	n = node2(NdBin, sp, a, b);
 	n->op = op;
 	return n;
 }
@@ -1600,64 +1600,64 @@ parse_primary(Compiler* c) {
 	Symbol* s;
 
 	t = peek(c);
-	if (t->kind == TNumber) {
+	if (t->kind == TkNumber) {
 		take(c);
-		n = node(NLit, t->span);
+		n = node(NdLit, t->span);
 		n->s = t->s;
 		n->type = type_number_lit(c, t->span, t->s, &n->int_val);
 		return n;
 	}
-	if (t->kind == TCharLit) {
+	if (t->kind == TkCharLit) {
 		take(c);
-		n = node(NLit, t->span);
+		n = node(NdLit, t->span);
 		n->int_val = t->int_val;
 		n->type = c->type_int;
 		n->is_char_lit = 1;
 		return n;
 	}
-	if (t->kind == TString) {
+	if (t->kind == TkString) {
 		char* acc;
 		size_t len;
 		acc = xstrdup(t->s);
 		len = strlen(acc);
 		take(c);
-		while (peek(c)->kind == TString) {
+		while (peek(c)->kind == TkString) {
 			size_t n2 = strlen(peek(c)->s);
 			acc = xrealloc(acc, len + n2 + 1);
 			memcpy(acc + len, peek(c)->s, n2 + 1);
 			len += n2;
 			take(c);
 		}
-		n = node(NStr, t->span);
+		n = node(NdStr, t->span);
 		n->s = acc;
 		n->int_val = intern_str(c, acc);
 		n->type = type_array(c, c->type_char, (int64_t)strlen(acc) + 1);
 		n->is_immutable = 1;
 		return n;
 	}
-	if (atkw(c, K_true) || atkw(c, K_false)) {
-		int v = atkw(c, K_true);
+	if (atkw(c, KwTrue) || atkw(c, KwFalse)) {
+		int v = atkw(c, KwTrue);
 		t = take(c);
-		n = node(NLit, t->span);
+		n = node(NdLit, t->span);
 		n->int_val = v;
 		n->type = c->type_bool;
 		return n;
 	}
-	if (t->kind == TIdent) {
+	if (t->kind == TkIdent) {
 		/* MSVC intrinsic used in SAL macros; treat as (void)0 in headers. */
 		if (t->s && strcmp(t->s, "__noop") == 0) {
 			take(c);
-			if (at(c, PLparen))
+			if (at(c, PnLparen))
 				skip_paren_group(c);
-			n = node(NLit, t->span);
+			n = node(NdLit, t->span);
 			n->int_val = 0;
 			n->type = c->type_int;
 			return n;
 		}
 		take(c);
-		n = node(NName, t->span);
+		n = node(NdName, t->span);
 		n->s = t->s;
-		if (t->s && (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0) && at(c, PLparen))
+		if (t->s && (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0) && at(c, PnLparen))
 			return n;
 		s = symbol_lookup(c, t->s);
 		n->symbol = s;
@@ -1671,7 +1671,7 @@ parse_primary(Compiler* c) {
 				Type* ft;
 
 				ft = type_func(c, c->type_int, NULL, 0, 1);
-				s = symbol_define(c, t->s, SK_FUNC, ft, ST_EXTERN, t->span);
+				s = symbol_define(c, t->s, SkFunc, ft, StExtern, t->span);
 				n->symbol = s;
 				n->type = ft;
 			} else
@@ -1679,33 +1679,33 @@ parse_primary(Compiler* c) {
 		} else {
 			n->type = s->type;
 			n->int_val = s->int_val;
-			if (s->kind == SK_ENUMCON) {
-				n->kind = NLit;
+			if (s->kind == SkEnumCon) {
+				n->kind = NdLit;
 				n->int_val = s->int_val;
 				n->type = s->type ? s->type : c->type_int;
-			} else if (s->kind == SK_VAR || s->kind == SK_FUNC)
-				n->is_lvalue = s->kind == SK_VAR;
+			} else if (s->kind == SkVar || s->kind == SkFunc)
+				n->is_lvalue = s->kind == SkVar;
 		}
 		return n;
 	}
-	if (eat(c, PLparen)) {
+	if (eat(c, PnLparen)) {
 		if (is_typename_tok(c, peek(c))) {
 			Type* ty;
 			ty = parse_typename(c);
-			expect(c, PRparen, "')'");
-			n = node1(NCast, t->span, parse_cast(c));
+			expect(c, PnRparen, "')'");
+			n = node1(NdCast, t->span, parse_cast(c));
 			n->type = ty;
 			return type_expr(c, n);
 		}
 		n = parse_expr(c);
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		if (n)
 			n->paren = 1;
 		return n;
 	}
 	error_tok(c, t, "expected expression");
 	take(c);
-	n = node(NLit, t->span);
+	n = node(NdLit, t->span);
 	n->type = c->type_int;
 	return n;
 }
@@ -1719,35 +1719,35 @@ parse_postfix(Compiler* c, Node* n) {
 
 	for (;;) {
 		sp = peek(c)->span;
-		if (eat(c, PLbrack)) {
+		if (eat(c, PnLbrack)) {
 			Node *lo, *hi, *sr;
 
 			lo = NULL;
 			hi = NULL;
 			idx = NULL;
-			if (eat(c, PDotDot)) {
-				if (!at(c, PRbrack))
+			if (eat(c, PnDotDot)) {
+				if (!at(c, PnRbrack))
 					hi = parse_expr(c);
 			} else {
 				idx = parse_expr(c);
-				if (eat(c, PDotDot)) {
+				if (eat(c, PnDotDot)) {
 					lo = idx;
 					idx = NULL;
-					if (!at(c, PRbrack))
+					if (!at(c, PnRbrack))
 						hi = parse_expr(c);
 				}
 			}
-			expect(c, PRbrack, "']'");
+			expect(c, PnRbrack, "']'");
 			n = type_expr(c, n);
 			if (idx) {
 				idx = type_expr(c, idx);
-				n = node2(NIndex, sp, n, idx);
+				n = node2(NdIndex, sp, n, idx);
 			} else {
 				if (lo)
 					lo = type_expr(c, lo);
 				if (hi)
 					hi = type_expr(c, hi);
-				sr = node(NSubrange, sp);
+				sr = node(NdSubrange, sp);
 				sr->a = n;
 				sr->b = lo;
 				sr->c = hi;
@@ -1756,54 +1756,54 @@ parse_postfix(Compiler* c, Node* n) {
 			n = type_expr(c, n);
 			continue;
 		}
-		if (eat(c, PLparen)) {
-			call = node1(NCall, sp, n);
-			if (!at(c, PRparen)) {
+		if (eat(c, PnLparen)) {
+			call = node1(NdCall, sp, n);
+			if (!at(c, PnRparen)) {
 				for (;;) {
 					node_add(call, type_expr(c, parse_assign(c)));
-					if (!eat(c, PComma))
+					if (!eat(c, PnComma))
 						break;
 				}
 			}
-			expect(c, PRparen, "')'");
+			expect(c, PnRparen, "')'");
 			n = type_expr(c, call);
 			continue;
 		}
-		if (at(c, PDot) || at(c, PArrow)) {
-			int arrow = at(c, PArrow);
+		if (at(c, PnDot) || at(c, PnArrow)) {
+			int arrow = at(c, PnArrow);
 
 			take(c);
-			if (peek(c)->kind != TIdent) {
+			if (peek(c)->kind != TkIdent) {
 				error_tok(c, peek(c), "expected field name");
 				continue;
 			}
 			t = take(c);
-			if (!arrow && at(c, PLparen)) {
+			if (!arrow && at(c, PnLparen)) {
 				Node* call;
 
-				call = node1(NCall, sp, node1(NMethod, sp, n));
+				call = node1(NdCall, sp, node1(NdMethod, sp, n));
 				call->a->s = t->s;
 				take(c);
-				if (!at(c, PRparen)) {
+				if (!at(c, PnRparen)) {
 					for (;;) {
 						node_add(call, type_expr(c, parse_assign(c)));
-						if (!eat(c, PComma))
+						if (!eat(c, PnComma))
 							break;
 					}
 				}
-				expect(c, PRparen, "')'");
+				expect(c, PnRparen, "')'");
 				n = type_expr(c, call);
 				continue;
 			}
-			m = node1(arrow ? NArrow : NDot, sp, n);
+			m = node1(arrow ? NdArrow : NdDot, sp, n);
 			m->s = t->s;
 			n = type_expr(c, m);
 			continue;
 		}
-		if (at(c, PPlusPlus) || at(c, PMinusMinus)) {
+		if (at(c, PnPlusPlus) || at(c, PnMinusMinus)) {
 			int op = peek(c)->punct;
 			take(c);
-			n = node1(NPost, sp, type_expr(c, n));
+			n = node1(NdPost, sp, type_expr(c, n));
 			n->op = op;
 			n = type_expr(c, n);
 			continue;
@@ -1822,27 +1822,27 @@ parse_unary(Compiler* c) {
 	int op;
 
 	sp = peek(c)->span;
-	if (eatkw(c, K_sizeof)) {
-		if (at(c, PLparen) && is_typename_tok(c, peekn(c, 1))) {
+	if (eatkw(c, KwSizeof)) {
+		if (at(c, PnLparen) && is_typename_tok(c, peekn(c, 1))) {
 			take(c);
-			n = node(NSizeofT, sp);
+			n = node(NdSizeofT, sp);
 			n->type = parse_typename(c);
-			expect(c, PRparen, "')'");
+			expect(c, PnRparen, "')'");
 			return n;
 		}
-		n = node1(NSizeof, sp, parse_unary(c));
+		n = node1(NdSizeof, sp, parse_unary(c));
 		n = type_expr(c, n);
 		return n;
 	}
-	if (at(c, PPlusPlus) || at(c, PMinusMinus) || at(c, PAmp) || at(c, PStar) || at(c, PPlus) || at(c, PMinus) || at(c, PTilde) || at(c, PBang)) {
+	if (at(c, PnPlusPlus) || at(c, PnMinusMinus) || at(c, PnAmp) || at(c, PnStar) || at(c, PnPlus) || at(c, PnMinus) || at(c, PnTilde) || at(c, PnBang)) {
 		op = peek(c)->punct;
 		t = take(c);
-		n = node1(NUn, t->span, parse_cast(c));
+		n = node1(NdUn, t->span, parse_cast(c));
 		n->op = op;
-		if (op == PAmp)
-			n->kind = NAddr;
-		else if (op == PStar)
-			n->kind = NDeref;
+		if (op == PnAmp)
+			n->kind = NdAddr;
+		else if (op == PnStar)
+			n->kind = NdDeref;
 		return type_expr(c, n);
 	}
 	return parse_postfix(c, parse_primary(c));
@@ -1858,8 +1858,8 @@ parse_cast(Compiler* c) {
 	if (is_cast_lparen(c)) {
 		t = take(c);
 		ty = parse_typename(c);
-		expect(c, PRparen, "')'");
-		n = node1(NCast, t->span, parse_cast(c));
+		expect(c, PnRparen, "')'");
+		n = node1(NdCast, t->span, parse_cast(c));
 		n->type = ty;
 		return type_expr(c, n);
 	}
@@ -1870,45 +1870,45 @@ parse_cast(Compiler* c) {
 static int
 is_binop(Tok* t, int* prec, int* rassoc) {
 	*rassoc = 0;
-	if (t->kind != TPunct)
+	if (t->kind != TkPunct)
 		return 0;
 	switch (t->punct) {
-	case PStar:
-	case PSlash:
-	case PPercent:
+	case PnStar:
+	case PnSlash:
+	case PnPercent:
 		*prec = 13;
 		return 1;
-	case PPlus:
-	case PMinus:
+	case PnPlus:
+	case PnMinus:
 		*prec = 12;
 		return 1;
-	case PShl:
-	case PShr:
+	case PnShl:
+	case PnShr:
 		*prec = 11;
 		return 1;
-	case PLt:
-	case PGt:
-	case PLe:
-	case PGe:
+	case PnLt:
+	case PnGt:
+	case PnLe:
+	case PnGe:
 		*prec = 10;
 		return 1;
-	case PEqEq:
-	case PBangEq:
+	case PnEqEq:
+	case PnBangEq:
 		*prec = 9;
 		return 1;
-	case PAmp:
+	case PnAmp:
 		*prec = 8;
 		return 1;
-	case PCaret:
+	case PnCaret:
 		*prec = 7;
 		return 1;
-	case PPipe:
+	case PnPipe:
 		*prec = 6;
 		return 1;
-	case PAmpAmp:
+	case PnAmpAmp:
 		*prec = 5;
 		return 1;
-	case PPipePipe:
+	case PnPipePipe:
 		*prec = 4;
 		return 1;
 	default:
@@ -1946,7 +1946,7 @@ expr_has_cond(Node* n)
 
 	if (n == NULL)
 		return 0;
-	if (n->kind == NCond)
+	if (n->kind == NdCond)
 		return 1;
 	if (expr_has_cond(n->a) || expr_has_cond(n->b) || expr_has_cond(n->c))
 		return 1;
@@ -1965,17 +1965,17 @@ parse_cond(Compiler* c) {
 	Node* a;
 
 	n = parse_bin(c, 0);
-	if (!at(c, PQuestion))
+	if (!at(c, PnQuestion))
 		return n;
 	sp = peek(c)->span;
 	take(c);
 	a = n;
 	t = parse_expr(c);
-	expect(c, PColon, "':'");
+	expect(c, PnColon, "':'");
 	e = parse_assign(c);
 	if (user_source(c, sp) && (expr_has_cond(a) || expr_has_cond(t) || expr_has_cond(e)))
 		error_at(c, sp, "%%C does not allow nested ternary operators; use if/else");
-	n = node(NCond, sp);
+	n = node(NdCond, sp);
 	n->a = type_expr(c, a);
 	n->b = type_expr(c, t);
 	n->c = type_expr(c, e);
@@ -1990,12 +1990,12 @@ parse_assign(Compiler* c) {
 	Span sp;
 
 	left = parse_cond(c);
-	if (at(c, PEq) || at(c, PPlusEq) || at(c, PMinusEq) || at(c, PStarEq) || at(c, PSlashEq) || at(c, PPercentEq) || at(c, PAmpEq) || at(c, PPipeEq) || at(c, PCaretEq) || at(c, PShlEq) || at(c, PShrEq)) {
+	if (at(c, PnEq) || at(c, PnPlusEq) || at(c, PnMinusEq) || at(c, PnStarEq) || at(c, PnSlashEq) || at(c, PnPercentEq) || at(c, PnAmpEq) || at(c, PnPipeEq) || at(c, PnCaretEq) || at(c, PnShlEq) || at(c, PnShrEq)) {
 		op = peek(c)->punct;
 		sp = peek(c)->span;
 		take(c);
 		right = parse_assign(c);
-		left = node2(NAssign, sp, type_expr(c, left), type_expr(c, right));
+		left = node2(NdAssign, sp, type_expr(c, left), type_expr(c, right));
 		left->op = op;
 		left = type_expr(c, left);
 	}
@@ -2010,7 +2010,7 @@ parse_expr(Compiler* c) {
 
 	n = parse_assign(c);
 	saw_comma = 0;
-	while (eat(c, PComma)) {
+	while (eat(c, PnComma)) {
 		if (!saw_comma && user_source(c, peek(c)->span))
 			error_tok(c, peek(c), "%%C does not support the comma operator");
 		saw_comma = 1;
@@ -2026,9 +2026,9 @@ parse_comma_expr(Compiler* c) {
 	Span sp;
 
 	n = parse_assign(c);
-	while (eat(c, PComma)) {
+	while (eat(c, PnComma)) {
 		sp = peek(c)->span;
-		n = node2(NComma, sp, n, parse_assign(c));
+		n = node2(NdComma, sp, n, parse_assign(c));
 		n = type_expr(c, n);
 	}
 	return n;
@@ -2046,14 +2046,14 @@ parse_init_elem(Compiler* c) {
 	int64_t idx;
 	Node* ix;
 
-	des = IDNone;
+	des = IdNone;
 	fields_len = 0;
 	idx = 0;
-	if (at(c, PDot)) {
-		des = IDFieldDot;
+	if (at(c, PnDot)) {
+		des = IdFieldDot;
 		take(c);
 		for (;;) {
-			if (peek(c)->kind != TIdent) {
+			if (peek(c)->kind != TkIdent) {
 				error_tok(c, peek(c), "expected field name after '.'");
 				break;
 			}
@@ -2062,11 +2062,11 @@ parse_init_elem(Compiler* c) {
 				break;
 			}
 			fields[fields_len++] = take(c)->s;
-			if (!eat(c, PDot))
+			if (!eat(c, PnDot))
 				break;
 		}
-		expect(c, PEq, "'='");
-	} else if (at(c, PLbrack)) {
+		expect(c, PnEq, "'='");
+	} else if (at(c, PnLbrack)) {
 		take(c);
 		ix = parse_cond(c);
 		ix = type_expr(c, ix);
@@ -2074,27 +2074,27 @@ parse_init_elem(Compiler* c) {
 			error_tok(c, peek(c), "array designator index is not a constant");
 		if (idx < 0)
 			error_tok(c, peek(c), "negative array designator index");
-		expect(c, PRbrack, "']'");
-		if (at(c, PColon)) {
+		expect(c, PnRbrack, "']'");
+		if (at(c, PnColon)) {
 			error_tok(c, peek(c), "%%C uses C99 designated initializers ([n] =); not Plan 9 [n]:");
 			take(c);
 		} else
-			expect(c, PEq, "'='");
-		des = IDIndexEq;
-	} else if (peek(c)->kind == TIdent && !at(c, PLbrace)) {
+			expect(c, PnEq, "'='");
+		des = IdIndexEq;
+	} else if (peek(c)->kind == TkIdent && !at(c, PnLbrace)) {
 		save = c->pos;
 		take(c);
-		while (eat(c, PDot)) {
-			if (peek(c)->kind != TIdent) {
+		while (eat(c, PnDot)) {
+			if (peek(c)->kind != TkIdent) {
 				c->pos = save;
 				break;
 			}
 			take(c);
 		}
-		if (at(c, PColon)) {
+		if (at(c, PnColon)) {
 			error_tok(c, peek(c), "%%C uses C99 designated initializers (.field =); not Plan 9 field:");
 			take(c);
-			des = IDNone;
+			des = IdNone;
 			fields_len = 0;
 			/* continue parsing the init value to recover */
 		} else
@@ -2102,14 +2102,14 @@ parse_init_elem(Compiler* c) {
 	}
 	in = parse_init(c);
 	in->designator = des;
-	if (des == IDFieldDot) {
+	if (des == IdFieldDot) {
 		int i;
 
 		in->fields = xmalloc(fields_len * sizeof(char*));
 		in->fields_len = fields_len;
 		for (i = 0; i < fields_len; i++)
 			in->fields[i] = xstrdup(fields[i]);
-	} else if (des == IDIndexEq)
+	} else if (des == IdIndexEq)
 		in->index = idx;
 	return in;
 }
@@ -2121,10 +2121,10 @@ parse_init(Compiler* c) {
 	int cap;
 
 	in = xmalloc(sizeof(*in));
-	if (eat(c, PLbrace)) {
+	if (eat(c, PnLbrace)) {
 		in->is_list = 1;
 		cap = 0;
-		if (!at(c, PRbrace)) {
+		if (!at(c, PnRbrace)) {
 			for (;;) {
 				if (in->items_len >= cap) {
 					cap = cap ? cap * 2 : 4;
@@ -2132,13 +2132,13 @@ parse_init(Compiler* c) {
 				}
 				it = parse_init_elem(c);
 				in->items[in->items_len++] = *it;
-				if (!eat(c, PComma))
+				if (!eat(c, PnComma))
 					break;
-				if (at(c, PRbrace))
+				if (at(c, PnRbrace))
 					break;
 			}
 		}
-		expect(c, PRbrace, "'}'");
+		expect(c, PnRbrace, "'}'");
 		return in;
 	}
 	in->expr = type_expr(c, parse_assign(c));
@@ -2170,17 +2170,17 @@ parse_compound(Compiler* c, int scoped) {
 	Span sp;
 
 	sp = peek(c)->span;
-	expect(c, PLbrace, "'{'");
+	expect(c, PnLbrace, "'{'");
 	if (!scoped)
 		symbol_push_block(c);
-	blk = node(NBlock, sp);
+	blk = node(NdBlock, sp);
 	blk->int_val = c->block;
-	while (!at(c, PRbrace) && peek(c)->kind != TEof && !c->fatal) {
+	while (!at(c, PnRbrace) && peek(c)->kind != TkEof && !c->fatal) {
 		s = parse_stmt(c);
 		if (s)
 			node_add(blk, s);
 	}
-	expect(c, PRbrace, "'}'");
+	expect(c, PnRbrace, "'}'");
 	if (!scoped)
 		symbol_pop_block(c);
 	return blk;
@@ -2188,12 +2188,12 @@ parse_compound(Compiler* c, int scoped) {
 
 static void parse_local_decl(Compiler* c, Node* blk);
 
-// Build an NName node for a resolved symbol.
+// Build an NdName node for a resolved symbol.
 static Node*
 mknames(Symbol* s, Span sp) {
 	Node* n;
 
-	n = node(NName, sp);
+	n = node(NdName, sp);
 	n->s = s->name;
 	n->symbol = s;
 	n->type = s->type;
@@ -2206,7 +2206,7 @@ static Node*
 mklitnode(Span sp, int64_t v, Type* t) {
 	Node* n;
 
-	n = node(NLit, sp);
+	n = node(NdLit, sp);
 	n->int_val = v;
 	n->type = t;
 	return n;
@@ -2228,7 +2228,7 @@ static Node*
 typed_bin(Compiler* c, int op, Span sp, Node* a, Node* b) {
 	Node* n;
 
-	n = node2(NBin, sp, a, b);
+	n = node2(NdBin, sp, a, b);
 	n->op = op;
 	return type_expr(c, n);
 }
@@ -2238,8 +2238,8 @@ static Node*
 typed_assign(Compiler* c, Span sp, Node* lhs, Node* rhs) {
 	Node* n;
 
-	n = node2(NAssign, sp, lhs, rhs);
-	n->op = PEq;
+	n = node2(NdAssign, sp, lhs, rhs);
+	n->op = PnEq;
 	return type_expr(c, n);
 }
 
@@ -2248,7 +2248,7 @@ static Node*
 typed_index(Compiler* c, Span sp, Node* base, Node* idx) {
 	Node* n;
 
-	n = node2(NIndex, sp, base, idx);
+	n = node2(NdIndex, sp, base, idx);
 	return type_expr(c, n);
 }
 
@@ -2257,7 +2257,7 @@ static Node*
 typed_dot(Compiler* c, Span sp, Node* base, const char* field) {
 	Node* n;
 
-	n = node1(NDot, sp, base);
+	n = node1(NdDot, sp, base);
 	n->s = xstrdup(field);
 	return type_expr(c, n);
 }
@@ -2278,11 +2278,11 @@ mkcall_resolved(Compiler* c, Span sp, Symbol* fn, Node** args, int args_len) {
 	Node *nm, *call;
 	int i;
 
-	nm = node(NName, sp);
+	nm = node(NdName, sp);
 	nm->s = fn->name;
 	nm->symbol = fn;
 	nm->type = fn->type;
-	call = node1(NCall, sp, nm);
+	call = node1(NdCall, sp, nm);
 	call->int_val = 1; /* already resolved */
 	for (i = 0; i < args_len; i++)
 		node_add(call, args[i]);
@@ -2294,7 +2294,7 @@ static Node*
 typed_addr(Compiler* c, Span sp, Node* e) {
 	Node* n;
 
-	n = node1(NAddr, sp, e);
+	n = node1(NdAddr, sp, e);
 	return type_expr(c, n);
 }
 
@@ -2335,7 +2335,7 @@ range_for_info(Compiler* c, Span sp, Node* range, RangeInfo* ri) {
 		return 1;
 	}
 	if (is_ptr(t)) {
-		if (range->kind == NName && range->symbol && range->symbol->array_param && range->symbol->param_fixed_len >= 0) {
+		if (range->kind == NdName && range->symbol && range->symbol->array_param && range->symbol->param_fixed_len >= 0) {
 			ri->elem = t->base;
 			ri->count = mklitnode(sp, range->symbol->param_fixed_len, c->type_ullong);
 			ri->base = range;
@@ -2370,16 +2370,16 @@ peek_range_for(Compiler* c) {
 	char* name;
 
 	save = c->pos;
-	if (atkw(c, K_auto)) {
+	if (atkw(c, KwAuto)) {
 		take(c);
-		if (at(c, PStar))
+		if (at(c, PnStar))
 			take(c);
-		if (peek(c)->kind != TIdent) {
+		if (peek(c)->kind != TkIdent) {
 			c->pos = save;
 			return 0;
 		}
 		take(c);
-		r = at(c, PColon);
+		r = at(c, PnColon);
 		c->pos = save;
 		return r;
 	}
@@ -2387,7 +2387,7 @@ peek_range_for(Compiler* c) {
 		c->pos = save;
 		return 0;
 	}
-	storage = ST_NONE;
+	storage = StNone;
 	saw = 0;
 	base = parse_declspec(c, &storage, &saw);
 	if (!saw) {
@@ -2401,7 +2401,7 @@ peek_range_for(Compiler* c) {
 		c->pos = save;
 		return 0;
 	}
-	r = at(c, PColon);
+	r = at(c, PnColon);
 	c->pos = save;
 	return r;
 }
@@ -2424,18 +2424,18 @@ parse_range_for(Compiler* c, Span sp) {
 	byref = 0;
 	vtype = NULL;
 	vname = NULL;
-	if (eatkw(c, K_auto)) {
+	if (eatkw(c, KwAuto)) {
 		isauto = 1;
-		if (eat(c, PStar))
+		if (eat(c, PnStar))
 			byref = 1;
-		if (peek(c)->kind != TIdent)
+		if (peek(c)->kind != TkIdent)
 			error_tok(c, peek(c), "expected range-for loop variable");
 		else
 			vname = take(c)->s;
 	} else {
 		int storage, saw;
 
-		storage = ST_NONE;
+		storage = StNone;
 		saw = 0;
 		vtype = parse_declspec(c, &storage, &saw);
 		if (!saw)
@@ -2447,13 +2447,13 @@ parse_range_for(Compiler* c, Span sp) {
 		if (vtype && is_ptr(vtype))
 			byref = 1;
 	}
-	expect(c, PColon, "':'");
+	expect(c, PnColon, "':'");
 	range = type_expr(c, parse_expr(c));
-	expect(c, PRparen, "')'");
+	expect(c, PnRparen, "')'");
 	if (vname == NULL)
-		return node(NSkip, sp);
+		return node(NdSkip, sp);
 	if (!range_for_info(c, sp, range, &ri))
-		return node(NSkip, sp);
+		return node(NdSkip, sp);
 	if (byref && ri.use_hooks && ri.use_at)
 		error_at(c, sp,
 			 "range-for pointer binding requires contiguous elements; use by-value for range_at-only types");
@@ -2471,12 +2471,12 @@ parse_range_for(Compiler* c, Span sp) {
 	snprintf(nname, sizeof(nname), "__rn%d", ngen++);
 
 	symbol_push_block(c);
-	outer = node(NBlock, sp);
+	outer = node(NdBlock, sp);
 	outer->int_val = c->block;
 
 	if (ri.needtmp) {
-		rsym = symbol_define(c, rname, SK_VAR, range->type, ST_LOCAL, sp);
-		xdecl = node(NDecl, sp);
+		rsym = symbol_define(c, rname, SkVar, range->type, StLocal, sp);
+		xdecl = node(NdDecl, sp);
 		xdecl->symbol = rsym;
 		xdecl->type = range->type;
 		xdecl->init = mkexpr_init(range);
@@ -2490,8 +2490,8 @@ parse_range_for(Compiler* c, Span sp) {
 		Type* ptrty;
 
 		ptrty = type_ptr(c, ri.elem);
-		psym = symbol_define(c, pname, SK_VAR, ptrty, ST_LOCAL, sp);
-		xdecl = node(NDecl, sp);
+		psym = symbol_define(c, pname, SkVar, ptrty, StLocal, sp);
+		xdecl = node(NdDecl, sp);
 		xdecl->symbol = psym;
 		xdecl->type = ptrty;
 		node_add(outer, xdecl);
@@ -2501,9 +2501,9 @@ parse_range_for(Compiler* c, Span sp) {
 		args[1] = typed_addr(c, sp, mknames(psym, sp));
 		countcall = mkcall_resolved(c, sp, cs, args, 2);
 
-		nsym = symbol_define(c, nname, SK_VAR, countcall->type ? countcall->type : c->type_ullong,
-				  ST_LOCAL, sp);
-		xdecl = node(NDecl, sp);
+		nsym = symbol_define(c, nname, SkVar, countcall->type ? countcall->type : c->type_ullong,
+				  StLocal, sp);
+		xdecl = node(NdDecl, sp);
 		xdecl->symbol = nsym;
 		xdecl->type = nsym->type;
 		xdecl->init = mkexpr_init(countcall);
@@ -2521,11 +2521,11 @@ parse_range_for(Compiler* c, Span sp) {
 			ri.count = mklitnode(sp, range->type->len, c->type_ullong);
 	}
 
-	isym = symbol_define(c, iname, SK_VAR, c->type_ullong, ST_LOCAL, sp);
-	vsym = symbol_define(c, vname, SK_VAR, vtype ? vtype : ri.elem, ST_LOCAL, sp);
+	isym = symbol_define(c, iname, SkVar, c->type_ullong, StLocal, sp);
+	vsym = symbol_define(c, vname, SkVar, vtype ? vtype : ri.elem, StLocal, sp);
 	body = parse_braced_body(c, "for");
 
-	bodyblk = node(NBlock, sp);
+	bodyblk = node(NdBlock, sp);
 	bodyblk->int_val = c->block;
 	if (ri.use_hooks && ats) {
 		args[0] = ri.base;
@@ -2538,7 +2538,7 @@ parse_range_for(Compiler* c, Span sp) {
 		elem = typed_index(c, sp, ri.base, mknames(isym, sp));
 	if (byref)
 		elem = typed_addr(c, sp, elem);
-	xdecl = node(NDecl, sp);
+	xdecl = node(NdDecl, sp);
 	xdecl->symbol = vsym;
 	xdecl->type = vsym->type;
 	xin = mkexpr_init(elem);
@@ -2547,14 +2547,14 @@ parse_range_for(Compiler* c, Span sp) {
 	if (body)
 		node_add(bodyblk, body);
 
-	f = node(NFor, sp);
+	f = node(NdFor, sp);
 	f->a = typed_assign(c, sp, mknames(isym, sp), mklitnode(sp, 0, c->type_ullong));
-	f->b = typed_bin(c, PLt, sp, mknames(isym, sp), ri.count);
+	f->b = typed_bin(c, PnLt, sp, mknames(isym, sp), ri.count);
 	{
 		Node* inc;
 
-		inc = node1(NPost, sp, mknames(isym, sp));
-		inc->op = PPlusPlus;
+		inc = node1(NdPost, sp, mknames(isym, sp));
+		inc->op = PnPlusPlus;
 		f->c = type_expr(c, inc);
 	}
 	node_add(f, bodyblk);
@@ -2574,22 +2574,22 @@ stmt_terminates(Node* n) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NBreak:
-	case NContinue:
-	case NReturn:
-	case NGoto:
-	case NFallthrough:
+	case NdBreak:
+	case NdContinue:
+	case NdReturn:
+	case NdGoto:
+	case NdFallthrough:
 		return 1;
-	case NBlock:
+	case NdBlock:
 		for (i = n->children_len - 1; i >= 0; i--) {
-			if (n->children[i]->kind == NDefer)
+			if (n->children[i]->kind == NdDefer)
 				continue;
 			return stmt_terminates(n->children[i]);
 		}
 		return 0;
-	case NIf:
+	case NdIf:
 		return stmt_terminates(n->b) && n->c != NULL && stmt_terminates(n->c);
-	case NLabel:
+	case NdLabel:
 		return stmt_terminates(n->a);
 	default:
 		return 0;
@@ -2603,7 +2603,7 @@ walk_switch_fallthrough(Compiler* c, Node* n, int* has_code, int* terminated) {
 
 	if (n == NULL)
 		return;
-	if (n->kind == NCase || n->kind == NDefault) {
+	if (n->kind == NdCase || n->kind == NdDefault) {
 		if (*has_code && !*terminated && user_source(c, n->span))
 			error_at(c, n->span,
 				 "implicit fallthrough; insert 'fallthrough;' or 'break'");
@@ -2611,18 +2611,18 @@ walk_switch_fallthrough(Compiler* c, Node* n, int* has_code, int* terminated) {
 		*terminated = 0;
 		return;
 	}
-	if (n->kind == NSwitch) {
+	if (n->kind == NdSwitch) {
 		/* nested switch checked when parsed */
 		*has_code = 1;
 		*terminated = 0;
 		return;
 	}
-	if (n->kind == NBlock) {
+	if (n->kind == NdBlock) {
 		for (i = 0; i < n->children_len; i++)
 			walk_switch_fallthrough(c, n->children[i], has_code, terminated);
 		return;
 	}
-	if (n->kind == NDefer || n->kind == NSkip)
+	if (n->kind == NdDefer || n->kind == NdSkip)
 		return;
 	*has_code = 1;
 	*terminated = stmt_terminates(n);
@@ -2645,7 +2645,7 @@ static void
 check_cond_assign(Compiler* c, Node* n) {
 	if (n == NULL || !user_source(c, n->span))
 		return;
-	if (n->kind == NAssign && !n->paren)
+	if (n->kind == NdAssign && !n->paren)
 		error_at(c, n->span,
 			 "assignment in condition; use '==' or extra parentheses '((…))'");
 }
@@ -2656,7 +2656,7 @@ parse_braced_body(Compiler* c, const char* what) {
 	Span sp;
 
 	sp = peek(c)->span;
-	if (!at(c, PLbrace)) {
+	if (!at(c, PnLbrace)) {
 		if (user_source(c, sp))
 			error_at(c, sp, "%%C requires braces around %s body", what);
 		return parse_stmt(c);
@@ -2677,7 +2677,7 @@ peek_for_init_decl(Compiler* c) {
 		r = 1;
 		goto out;
 	}
-	if (atkw(c, K_typedef) || atkw(c, K_static_assert) || peek_destruct_decl(c))
+	if (atkw(c, KwTypedef) || atkw(c, KwStaticAssert) || peek_destruct_decl(c))
 		goto out;
 	if (is_typename(c)) {
 		r = 1;
@@ -2686,13 +2686,13 @@ peek_for_init_decl(Compiler* c) {
 	if (is_storage(c)) {
 		while (is_storage(c))
 			take(c);
-		r = is_typename(c) || atkw(c, K_void);
+		r = is_typename(c) || atkw(c, KwVoid);
 		goto out;
 	}
 	t = peek(c);
-	if (t->kind == TIdent) {
+	if (t->kind == TkIdent) {
 		s = symbol_lookup(c, t->s);
-		if (s && s->kind == SK_TYPEDEF)
+		if (s && s->kind == SkTypedef)
 			r = 1;
 	}
 out:
@@ -2706,10 +2706,10 @@ init_present(Initializer* in) {
 	return in != NULL && (in->expr != NULL || in->items_len > 0 || in->is_list);
 }
 
-// Error on uninitialized locals in user code (storage ST_LOCAL only).
+// Error on uninitialized locals in user code (storage StLocal only).
 static void
 require_local_init(Compiler* c, Span sp, const char* name, int storage, Initializer* in) {
-	if (storage != ST_LOCAL)
+	if (storage != StLocal)
 		return;
 	if (!user_source(c, sp))
 		return;
@@ -2732,14 +2732,14 @@ parse_for_init_decl(Compiler* c) {
 
 	sp = peek(c)->span;
 	if (peek_auto_local(c)) {
-		eatkw(c, K_auto);
-		if (peek(c)->kind != TIdent) {
+		eatkw(c, KwAuto);
+		if (peek(c)->kind != TkIdent) {
 			error_tok(c, peek(c), "expected identifier");
 			return NULL;
 		}
 		name = take(c)->s;
-		expect(c, PEq, "'='");
-		d = node(NDecl, sp);
+		expect(c, PnEq, "'='");
+		d = node(NdDecl, sp);
 		d->init = parse_init(c);
 		in = d->init;
 		if (in == NULL || in->is_list || in->expr == NULL || in->expr->type == NULL) {
@@ -2747,15 +2747,15 @@ parse_for_init_decl(Compiler* c) {
 			return d;
 		}
 		ty = decay(c, in->expr->type);
-		s = symbol_define(c, name, SK_VAR, ty, ST_LOCAL, sp);
+		s = symbol_define(c, name, SkVar, ty, StLocal, sp);
 		d->symbol = s;
 		d->type = ty;
 		return d;
 	}
 	isoverload = 0;
-	if (eatkw(c, K_overload))
+	if (eatkw(c, KwOverload))
 		isoverload = 1;
-	storage = ST_NONE;
+	storage = StNone;
 	saw = 0;
 	base = parse_declspec(c, &storage, &saw);
 	if (!saw) {
@@ -2764,7 +2764,7 @@ parse_for_init_decl(Compiler* c) {
 	}
 	name = NULL;
 	ty = parse_declarator(c, base, &name, 0);
-	if (eat(c, PComma)) {
+	if (eat(c, PnComma)) {
 		error_tok(c, peek(c), "%%C requires one variable declaration per line");
 		skip_to_balance(c);
 		return NULL;
@@ -2773,9 +2773,9 @@ parse_for_init_decl(Compiler* c) {
 		error_at(c, sp, "expected declarator in for loop");
 		return NULL;
 	}
-	if (!is_func(ty) && ty && (is_aggr(ty) || ty->kind == TY_ENUM) && !ty->complete)
+	if (!is_func(ty) && ty && (is_aggr(ty) || ty->kind == TyEnum) && !ty->complete)
 		error_at(c, sp, "incomplete type %s", type_name(ty));
-	if (storage == ST_TYPEDEF) {
+	if (storage == StTypedef) {
 		error_at(c, sp, "typedef not allowed in for loop");
 		return NULL;
 	}
@@ -2785,15 +2785,15 @@ parse_for_init_decl(Compiler* c) {
 		(void)isoverload;
 		return NULL;
 	}
-	if (storage == ST_STATIC)
-		storage = ST_STATIC;
+	if (storage == StStatic)
+		storage = StStatic;
 	else
-		storage = ST_LOCAL;
-	s = symbol_define(c, name, SK_VAR, ty, storage, sp);
-	d = node(NDecl, sp);
+		storage = StLocal;
+	s = symbol_define(c, name, SkVar, ty, storage, sp);
+	d = node(NdDecl, sp);
 	d->symbol = s;
 	d->type = ty;
-	if (eat(c, PEq)) {
+	if (eat(c, PnEq)) {
 		d->init = parse_init(c);
 		finish_array_from_init(c, &s->type, d->init);
 		d->type = s->type;
@@ -2803,7 +2803,7 @@ parse_for_init_decl(Compiler* c) {
 		}
 	}
 	require_local_init(c, sp, name, storage, d->init);
-	if (storage == ST_STATIC) {
+	if (storage == StStatic) {
 		s->int_val = ++c->static_seq;
 		add_global(c, d);
 	}
@@ -2821,67 +2821,67 @@ parse_stmt(Compiler* c) {
 	Symbol* s;
 
 	sp = peek(c)->span;
-	if (at(c, PLbrace))
+	if (at(c, PnLbrace))
 		return parse_compound(c, 0);
-	if (atkw(c, K_static_assert)) {
+	if (atkw(c, KwStaticAssert)) {
 		parse_static_assert(c);
-		return node(NSkip, sp);
+		return node(NdSkip, sp);
 	}
 	if (peek_destruct_decl(c))
-		return parse_destruct_decl(c, sp, atkw(c, K_auto));
+		return parse_destruct_decl(c, sp, atkw(c, KwAuto));
 	if (is_storage(c) || is_typename(c)) {
-		n = node(NBlock, sp);
+		n = node(NdBlock, sp);
 		parse_local_decl(c, n);
 		return n;
 	}
-	if (eatkw(c, K_if)) {
-		expect(c, PLparen, "'('");
+	if (eatkw(c, KwIf)) {
+		expect(c, PnLparen, "'('");
 		a = type_expr(c, parse_expr(c));
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		check_cond_assign(c, a);
 		b = parse_braced_body(c, "if");
-		n = node(NIf, sp);
+		n = node(NdIf, sp);
 		n->a = a;
 		n->b = b;
-		if (eatkw(c, K_else)) {
-			if (atkw(c, K_if))
+		if (eatkw(c, KwElse)) {
+			if (atkw(c, KwIf))
 				n->c = parse_stmt(c); /* else if */
 			else
 				n->c = parse_braced_body(c, "else");
 		}
 		return n;
 	}
-	if (eatkw(c, K_while)) {
-		expect(c, PLparen, "'('");
+	if (eatkw(c, KwWhile)) {
+		expect(c, PnLparen, "'('");
 		a = type_expr(c, parse_expr(c));
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		check_cond_assign(c, a);
-		n = node(NWhile, sp);
+		n = node(NdWhile, sp);
 		n->a = a;
 		n->b = parse_braced_body(c, "while");
 		return n;
 	}
-	if (eatkw(c, K_do)) {
-		n = node(NDo, sp);
+	if (eatkw(c, KwDo)) {
+		n = node(NdDo, sp);
 		n->a = parse_braced_body(c, "do");
-		if (!eatkw(c, K_while))
+		if (!eatkw(c, KwWhile))
 			error_tok(c, peek(c), "expected 'while'");
-		expect(c, PLparen, "'('");
+		expect(c, PnLparen, "'('");
 		n->b = type_expr(c, parse_expr(c));
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		check_cond_assign(c, n->b);
-		expect(c, PSemi, "';'");
+		expect(c, PnSemi, "';'");
 		return n;
 	}
-	if (eatkw(c, K_for)) {
+	if (eatkw(c, KwFor)) {
 		int for_scope;
 
-		expect(c, PLparen, "'('");
+		expect(c, PnLparen, "'('");
 		if (peek_range_for(c))
 			return parse_range_for(c, sp);
-		n = node(NFor, sp);
+		n = node(NdFor, sp);
 		for_scope = 0;
-		if (!at(c, PSemi)) {
+		if (!at(c, PnSemi)) {
 			if (peek_for_init_decl(c)) {
 				symbol_push_block(c);
 				for_scope = 1;
@@ -2889,46 +2889,46 @@ parse_stmt(Compiler* c) {
 			} else
 				n->a = type_expr(c, parse_comma_expr(c));
 		}
-		expect(c, PSemi, "';'");
-		if (!at(c, PSemi))
+		expect(c, PnSemi, "';'");
+		if (!at(c, PnSemi))
 			n->b = type_expr(c, parse_expr(c));
-		expect(c, PSemi, "';'");
+		expect(c, PnSemi, "';'");
 		check_cond_assign(c, n->b);
-		if (!at(c, PRparen))
+		if (!at(c, PnRparen))
 			n->c = type_expr(c, parse_comma_expr(c));
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		node_add(n, parse_braced_body(c, "for"));
 		if (for_scope)
 			symbol_pop_block(c);
 		return n;
 	}
-	if (eatkw(c, K_switch)) {
-		expect(c, PLparen, "'('");
-		n = node(NSwitch, sp);
+	if (eatkw(c, KwSwitch)) {
+		expect(c, PnLparen, "'('");
+		n = node(NdSwitch, sp);
 		n->a = type_expr(c, parse_expr(c));
-		expect(c, PRparen, "')'");
+		expect(c, PnRparen, "')'");
 		switch_depth++;
 		n->b = parse_stmt(c);
 		switch_depth--;
 		check_switch_fallthrough(c, n->b);
 		return n;
 	}
-	if (eatkw(c, K_case)) {
+	if (eatkw(c, KwCase)) {
 		int64_t hi;
 
-		n = node(NCase, sp);
+		n = node(NdCase, sp);
 		n->a = type_expr(c, parse_expr(c));
 		if (!eval_const(c, n->a, &n->int_val))
 			error_at(c, sp, "case label is not a constant");
 		{
 			int isrange = 0;
 
-			if (eat(c, PDotDot))
+			if (eat(c, PnDotDot))
 				isrange = 1;
-			else if (at(c, PEllipsis)) {
+			else if (at(c, PnEllipsis)) {
 				error_tok(c, peek(c),
 					  "case ranges use '..' ('...' is only for varargs)");
-				(void)eat(c, PEllipsis);
+				(void)eat(c, PnEllipsis);
 				isrange = 1;
 			}
 			if (isrange) {
@@ -2937,45 +2937,45 @@ parse_stmt(Compiler* c) {
 					error_at(c, sp, "case range end is not a constant");
 				if (hi < n->int_val)
 					error_at(c, sp, "empty case range");
-				/* stash high as NLit in b for emit */
-				n->b = node(NLit, sp);
+				/* stash high as NdLit in b for emit */
+				n->b = node(NdLit, sp);
 				n->b->int_val = hi;
 				n->b->type = c->type_int;
 			}
 		}
-		expect(c, PColon, "':'");
+		expect(c, PnColon, "':'");
 		return n;
 	}
-	if (eatkw(c, K_default)) {
-		expect(c, PColon, "':'");
-		return node(NDefault, sp);
+	if (eatkw(c, KwDefault)) {
+		expect(c, PnColon, "':'");
+		return node(NdDefault, sp);
 	}
-	if (eatkw(c, K_break)) {
-		expect(c, PSemi, "';'");
-		return node(NBreak, sp);
+	if (eatkw(c, KwBreak)) {
+		expect(c, PnSemi, "';'");
+		return node(NdBreak, sp);
 	}
-	if (eatkw(c, K_continue)) {
-		expect(c, PSemi, "';'");
-		return node(NContinue, sp);
+	if (eatkw(c, KwContinue)) {
+		expect(c, PnSemi, "';'");
+		return node(NdContinue, sp);
 	}
-	if (eatkw(c, K_fallthrough)) {
+	if (eatkw(c, KwFallthrough)) {
 		if (switch_depth == 0)
 			error_at(c, sp, "fallthrough outside of switch");
-		expect(c, PSemi, "';'");
-		return node(NFallthrough, sp);
+		expect(c, PnSemi, "';'");
+		return node(NdFallthrough, sp);
 	}
-	if (eatkw(c, K_defer)) {
-		n = node(NDefer, sp);
+	if (eatkw(c, KwDefer)) {
+		n = node(NdDefer, sp);
 		n->a = parse_stmt(c);
 		return n;
 	}
-	if (eatkw(c, K_return)) {
-		n = node(NReturn, sp);
-		if (!at(c, PSemi)) {
+	if (eatkw(c, KwReturn)) {
+		n = node(NdReturn, sp);
+		if (!at(c, PnSemi)) {
 			Type* rt;
 
 			rt = c->current_fn && c->current_fn->type ? c->current_fn->type->base : NULL;
-			if (at(c, PLparen) && rt && is_tuple(rt))
+			if (at(c, PnLparen) && rt && is_tuple(rt))
 				n->a = parse_tuple_lit(c, rt, sp);
 			else
 				n->a = type_expr(c, parse_expr(c));
@@ -2984,35 +2984,35 @@ parse_stmt(Compiler* c) {
 				check_implicit_conv(c, sp, rt, n->a);
 			}
 		}
-		expect(c, PSemi, "';'");
+		expect(c, PnSemi, "';'");
 		return n;
 	}
-	if (eatkw(c, K_goto)) {
-		if (peek(c)->kind != TIdent)
+	if (eatkw(c, KwGoto)) {
+		if (peek(c)->kind != TkIdent)
 			error_tok(c, peek(c), "expected label");
 		t = take(c);
-		s = symbol_define(c, t->s, SK_LABEL, NULL, ST_NONE, t->span);
-		n = node(NGoto, sp);
+		s = symbol_define(c, t->s, SkLabel, NULL, StNone, t->span);
+		n = node(NdGoto, sp);
 		n->s = t->s;
 		n->symbol = s;
-		expect(c, PSemi, "';'");
+		expect(c, PnSemi, "';'");
 		return n;
 	}
-	if (peek(c)->kind == TIdent && peekn(c, 1)->kind == TPunct && peekn(c, 1)->punct == PColon) {
+	if (peek(c)->kind == TkIdent && peekn(c, 1)->kind == TkPunct && peekn(c, 1)->punct == PnColon) {
 		t = take(c);
 		take(c); /* : */
-		s = symbol_define(c, t->s, SK_LABEL, NULL, ST_NONE, t->span);
+		s = symbol_define(c, t->s, SkLabel, NULL, StNone, t->span);
 		s->defined = 1;
-		n = node(NLabel, sp);
+		n = node(NdLabel, sp);
 		n->s = t->s;
 		n->symbol = s;
 		n->a = parse_stmt(c);
 		return n;
 	}
-	if (eat(c, PSemi))
-		return node(NSkip, sp);
+	if (eat(c, PnSemi))
+		return node(NdSkip, sp);
 	n = type_expr(c, parse_expr(c));
-	expect(c, PSemi, "';'");
+	expect(c, PnSemi, "';'");
 	(void)d;
 	return n;
 }
@@ -3025,13 +3025,13 @@ finish_array_from_init(Compiler* c, Type** pt, Initializer* in) {
 	int pos;
 
 	t = *pt;
-	if (t == NULL || t->kind != TY_ARRAY || t->len >= 0)
+	if (t == NULL || t->kind != TyArray || t->len >= 0)
 		return;
 	len = 0;
 	if (in && in->is_list) {
 		pos = 0;
 		for (i = 0; i < in->items_len; i++) {
-			if (in->items[i].designator == IDIndexEq) {
+			if (in->items[i].designator == IdIndexEq) {
 				idx = in->items[i].index + 1;
 				if (idx > len)
 					len = idx;
@@ -3042,7 +3042,7 @@ finish_array_from_init(Compiler* c, Type** pt, Initializer* in) {
 			}
 		}
 		*pt = type_array(c, t->base, len);
-	} else if (in && in->expr && in->expr->kind == NStr)
+	} else if (in && in->expr && in->expr->kind == NdStr)
 		*pt = type_array(c, t->base, in->expr->type ? in->expr->type->len : 1);
 	(void)c;
 }
@@ -3056,26 +3056,26 @@ parse_auto_local(Compiler* c, Node* blk, Span sp) {
 	Node* d;
 	Initializer* in;
 
-	eatkw(c, K_auto);
-	if (peek(c)->kind != TIdent) {
+	eatkw(c, KwAuto);
+	if (peek(c)->kind != TkIdent) {
 		error_tok(c, peek(c), "expected identifier");
 		return;
 	}
 	name = take(c)->s;
-	expect(c, PEq, "'='");
-	d = node(NDecl, sp);
+	expect(c, PnEq, "'='");
+	d = node(NdDecl, sp);
 	d->init = parse_init(c);
 	in = d->init;
 	if (in == NULL || in->is_list || in->expr == NULL || in->expr->type == NULL) {
 		error_at(c, sp, "auto requires an expression initializer with a known type");
-		expect(c, PSemi, "';'");
+		expect(c, PnSemi, "';'");
 		return;
 	}
 	ty = decay(c, in->expr->type);
-	s = symbol_define(c, name, SK_VAR, ty, ST_LOCAL, sp);
+	s = symbol_define(c, name, SkVar, ty, StLocal, sp);
 	d->symbol = s;
 	d->type = ty;
-	expect(c, PSemi, "';'");
+	expect(c, PnSemi, "';'");
 	node_add(blk, d);
 }
 
@@ -3090,12 +3090,12 @@ parse_local_decl(Compiler* c, Node* blk) {
 	Span sp;
 
 	sp = peek(c)->span;
-	if (atkw(c, K_static_assert)) {
+	if (atkw(c, KwStaticAssert)) {
 		parse_static_assert(c);
 		return;
 	}
 	if (peek_destruct_decl(c)) {
-		node_add(blk, parse_destruct_decl(c, sp, atkw(c, K_auto)));
+		node_add(blk, parse_destruct_decl(c, sp, atkw(c, KwAuto)));
 		return;
 	}
 	if (peek_auto_local(c)) {
@@ -3103,12 +3103,12 @@ parse_local_decl(Compiler* c, Node* blk) {
 		return;
 	}
 	isoverload = 0;
-	if (eatkw(c, K_overload))
+	if (eatkw(c, KwOverload))
 		isoverload = 1;
-	storage = ST_NONE;
+	storage = StNone;
 	saw = 0;
 	base = parse_declspec(c, &storage, &saw);
-	if (at(c, PSemi)) {
+	if (at(c, PnSemi)) {
 		take(c);
 		return;
 	}
@@ -3116,25 +3116,25 @@ parse_local_decl(Compiler* c, Node* blk) {
 	ty = parse_declarator(c, base, &name, 0);
 	for (;;) {
 		if (name == NULL) {
-			expect(c, PSemi, "';'");
+			expect(c, PnSemi, "';'");
 			return;
 		}
-		if (!is_func(ty) && ty && (is_aggr(ty) || ty->kind == TY_ENUM) && !ty->complete)
+		if (!is_func(ty) && ty && (is_aggr(ty) || ty->kind == TyEnum) && !ty->complete)
 			error_at(c, sp, "incomplete type %s", type_name(ty));
-		if (storage == ST_TYPEDEF) {
-			symbol_define(c, name, SK_TYPEDEF, ty, ST_TYPEDEF, sp);
+		if (storage == StTypedef) {
+			symbol_define(c, name, SkTypedef, ty, StTypedef, sp);
 		} else if (is_func(ty)) {
 			reject_user_prototype(c, sp);
-			s = symbol_define_func(c, name, ty, storage == ST_NONE ? ST_EXTERN : storage, sp, isoverload);
+			s = symbol_define_func(c, name, ty, storage == StNone ? StExtern : storage, sp, isoverload);
 			(void)s;
 		} else {
-			int st = storage == ST_STATIC ? ST_STATIC : ST_LOCAL;
+			int st = storage == StStatic ? StStatic : StLocal;
 
-			s = symbol_define(c, name, SK_VAR, ty, st, sp);
-			d = node(NDecl, sp);
+			s = symbol_define(c, name, SkVar, ty, st, sp);
+			d = node(NdDecl, sp);
 			d->symbol = s;
 			d->type = ty;
-			if (eat(c, PEq)) {
+			if (eat(c, PnEq)) {
 				d->init = parse_init(c);
 				finish_array_from_init(c, &s->type, d->init);
 				d->type = s->type;
@@ -3144,14 +3144,14 @@ parse_local_decl(Compiler* c, Node* blk) {
 				}
 			}
 			require_local_init(c, sp, name, st, d->init);
-			if (st == ST_STATIC) {
+			if (st == StStatic) {
 				s->int_val = ++c->static_seq;
 				add_global(c, d);
 			}
 			node_add(blk, d);
 		}
-		if (!eat(c, PComma)) {
-			expect(c, PSemi, "';'");
+		if (!eat(c, PnComma)) {
+			expect(c, PnSemi, "';'");
 			return;
 		}
 		if (user_source(c, peek(c)->span)) {
@@ -3170,7 +3170,7 @@ eat_pragma_op(Compiler* c) {
 	Tok* t;
 
 	t = peek(c);
-	if (t->kind != TIdent || t->s == NULL)
+	if (t->kind != TkIdent || t->s == NULL)
 		return 0;
 	if (strcmp(t->s, "__pragma") != 0 && strcmp(t->s, "_Pragma") != 0)
 		return 0;
@@ -3204,26 +3204,26 @@ parse_decl_or_def(Compiler* c, int in_func) {
 	recv_tag = NULL;
 	recv_name = NULL;
 	recv_ty = NULL;
-	if (atkw(c, K_static_assert)) {
+	if (atkw(c, KwStaticAssert)) {
 		free(doc);
 		parse_static_assert(c);
 		return;
 	}
-	if (eatkw(c, K_overload))
+	if (eatkw(c, KwOverload))
 		isoverload = 1;
-	if (at(c, PSemi)) {
+	if (at(c, PnSemi)) {
 		free(doc);
 		take(c);
 		return;
 	}
-	storage = ST_NONE;
+	storage = StNone;
 	saw = 0;
-	if (at(c, PLparen) && peek_tuple_type(c)) {
+	if (at(c, PnLparen) && peek_tuple_type(c)) {
 		base = parse_tuple_type(c);
 		saw = 1;
 	} else
 		base = parse_declspec(c, &storage, &saw);
-	if (at(c, PSemi)) {
+	if (at(c, PnSemi)) {
 		free(doc);
 		take(c);
 		return;
@@ -3249,22 +3249,22 @@ parse_decl_or_def(Compiler* c, int in_func) {
 		ty = parse_declarator(c, base, &name, 1);
 	if (name == NULL) {
 		free(doc);
-		if (!eat(c, PSemi)) {
+		if (!eat(c, PnSemi)) {
 			error_tok(c, peek(c), "expected declaration");
 			skip_to_balance(c);
 		}
 		return;
 	}
-	if (storage == ST_TYPEDEF) {
+	if (storage == StTypedef) {
 		for (;;) {
-			s = symbol_define(c, name, SK_TYPEDEF, ty, ST_TYPEDEF, sp);
-			if (!in_func && c->block == 0 && storage != ST_STATIC && doc) {
+			s = symbol_define(c, name, SkTypedef, ty, StTypedef, sp);
+			if (!in_func && c->block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
 			}
-			if (!eat(c, PComma)) {
+			if (!eat(c, PnComma)) {
 				free(doc);
-				expect(c, PSemi, "';'");
+				expect(c, PnSemi, "';'");
 				return;
 			}
 			if (user_source(c, peek(c)->span)) {
@@ -3277,13 +3277,13 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			ty = parse_declarator(c, base, &name, 1);
 			if (name == NULL) {
 				free(doc);
-				expect(c, PSemi, "';'");
+				expect(c, PnSemi, "';'");
 				return;
 			}
 		}
 	}
-	if (is_func(ty) && at(c, PLbrace)) {
-		if (eat(c, PComma)) {
+	if (is_func(ty) && at(c, PnLbrace)) {
+		if (eat(c, PnComma)) {
 			free(doc);
 			error_tok(c, peek(c), "%%C requires one variable declaration per line");
 			skip_to_balance(c);
@@ -3318,11 +3318,11 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			}
 		}
 		s->defined = 1;
-		if (!in_func && c->block == 0 && storage != ST_STATIC)
+		if (!in_func && c->block == 0 && storage != StStatic)
 			s->doc = doc;
 		else
 			free(doc);
-		if (storage == ST_STATIC && s->linkname == NULL && !ismethod) {
+		if (storage == StStatic && s->linkname == NULL && !ismethod) {
 			char buf[160];
 
 			snprintf(buf, sizeof(buf), "__f%d_%s", ++c->static_seq, name);
@@ -3332,7 +3332,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 		symbol_push_block(c);
 		for (i = 0; i < ty->params_len; i++) {
 			if (ty->param_names && ty->param_names[i]) {
-				ps = symbol_define(c, ty->param_names[i], SK_VAR, ty->params[i], ST_PARAM, sp);
+				ps = symbol_define(c, ty->param_names[i], SkVar, ty->params[i], StParam, sp);
 				if (ty->param_array && ty->param_array[i])
 					ps->array_param = 1;
 				if (ty->param_fixed_len)
@@ -3343,7 +3343,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 		}
 		body = parse_compound(c, 1);
 		symbol_pop_block(c);
-		fn = node(NFunc, sp);
+		fn = node(NdFunc, sp);
 		fn->symbol = s;
 		fn->type = ty;
 		fn->a = body;
@@ -3358,25 +3358,25 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			reject_user_prototype(c, sp);
 			if (ismethod)
 				s = symbol_define_method(c, name, recv_ty, recv_tag, ty,
-						     storage == ST_STATIC ? ST_STATIC : ST_EXTERN, sp);
+						     storage == StStatic ? StStatic : StExtern, sp);
 			else
-				s = symbol_define_func(c, name, ty, storage == ST_STATIC ? ST_STATIC : ST_EXTERN, sp,
+				s = symbol_define_func(c, name, ty, storage == StStatic ? StStatic : StExtern, sp,
 						    isoverload);
-			if (!in_func && c->block == 0 && storage != ST_STATIC && doc) {
+			if (!in_func && c->block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
 			}
 			(void)s;
 		} else {
-			s = symbol_define(c, name, SK_VAR, ty, storage, sp);
-			if (!in_func && c->block == 0 && storage != ST_STATIC && doc) {
+			s = symbol_define(c, name, SkVar, ty, storage, sp);
+			if (!in_func && c->block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
 			}
-			d = node(NDecl, sp);
+			d = node(NdDecl, sp);
 			d->symbol = s;
 			d->type = ty;
-			if (eat(c, PEq)) {
+			if (eat(c, PnEq)) {
 				d->init = parse_init(c);
 				finish_array_from_init(c, &s->type, d->init);
 				d->type = s->type;
@@ -3390,9 +3390,9 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			if (c->block == 0)
 				add_global(c, d);
 		}
-		if (!eat(c, PComma)) {
+		if (!eat(c, PnComma)) {
 			free(doc);
-			expect(c, PSemi, "';'");
+			expect(c, PnSemi, "';'");
 			return;
 		}
 		if (user_source(c, peek(c)->span) || ismethod) {
@@ -3405,7 +3405,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 		ty = parse_declarator(c, base, &name, 1);
 		if (name == NULL) {
 			free(doc);
-			expect(c, PSemi, "';'");
+			expect(c, PnSemi, "';'");
 			return;
 		}
 	}
@@ -3432,10 +3432,10 @@ prescan_unit_type_names(Compiler* c) {
 	depth = 0;
 	for (i = 0; i < n; i++) {
 		t = &c->tokens[i];
-		if (t->kind == TPunct) {
-			if (t->punct == PLbrace)
+		if (t->kind == TkPunct) {
+			if (t->punct == PnLbrace)
 				depth++;
-			else if (t->punct == PRbrace)
+			else if (t->punct == PnRbrace)
 				depth--;
 			continue;
 		}
@@ -3443,14 +3443,14 @@ prescan_unit_type_names(Compiler* c) {
 			continue;
 		if (!user_source(c, t->span))
 			continue;
-		if (t->kind == TKw && (t->kw == K_struct || t->kw == K_union || t->kw == K_enum)) {
+		if (t->kind == TkKw && (t->kw == KwStruct || t->kw == KwUnion || t->kw == KwEnum)) {
 			n1 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
-			if (n1 && n1->kind == TIdent && n1->s)
-				(void)type_struct(c, t->kw == K_union ? TY_UNION : (t->kw == K_enum ? TY_ENUM : TY_STRUCT),
+			if (n1 && n1->kind == TkIdent && n1->s)
+				(void)type_struct(c, t->kw == KwUnion ? TyUnion : (t->kw == KwEnum ? TyEnum : TyStruct),
 						  n1->s, n1->span);
 			continue;
 		}
-		if (t->kind != TKw || t->kw != K_typedef)
+		if (t->kind != TkKw || t->kw != KwTypedef)
 			continue;
 		sp = t->span;
 		last = NULL;
@@ -3458,32 +3458,32 @@ prescan_unit_type_names(Compiler* c) {
 		d = 0;
 		for (i++; i < n; i++) {
 			n1 = &c->tokens[i];
-			if (n1->kind == TPunct) {
-				if (n1->punct == PLbrace || n1->punct == PLparen || n1->punct == PLbrack)
+			if (n1->kind == TkPunct) {
+				if (n1->punct == PnLbrace || n1->punct == PnLparen || n1->punct == PnLbrack)
 					d++;
-				else if (n1->punct == PRbrace || n1->punct == PRparen || n1->punct == PRbrack)
+				else if (n1->punct == PnRbrace || n1->punct == PnRparen || n1->punct == PnRbrack)
 					d--;
-				else if (n1->punct == PSemi && d == 0)
+				else if (n1->punct == PnSemi && d == 0)
 					break;
 			}
-			if (d == 0 && n1->kind == TKw &&
-			    (n1->kw == K_struct || n1->kw == K_union || n1->kw == K_enum)) {
+			if (d == 0 && n1->kind == TkKw &&
+			    (n1->kw == KwStruct || n1->kw == KwUnion || n1->kw == KwEnum)) {
 				Tok* n2 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
-				if (n2 && n2->kind == TIdent && n2->s) {
-					int k = n1->kw == K_union ? TY_UNION : (n1->kw == K_enum ? TY_ENUM : TY_STRUCT);
+				if (n2 && n2->kind == TkIdent && n2->s) {
+					int k = n1->kw == KwUnion ? TyUnion : (n1->kw == KwEnum ? TyEnum : TyStruct);
 					tagged = type_struct(c, k, n2->s, n2->span);
 				}
 			}
-			if (d == 0 && n1->kind == TIdent && n1->s)
+			if (d == 0 && n1->kind == TkIdent && n1->s)
 				last = n1->s;
 		}
 		if (last == NULL)
 			continue;
 		s = symbol_lookup(c, last);
-		if (s && (s->kind == SK_TYPEDEF || s->kind == SK_TAG))
+		if (s && (s->kind == SkTypedef || s->kind == SkTag))
 			continue;
-		ty = tagged ? tagged : type_struct(c, TY_STRUCT, last, sp);
-		(void)symbol_define(c, last, SK_TYPEDEF, ty, ST_TYPEDEF, sp);
+		ty = tagged ? tagged : type_struct(c, TyStruct, last, sp);
+		(void)symbol_define(c, last, SkTypedef, ty, StTypedef, sp);
 	}
 }
 
@@ -3491,27 +3491,27 @@ prescan_unit_type_names(Compiler* c) {
 void
 prescan_unit_type_bodies(Compiler* c) {
 	c->pos = 0;
-	while (peek(c)->kind != TEof && !c->fatal) {
-		if (at(c, PSemi)) {
+	while (peek(c)->kind != TkEof && !c->fatal) {
+		if (at(c, PnSemi)) {
 			take(c);
 			continue;
 		}
 		while (eat_pragma_op(c))
 			;
-		if (atkw(c, K_import)) {
+		if (atkw(c, KwImport)) {
 			take(c);
-			if (peek(c)->kind == TString)
+			if (peek(c)->kind == TkString)
 				take(c);
-			expect(c, PSemi, "';'");
+			expect(c, PnSemi, "';'");
 			continue;
 		}
-		if (atkw(c, K_static_assert)) {
+		if (atkw(c, KwStaticAssert)) {
 			parse_static_assert(c);
 			continue;
 		}
-		if (atkw(c, K_typedef) || atkw(c, K_struct) || atkw(c, K_union) || atkw(c, K_enum)) {
+		if (atkw(c, KwTypedef) || atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
 			parse_decl_or_def(c, 0);
-			if (c->error_count && peek(c)->kind != TEof)
+			if (c->error_count && peek(c)->kind != TkEof)
 				skip_to_balance(c);
 			continue;
 		}
@@ -3530,22 +3530,22 @@ prescan_unit_types(Compiler* c) {
 void
 prescan_unit_funcs(Compiler* c) {
 	c->pos = 0;
-	while (peek(c)->kind != TEof && !c->fatal) {
-		if (at(c, PSemi)) {
+	while (peek(c)->kind != TkEof && !c->fatal) {
+		if (at(c, PnSemi)) {
 			take(c);
 			continue;
 		}
-		if (atkw(c, K_import)) {
+		if (atkw(c, KwImport)) {
 			take(c);
-			if (peek(c)->kind != TString)
+			if (peek(c)->kind != TkString)
 				error_tok(c, peek(c), "expected string literal after import");
 			else
 				take(c);
-			expect(c, PSemi, "';'");
+			expect(c, PnSemi, "';'");
 			continue;
 		}
 		prescan_toplevel(c);
-		if (c->error_count && peek(c)->kind != TEof)
+		if (c->error_count && peek(c)->kind != TkEof)
 			skip_to_balance(c);
 	}
 }
@@ -3569,19 +3569,19 @@ typedef_decl_names_known(Compiler* c) {
 	depth = 0;
 	last = NULL;
 	take(c); /* typedef */
-	while (peek(c)->kind != TEof) {
+	while (peek(c)->kind != TkEof) {
 		t = peek(c);
-		if (t->kind == TPunct) {
-			if (t->punct == PLparen || t->punct == PLbrack || t->punct == PLbrace)
+		if (t->kind == TkPunct) {
+			if (t->punct == PnLparen || t->punct == PnLbrack || t->punct == PnLbrace)
 				depth++;
-			else if (t->punct == PRparen || t->punct == PRbrack || t->punct == PRbrace)
+			else if (t->punct == PnRparen || t->punct == PnRbrack || t->punct == PnRbrace)
 				depth--;
-			else if (t->punct == PSemi && depth == 0) {
+			else if (t->punct == PnSemi && depth == 0) {
 				take(c);
 				break;
 			}
 		}
-		if (depth == 0 && t->kind == TIdent && t->s)
+		if (depth == 0 && t->kind == TkIdent && t->s)
 			last = t->s;
 		take(c);
 		if (c->fatal)
@@ -3592,7 +3592,7 @@ typedef_decl_names_known(Compiler* c) {
 		return 0;
 	}
 	s = symbol_lookup(c, last);
-	if (s && (s->kind == SK_TYPEDEF || (s->kind == SK_TAG && s->type && s->type->complete)))
+	if (s && (s->kind == SkTypedef || (s->kind == SkTag && s->type && s->type->complete)))
 		return 1;
 	c->pos = pos0;
 	return 0;
@@ -3605,14 +3605,14 @@ skip_parsed_type_decl(Compiler* c) {
 	Symbol* s;
 	int pos0;
 
-	if (atkw(c, K_struct) || atkw(c, K_union) || atkw(c, K_enum)) {
+	if (atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
 		pos0 = c->pos;
 		take(c); /* struct / union / enum */
 		/* SDK: struct __declspec(deprecated(...)) Tag { ... }; */
 		while (eat_vendor_attr(c))
 			;
 		t = peek(c);
-		if (t->kind == TIdent && t->s) {
+		if (t->kind == TkIdent && t->s) {
 			s = symbol_lookup_tag(c, t->s);
 			if (s && s->type && s->type->complete) {
 				c->pos = pos0;
@@ -3622,7 +3622,7 @@ skip_parsed_type_decl(Compiler* c) {
 		}
 		c->pos = pos0;
 	}
-	if (atkw(c, K_typedef) && typedef_decl_names_known(c))
+	if (atkw(c, KwTypedef) && typedef_decl_names_known(c))
 		return 1;
 	return 0;
 }
@@ -3644,13 +3644,13 @@ prescan_toplevel(Compiler* c) {
 	recv_tag = NULL;
 	recv_name = NULL;
 	recv_ty = NULL;
-	if (atkw(c, K_static_assert)) {
+	if (atkw(c, KwStaticAssert)) {
 		parse_static_assert(c);
 		return;
 	}
-	if (eatkw(c, K_overload))
+	if (eatkw(c, KwOverload))
 		isoverload = 1;
-	if (at(c, PSemi)) {
+	if (at(c, PnSemi)) {
 		take(c);
 		return;
 	}
@@ -3664,18 +3664,18 @@ prescan_toplevel(Compiler* c) {
 		;
 	while (eat_vendor_attr(c))
 		;
-	if (atkw(c, K_typedef) || atkw(c, K_struct) || atkw(c, K_union) || atkw(c, K_enum)) {
+	if (atkw(c, KwTypedef) || atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
 		skip_toplevel_semi(c);
 		return;
 	}
-	storage = ST_NONE;
+	storage = StNone;
 	saw = 0;
-	if (at(c, PLparen) && peek_tuple_type(c)) {
+	if (at(c, PnLparen) && peek_tuple_type(c)) {
 		base = parse_tuple_type(c);
 		saw = 1;
 	} else
 		base = parse_declspec(c, &storage, &saw);
-	if (at(c, PSemi)) {
+	if (at(c, PnSemi)) {
 		take(c);
 		return;
 	}
@@ -3691,17 +3691,17 @@ prescan_toplevel(Compiler* c) {
 		skip_toplevel_semi(c);
 		return;
 	}
-	if (eat(c, PComma)) {
+	if (eat(c, PnComma)) {
 		c->pos = pos0;
 		skip_toplevel_semi(c);
 		return;
 	}
-	if (storage == ST_TYPEDEF) {
+	if (storage == StTypedef) {
 		c->pos = pos0;
 		skip_toplevel_semi(c);
 		return;
 	}
-	if (at(c, PLbrace)) {
+	if (at(c, PnLbrace)) {
 		if (ismethod)
 			s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage, sp);
 		else
@@ -3712,38 +3712,38 @@ prescan_toplevel(Compiler* c) {
 	}
 	reject_user_prototype(c, sp);
 	if (ismethod)
-		s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage == ST_STATIC ? ST_STATIC : ST_EXTERN, sp);
+		s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage == StStatic ? StStatic : StExtern, sp);
 	else
-		s = symbol_define_func(c, name, ty, storage == ST_STATIC ? ST_STATIC : ST_EXTERN, sp, isoverload);
-	expect(c, PSemi, "';'");
+		s = symbol_define_func(c, name, ty, storage == StStatic ? StStatic : StExtern, sp, isoverload);
+	expect(c, PnSemi, "';'");
 	(void)s;
 }
 
 // Top-level: imports then decl/def until EOF (main parse entry).
 void parse_unit(Compiler* c) {
 	c->pos = 0;
-	while (peek(c)->kind != TEof && !c->fatal) {
-		if (at(c, PSemi)) {
+	while (peek(c)->kind != TkEof && !c->fatal) {
+		if (at(c, PnSemi)) {
 			take(c);
 			continue;
 		}
 		while (eat_pragma_op(c))
 			;
-		if (atkw(c, K_import)) {
+		if (atkw(c, KwImport)) {
 			take(c);
-			if (peek(c)->kind != TString)
+			if (peek(c)->kind != TkString)
 				error_tok(c, peek(c), "expected string literal after import");
 			else
 				take(c);
-			expect(c, PSemi, "';'");
+			expect(c, PnSemi, "';'");
 			continue;
 		}
 		if (skip_parsed_type_decl(c))
 			continue;
 		parse_decl_or_def(c, 0);
-		if (c->error_count && peek(c)->kind != TEof) {
+		if (c->error_count && peek(c)->kind != TkEof) {
 			/* recover at next likely declaration */
-			if (!is_typename(c) && !is_storage(c) && peek(c)->kind != TEof)
+			if (!is_typename(c) && !is_storage(c) && peek(c)->kind != TkEof)
 				skip_to_balance(c);
 		}
 	}

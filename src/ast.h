@@ -37,115 +37,115 @@ struct Span {
 };
 
 enum {
-	TEof = 0,
-	TIdent,
-	TNumber,
-	TString,
-	TCharLit,
-	TKw,
-	TPunct,
-	TNewline,
-	THeader,  /* after #include: <foo.h> or "foo.h" */
-	TComment, /* // or block comment; only when Compiler.keep_comments */
+	TkEof = 0,
+	TkIdent,
+	TkNumber,
+	TkString,
+	TkCharLit,
+	TkKw,
+	TkPunct,
+	TkNewline,
+	TkHeader,  /* after #include: <foo.h> or "foo.h" */
+	TkComment, /* // or block comment; only when Compiler.keep_comments */
 };
 
 enum {
-	K_auto,
-	K_break,
-	K_case,
-	K_char,
-	K_const,
-	K_continue,
-	K_default,
-	K_defer,
-	K_do,
-	K_double,
-	K_else,
-	K_enum,
-	K_extern,
-	K_fallthrough,
-	K_float,
-	K_for,
-	K_goto,
-	K_if,
-	K_import,
-	K_inline,
-	K_int,
-	K_long,
-	K_overload,
-	K_register,
-	K_restrict,
-	K_return,
-	K_short,
-	K_signed,
-	K_sizeof,
-	K_static,
-	K_static_assert,
-	K_struct,
-	K_switch,
-	K_typedef,
-	K_union,
-	K_unsigned,
-	K_void,
-	K_volatile,
-	K_while,
-	K_bool,
-	K_true,
-	K_false,
-	K_nkw
+	KwAuto,
+	KwBreak,
+	KwCase,
+	KwChar,
+	KwConst,
+	KwContinue,
+	KwDefault,
+	KwDefer,
+	KwDo,
+	KwDouble,
+	KwElse,
+	KwEnum,
+	KwExtern,
+	KwFallthrough,
+	KwFloat,
+	KwFor,
+	KwGoto,
+	KwIf,
+	KwImport,
+	KwInline,
+	KwInt,
+	KwLong,
+	KwOverload,
+	KwRegister,
+	KwRestrict,
+	KwReturn,
+	KwShort,
+	KwSigned,
+	KwSizeof,
+	KwStatic,
+	KwStaticAssert,
+	KwStruct,
+	KwSwitch,
+	KwTypedef,
+	KwUnion,
+	KwUnsigned,
+	KwVoid,
+	KwVolatile,
+	KwWhile,
+	KwBool,
+	KwTrue,
+	KwFalse,
+	KwNkw
 };
 
 enum {
-	PPlus,
-	PMinus,
-	PStar,
-	PSlash,
-	PPercent,
-	PAmp,
-	PPipe,
-	PCaret,
-	PTilde,
-	PBang,
-	PEq,
-	PPlusEq,
-	PMinusEq,
-	PStarEq,
-	PSlashEq,
-	PPercentEq,
-	PAmpEq,
-	PPipeEq,
-	PCaretEq,
-	PShlEq,
-	PShrEq,
-	PEqEq,
-	PBangEq,
-	PLt,
-	PGt,
-	PLe,
-	PGe,
-	PShl,
-	PShr,
-	PAmpAmp,
-	PPipePipe,
-	PPlusPlus,
-	PMinusMinus,
-	PQuestion,
-	PColon,
-	PComma,
-	PSemi,
-	PLparen,
-	PRparen,
-	PLbrack,
-	PRbrack,
-	PLbrace,
-	PRbrace,
-	PDot,
-	PDotDot,
-	PArrow,
-	PEllipsis,
-	PHash,
-	PHashHash,
-	Npunc
+	PnPlus,
+	PnMinus,
+	PnStar,
+	PnSlash,
+	PnPercent,
+	PnAmp,
+	PnPipe,
+	PnCaret,
+	PnTilde,
+	PnBang,
+	PnEq,
+	PnPlusEq,
+	PnMinusEq,
+	PnStarEq,
+	PnSlashEq,
+	PnPercentEq,
+	PnAmpEq,
+	PnPipeEq,
+	PnCaretEq,
+	PnShlEq,
+	PnShrEq,
+	PnEqEq,
+	PnBangEq,
+	PnLt,
+	PnGt,
+	PnLe,
+	PnGe,
+	PnShl,
+	PnShr,
+	PnAmpAmp,
+	PnPipePipe,
+	PnPlusPlus,
+	PnMinusMinus,
+	PnQuestion,
+	PnColon,
+	PnComma,
+	PnSemi,
+	PnLparen,
+	PnRparen,
+	PnLbrack,
+	PnRbrack,
+	PnLbrace,
+	PnRbrace,
+	PnDot,
+	PnDotDot,
+	PnArrow,
+	PnEllipsis,
+	PnHash,
+	PnHashHash,
+	PnCount
 };
 
 struct Tok {
@@ -162,26 +162,26 @@ struct Tok {
 };
 
 enum {
-	TY_VOID,
-	TY_CHAR,
-	TY_UCHAR,
-	TY_SHORT,
-	TY_USHORT,
-	TY_INT,
-	TY_UINT,
-	TY_LONG,
-	TY_ULONG,
-	TY_LLONG,
-	TY_ULLONG, /* always 64-bit; int64_t / literal l / header long long */
-	TY_FLOAT,
-	TY_DOUBLE,
-	TY_BOOL,
-	TY_PTR,
-	TY_ARRAY,
-	TY_FUNC,
-	TY_STRUCT,
-	TY_UNION,
-	TY_ENUM
+	TyVoid,
+	TyChar,
+	TyUChar,
+	TyShort,
+	TyUShort,
+	TyInt,
+	TyUInt,
+	TyLong,
+	TyULong,
+	TyLLong,
+	TyULLong, /* always 64-bit; int64_t / literal l / header long long */
+	TyFloat,
+	TyDouble,
+	TyBool,
+	TyPtr,
+	TyArray,
+	TyFunc,
+	TyStruct,
+	TyUnion,
+	TyEnum
 };
 
 struct Field {
@@ -212,28 +212,28 @@ struct Type {
 	int laid_out;
 	int is_ranged;	 /* ranged array T[..]; base is element type */
 	int is_tuple;	 /* multi-return anonymous struct */
-	int is_readonly; /* TY_PTR: pointee read-only (header const T *) */
+	int is_readonly; /* TyPtr: pointee read-only (header const T *) */
 	int emit_id;	 /* emit aggregate id; 0 = not yet assigned */
 	Type* next;
 };
 
 enum {
-	SK_NONE,
-	SK_VAR,
-	SK_FUNC,
-	SK_TYPEDEF,
-	SK_ENUMCON,
-	SK_LABEL,
-	SK_TAG
+	SkNone,
+	SkVar,
+	SkFunc,
+	SkTypedef,
+	SkEnumCon,
+	SkLabel,
+	SkTag
 };
 
 enum {
-	ST_NONE,
-	ST_EXTERN,
-	ST_STATIC,
-	ST_LOCAL,
-	ST_PARAM,
-	ST_TYPEDEF
+	StNone,
+	StExtern,
+	StStatic,
+	StLocal,
+	StParam,
+	StTypedef
 };
 
 struct Symbol {
@@ -268,53 +268,53 @@ struct Symbol {
 };
 
 enum {
-	NLit,
-	NStr,
-	NName,
-	NBin,
-	NUn,
-	NPost,
-	NCall,
-	NMethod,
-	NIndex,
-	NSubrange,
-	NDot,
-	NArrow,
-	NAddr,
-	NDeref,
-	NCast,
-	NSizeof,
-	NSizeofT,
-	NCond,
-	NComma,
-	NAssign,
-	NStmtExpr,
-	NBlock,
-	NIf,
-	NWhile,
-	NDo,
-	NFor,
-	NSwitch,
-	NCase,
-	NDefault,
-	NBreak,
-	NContinue,
-	NReturn,
-	NGoto,
-	NLabel,
-	NDecl,
-	NInit,
-	NFunc,
-	NDefer,
-	NTupleLit,
-	NFallthrough,
-	NSkip
+	NdLit,
+	NdStr,
+	NdName,
+	NdBin,
+	NdUn,
+	NdPost,
+	NdCall,
+	NdMethod,
+	NdIndex,
+	NdSubrange,
+	NdDot,
+	NdArrow,
+	NdAddr,
+	NdDeref,
+	NdCast,
+	NdSizeof,
+	NdSizeofT,
+	NdCond,
+	NdComma,
+	NdAssign,
+	NdStmtExpr,
+	NdBlock,
+	NdIf,
+	NdWhile,
+	NdDo,
+	NdFor,
+	NdSwitch,
+	NdCase,
+	NdDefault,
+	NdBreak,
+	NdContinue,
+	NdReturn,
+	NdGoto,
+	NdLabel,
+	NdDecl,
+	NdInit,
+	NdFunc,
+	NdDefer,
+	NdTupleLit,
+	NdFallthrough,
+	NdSkip
 };
 
 enum {
-	IDNone,
-	IDFieldDot, /* .field = */
-	IDIndexEq   /* [n] = */
+	IdNone,
+	IdFieldDot, /* .field = */
+	IdIndexEq   /* [n] = */
 };
 
 struct Initializer {
@@ -331,24 +331,24 @@ struct Initializer {
 /*
  * Node child layout (a / b / c / children[]):
  *
- *   NBin/NAssign/NIndex/NDot/NArrow   a=lhs, b=rhs/index/field-expr
- *   NUn/NPost/NAddr/NDeref/NCast      a=operand
- *   NCall/NMethod                     a=callee, children[]=args
- *   NCond                             a=cond, b=then, c=else
- *   NComma                            a=left, b=right
- *   NSizeof                           a=expr;  NSizeofT uses type only
- *   NStmtExpr                         a=block
- *   NBlock                            children[]=stmts
- *   NIf                               a=cond, b=then, c=else
- *   NWhile                            a=cond, b=body
- *   NDo                               a=body, b=cond
- *   NFor                              a=init, b=cond, c=step, children[0]=body
- *   NSwitch                           a=expr, b=body
- *   NCase                             a=low, b=high (range); children unused
- *   NDefault/NBreak/NContinue/…       mostly leaf; NLabel/NDefer/NReturn a=…
- *   NDecl                             init=Initializer*; symbol set; optional a=…
- *   NFunc                             a=body; symbol=function
- *   NTupleLit                         children[]=elements
+ *   NdBin/NdAssign/NdIndex/NdDot/NdArrow   a=lhs, b=rhs/index/field-expr
+ *   NdUn/NdPost/NdAddr/NdDeref/NdCast      a=operand
+ *   NdCall/NdMethod                     a=callee, children[]=args
+ *   NdCond                             a=cond, b=then, c=else
+ *   NdComma                            a=left, b=right
+ *   NdSizeof                           a=expr;  NdSizeofT uses type only
+ *   NdStmtExpr                         a=block
+ *   NdBlock                            children[]=stmts
+ *   NdIf                               a=cond, b=then, c=else
+ *   NdWhile                            a=cond, b=body
+ *   NdDo                               a=body, b=cond
+ *   NdFor                              a=init, b=cond, c=step, children[0]=body
+ *   NdSwitch                           a=expr, b=body
+ *   NdCase                             a=low, b=high (range); children unused
+ *   NdDefault/NdBreak/NdContinue/…       mostly leaf; NdLabel/NdDefer/NdReturn a=…
+ *   NdDecl                             init=Initializer*; symbol set; optional a=…
+ *   NdFunc                             a=body; symbol=function
+ *   NdTupleLit                         children[]=elements
  *
  * Walkers that only visit "statements" still recurse into for-init/step
  * (a/c) when those hold expression statements.
@@ -368,7 +368,7 @@ struct Node {
 	int is_lvalue;
 	int paren;	  /* wrapped in (…); assign-in-condition rules */
 	int is_immutable; /* Auto-const: string literal provenance */
-	int is_char_lit;  /* NLit from '…' character constant */
+	int is_char_lit;  /* NdLit from '…' character constant */
 };
 
 struct MArg {
@@ -388,7 +388,7 @@ struct Macro {
 	Macro* hash_next; /* hash chain */
 };
 
-enum { MAXERR = 20 };
+enum { MaxErr = 20 };
 
 struct Compiler {
 	char* infile;
@@ -473,7 +473,7 @@ struct Compiler {
 	char** unit_files; /* TU roots in this compile (user_source) */
 	int unit_files_len;
 	char* pending_doc; /* lexer: doc comment pending for next token */
-	int keep_comments; /* lexer: emit TComment (for modc format) */
+	int keep_comments; /* lexer: emit TkComment (for modc format) */
 };
 
 /* ---- diag.c ---- */
@@ -493,7 +493,7 @@ char* str_intern(Compiler* c, const char* s);
 char* str_intern_n(Compiler* c, const char* s, size_t n);
 // Copy at most n bytes from s and NUL-terminate; unlike strndup, does not require s to be longer than n.
 char* xstrndup(const char* s, size_t n);
-// User-facing error at a source span: message, caret underline, and fatal after MAXERR.
+// User-facing error at a source span: message, caret underline, and fatal after MaxErr.
 void error_at(Compiler* c, Span sp, const char* fmt, ...);
 // error_at with the span taken from a token (or a dummy location when t is NULL).
 void error_tok(Compiler* c, Tok* t, const char* fmt, ...);

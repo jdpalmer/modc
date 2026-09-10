@@ -36,23 +36,23 @@ mkprim(Compiler* c, int kind, int size, int align, int is_unsigned) {
 
 // Wire up the standard primitive types on Compiler (void, integers, floats, bool, void*).
 void type_init(Compiler* c) {
-	c->type_void = mkprim(c, TY_VOID, 0, 1, 0);
-	c->type_char = mkprim(c, TY_CHAR, 1, 1, 1); /* %C: char is unsigned 8-bit */
-	c->type_uchar = mkprim(c, TY_UCHAR, 1, 1, 1);
-	c->type_short = mkprim(c, TY_SHORT, 2, 2, 0);
-	c->type_ushort = mkprim(c, TY_USHORT, 2, 2, 1);
-	c->type_int = mkprim(c, TY_INT, 4, 4, 0);
-	c->type_uint = mkprim(c, TY_UINT, 4, 4, 1);
+	c->type_void = mkprim(c, TyVoid, 0, 1, 0);
+	c->type_char = mkprim(c, TyChar, 1, 1, 1); /* %C: char is unsigned 8-bit */
+	c->type_uchar = mkprim(c, TyUChar, 1, 1, 1);
+	c->type_short = mkprim(c, TyShort, 2, 2, 0);
+	c->type_ushort = mkprim(c, TyUShort, 2, 2, 1);
+	c->type_int = mkprim(c, TyInt, 4, 4, 0);
+	c->type_uint = mkprim(c, TyUInt, 4, 4, 1);
 	/* Host ABI long (LP64: 8; LLP64/Windows: 4). Headers only in user dialect. */
-	c->type_long = mkprim(c, TY_LONG, (int)sizeof(long), (int)sizeof(long), 0);
-	c->type_ulong = mkprim(c, TY_ULONG, (int)sizeof(unsigned long),
+	c->type_long = mkprim(c, TyLong, (int)sizeof(long), (int)sizeof(long), 0);
+	c->type_ulong = mkprim(c, TyULong, (int)sizeof(unsigned long),
 			    (int)sizeof(unsigned long), 1);
 	/* Fixed 64-bit for int64_t and dialect literal suffixes l/ul. */
-	c->type_llong = mkprim(c, TY_LLONG, 8, 8, 0);
-	c->type_ullong = mkprim(c, TY_ULLONG, 8, 8, 1);
-	c->type_float = mkprim(c, TY_FLOAT, 4, 4, 0);
-	c->type_double = mkprim(c, TY_DOUBLE, 8, 8, 0);
-	c->type_bool = mkprim(c, TY_BOOL, 1, 1, 0);
+	c->type_llong = mkprim(c, TyLLong, 8, 8, 0);
+	c->type_ullong = mkprim(c, TyULLong, 8, 8, 1);
+	c->type_float = mkprim(c, TyFloat, 4, 4, 0);
+	c->type_double = mkprim(c, TyDouble, 8, 8, 0);
+	c->type_bool = mkprim(c, TyBool, 1, 1, 0);
 	c->type_void_ptr = type_ptr(c, c->type_void);
 }
 
@@ -73,7 +73,7 @@ Type* type_new(Compiler* c, int kind) {
 Type* type_ptr(Compiler* c, Type* base) {
 	Type* t;
 
-	t = type_new(c, TY_PTR);
+	t = type_new(c, TyPtr);
 	t->base = base;
 	t->size = 8;
 	t->align = 8;
@@ -86,7 +86,7 @@ Type* type_ptr(Compiler* c, Type* base) {
 Type* type_array(Compiler* c, Type* base, int64_t len) {
 	Type* t;
 
-	t = type_new(c, TY_ARRAY);
+	t = type_new(c, TyArray);
 	t->base = base;
 	t->len = len;
 	if (len >= 0 && base && base->size > 0) {
@@ -102,7 +102,7 @@ Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va) {
 	Type* t;
 	int i;
 
-	t = type_new(c, TY_FUNC);
+	t = type_new(c, TyFunc);
 	t->base = ret;
 	t->params_len = n;
 	t->is_varargs = va;
@@ -132,14 +132,14 @@ Type* type_struct(Compiler* c, int kind, char* tag, Span sp) {
 
 	if (tag && tag[0]) {
 		s = symbol_lookup_tag(c, tag);
-		if (s && s->type && (s->type->kind == TY_STRUCT || s->type->kind == TY_UNION || s->type->kind == TY_ENUM))
+		if (s && s->type && (s->type->kind == TyStruct || s->type->kind == TyUnion || s->type->kind == TyEnum))
 			return s->type;
 	}
 	t = type_new(c, kind);
 	t->tag = tag ? xstrdup(tag) : NULL;
 	t->align = 1;
 	if (tag && tag[0])
-		symbol_define(c, tag, SK_TAG, t, ST_NONE, sp);
+		symbol_define(c, tag, SkTag, t, StNone, sp);
 	return t;
 }
 
@@ -154,7 +154,7 @@ Type* type_ranged(Compiler* c, Type* elem) {
 	for (t = c->type_list; t; t = t->next)
 		if (t->is_ranged && type_eq(t->base, elem))
 			return t;
-	t = type_new(c, TY_STRUCT);
+	t = type_new(c, TyStruct);
 	t->is_ranged = 1;
 	t->base = elem;
 	t->tag = xmalloc(32);
@@ -195,12 +195,12 @@ Type* type_tuple(Compiler* c, Type** elts, int n) {
 	static int nextid;
 
 	if (n <= 0)
-		return type_struct(c, TY_STRUCT, NULL, (Span){0});
+		return type_struct(c, TyStruct, NULL, (Span){0});
 	for (t = c->type_list; t; t = t->next) {
 		if (tuple_matches(t, elts, n))
 			return t;
 	}
-	t = type_new(c, TY_STRUCT);
+	t = type_new(c, TyStruct);
 	t->is_tuple = 1;
 	t->tag = xmalloc(32);
 	snprintf(t->tag, 32, "__Tuple%d", nextid++);
@@ -229,12 +229,12 @@ static int
 member_layout_ready(Type* m) {
 	if (m == NULL)
 		return 0;
-	while (m->kind == TY_ARRAY) {
+	while (m->kind == TyArray) {
 		if (m->len < 0 || m->base == NULL)
 			return 0;
 		m = m->base;
 	}
-	if (m->kind == TY_STRUCT || m->kind == TY_UNION || m->kind == TY_ENUM)
+	if (m->kind == TyStruct || m->kind == TyUnion || m->kind == TyEnum)
 		return m->complete;
 	return 1;
 }
@@ -246,9 +246,9 @@ type_layout_ready(Type* t) {
 
 	if (t == NULL)
 		return 0;
-	if (t->kind == TY_ARRAY)
+	if (t->kind == TyArray)
 		return t->len >= 0 && member_layout_ready(t->base);
-	if (t->kind != TY_STRUCT && t->kind != TY_UNION)
+	if (t->kind != TyStruct && t->kind != TyUnion)
 		return 1;
 	/* Forward tags have no fields yet; ranged / bodies-in-progress have fields. */
 	if (!t->complete && t->fields == NULL)
@@ -268,7 +268,7 @@ void type_layout(Compiler* c, Type* t) {
 
 	if (t == NULL || t->laid_out)
 		return;
-	if (t->kind == TY_ARRAY) {
+	if (t->kind == TyArray) {
 		if (!type_layout_ready(t))
 			return;
 		type_layout(c, t->base);
@@ -280,7 +280,7 @@ void type_layout(Compiler* c, Type* t) {
 		t->laid_out = 1;
 		return;
 	}
-	if (t->kind != TY_STRUCT && t->kind != TY_UNION)
+	if (t->kind != TyStruct && t->kind != TyUnion)
 		return;
 	if (!type_layout_ready(t))
 		return;
@@ -289,13 +289,13 @@ void type_layout(Compiler* c, Type* t) {
 	for (f = t->fields; f; f = f->next) {
 		type_layout(c, f->type);
 		if (f->type && !f->type->laid_out &&
-		    (f->type->kind == TY_STRUCT || f->type->kind == TY_UNION || f->type->kind == TY_ARRAY))
+		    (f->type->kind == TyStruct || f->type->kind == TyUnion || f->type->kind == TyArray))
 			return;
 		al = type_align(c, f->type);
 		sz = type_size(c, f->type);
 		if (al > maxal)
 			maxal = al;
-		if (t->kind == TY_UNION) {
+		if (t->kind == TyUnion) {
 			f->offset = 0;
 			if (sz > off)
 				off = sz;
@@ -326,7 +326,7 @@ void type_layout_pending(Compiler* c) {
 		for (t = c->type_list; t; t = t->next) {
 			if (t->laid_out)
 				continue;
-			if (t->kind != TY_STRUCT && t->kind != TY_UNION && t->kind != TY_ARRAY)
+			if (t->kind != TyStruct && t->kind != TyUnion && t->kind != TyArray)
 				continue;
 			type_layout(c, t);
 			if (t->laid_out)
@@ -343,7 +343,7 @@ int type_size(Compiler* c, Type* t) {
 		return 0;
 	if (!t->laid_out)
 		type_layout(c, t);
-	if (t->kind == TY_ARRAY && t->size == 0 && t->len >= 0 && t->base)
+	if (t->kind == TyArray && t->size == 0 && t->len >= 0 && t->base)
 		return (int)(t->len * type_size(c, t->base));
 	return t->size;
 }
@@ -362,18 +362,18 @@ int is_int(Type* t) {
 	if (t == NULL)
 		return 0;
 	switch (t->kind) {
-	case TY_CHAR:
-	case TY_UCHAR:
-	case TY_SHORT:
-	case TY_USHORT:
-	case TY_INT:
-	case TY_UINT:
-	case TY_LONG:
-	case TY_ULONG:
-	case TY_LLONG:
-	case TY_ULLONG:
-	case TY_BOOL:
-	case TY_ENUM:
+	case TyChar:
+	case TyUChar:
+	case TyShort:
+	case TyUShort:
+	case TyInt:
+	case TyUInt:
+	case TyLong:
+	case TyULong:
+	case TyLLong:
+	case TyULLong:
+	case TyBool:
+	case TyEnum:
 		return 1;
 	default:
 		return 0;
@@ -381,7 +381,7 @@ int is_int(Type* t) {
 }
 
 int is_arith(Type* t) {
-	return is_int(t) || (t && (t->kind == TY_FLOAT || t->kind == TY_DOUBLE));
+	return is_int(t) || (t && (t->kind == TyFloat || t->kind == TyDouble));
 }
 
 /* Scalar in the C sense: arithmetic or pointer. */
@@ -390,19 +390,19 @@ int is_scalar(Type* t) {
 }
 
 int is_ptr(Type* t) {
-	return t && t->kind == TY_PTR;
+	return t && t->kind == TyPtr;
 }
 
 int is_func(Type* t) {
-	return t && t->kind == TY_FUNC;
+	return t && t->kind == TyFunc;
 }
 
 int is_array(Type* t) {
-	return t && t->kind == TY_ARRAY;
+	return t && t->kind == TyArray;
 }
 
 int is_aggr(Type* t) {
-	return t && (t->kind == TY_STRUCT || t->kind == TY_UNION);
+	return t && (t->kind == TyStruct || t->kind == TyUnion);
 }
 
 /* Interned {ptr,len} ranged-array struct. */
@@ -420,12 +420,12 @@ int is_signed_int(Type* t) {
 	if (t == NULL || t->is_unsigned)
 		return 0;
 	switch (t->kind) {
-	case TY_SHORT:
-	case TY_INT:
-	case TY_LONG:
-	case TY_LLONG:
-	case TY_BOOL:
-	case TY_ENUM:
+	case TyShort:
+	case TyInt:
+	case TyLong:
+	case TyLLong:
+	case TyBool:
+	case TyEnum:
 		return 1;
 	default:
 		return 0;
@@ -436,9 +436,9 @@ int is_signed_int(Type* t) {
 Type* decay(Compiler* c, Type* t) {
 	if (t == NULL)
 		return t;
-	if (t->kind == TY_ARRAY)
+	if (t->kind == TyArray)
 		return type_ptr(c, t->base);
-	if (t->kind == TY_FUNC)
+	if (t->kind == TyFunc)
 		return type_ptr(c, t);
 	return t;
 }
@@ -447,15 +447,15 @@ Type* decay(Compiler* c, Type* t) {
 Type* promote(Compiler* c, Type* t) {
 	if (t == NULL)
 		return c->type_int;
-	if (t->kind == TY_FLOAT || t->kind == TY_DOUBLE)
+	if (t->kind == TyFloat || t->kind == TyDouble)
 		return t;
-	if (t->kind == TY_PTR || t->kind == TY_ARRAY || t->kind == TY_FUNC)
+	if (t->kind == TyPtr || t->kind == TyArray || t->kind == TyFunc)
 		return decay(c, t);
-	if (t->kind == TY_LLONG || t->kind == TY_ULLONG)
+	if (t->kind == TyLLong || t->kind == TyULLong)
 		return t;
-	if (t->kind == TY_LONG || t->kind == TY_ULONG)
+	if (t->kind == TyLong || t->kind == TyULong)
 		return t;
-	if (t->kind == TY_UINT && t->size >= 4)
+	if (t->kind == TyUInt && t->size >= 4)
 		return t;
 	return c->type_int;
 }
@@ -464,19 +464,19 @@ Type* promote(Compiler* c, Type* t) {
 Type* usual_arith(Compiler* c, Type* a, Type* b) {
 	a = promote(c, a);
 	b = promote(c, b);
-	if (a->kind == TY_DOUBLE || b->kind == TY_DOUBLE)
+	if (a->kind == TyDouble || b->kind == TyDouble)
 		return c->type_double;
-	if (a->kind == TY_FLOAT || b->kind == TY_FLOAT)
+	if (a->kind == TyFloat || b->kind == TyFloat)
 		return c->type_float;
-	if (a->kind == TY_ULLONG || b->kind == TY_ULLONG)
+	if (a->kind == TyULLong || b->kind == TyULLong)
 		return c->type_ullong;
-	if (a->kind == TY_LLONG || b->kind == TY_LLONG)
+	if (a->kind == TyLLong || b->kind == TyLLong)
 		return c->type_llong;
-	if (a->kind == TY_ULONG || b->kind == TY_ULONG)
+	if (a->kind == TyULong || b->kind == TyULong)
 		return c->type_ulong;
-	if (a->kind == TY_LONG || b->kind == TY_LONG)
+	if (a->kind == TyLong || b->kind == TyLong)
 		return c->type_long;
-	if (a->kind == TY_UINT || b->kind == TY_UINT)
+	if (a->kind == TyUInt || b->kind == TyUInt)
 		return c->type_uint;
 	return c->type_int;
 }
@@ -490,25 +490,25 @@ int type_eq(Type* a, Type* b) {
 	if (a == NULL || b == NULL)
 		return 0;
 	/* char and unsigned char are the same type (%C char is unsigned) */
-	if ((a->kind == TY_CHAR || a->kind == TY_UCHAR) && (b->kind == TY_CHAR || b->kind == TY_UCHAR))
+	if ((a->kind == TyChar || a->kind == TyUChar) && (b->kind == TyChar || b->kind == TyUChar))
 		return 1;
 	if (a->kind != b->kind)
 		return 0;
 	switch (a->kind) {
-	case TY_PTR:
+	case TyPtr:
 		return type_eq(a->base, b->base);
-	case TY_ARRAY:
+	case TyArray:
 		return type_eq(a->base, b->base) && (a->len < 0 || b->len < 0 || a->len == b->len);
-	case TY_FUNC:
+	case TyFunc:
 		if (!type_eq(a->base, b->base) || a->params_len != b->params_len || a->is_varargs != b->is_varargs)
 			return 0;
 		for (i = 0; i < a->params_len; i++)
 			if (!type_eq(a->params[i], b->params[i]))
 				return 0;
 		return 1;
-	case TY_STRUCT:
-	case TY_UNION:
-	case TY_ENUM:
+	case TyStruct:
+	case TyUnion:
+	case TyEnum:
 		return a == b;
 	default:
 		return 1;
@@ -654,7 +654,7 @@ check_embed_ranged_null(Compiler* c, Span sp, Node* x) {
 
 int
 is_void_ptr(Type* t) {
-	return is_ptr(t) && t->base && t->base->kind == TY_VOID;
+	return is_ptr(t) && t->base && t->base->kind == TyVoid;
 }
 
 // Error in user code when arithmetic is done on void*.
@@ -669,9 +669,9 @@ int
 is_null_expr(Node* n) {
 	if (n == NULL)
 		return 0;
-	if (n->kind == NLit && n->int_val == 0)
+	if (n->kind == NdLit && n->int_val == 0)
 		return 1;
-	if (n->kind == NCast && n->type && is_ptr(n->type) && n->a && n->a->kind == NLit && n->a->int_val == 0)
+	if (n->kind == NdCast && n->type && is_ptr(n->type) && n->a && n->a->kind == NdLit && n->a->int_val == 0)
 		return 1;
 	return 0;
 }
@@ -682,7 +682,7 @@ int_lit_fits_type(Type* t, int64_t v) {
 	uint64_t umax;
 	int bits;
 
-	if (t == NULL || !is_int(t) || t->kind == TY_ENUM)
+	if (t == NULL || !is_int(t) || t->kind == TyEnum)
 		return 0;
 	if (t->size <= 0)
 		return 0;
@@ -747,30 +747,30 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 		return 1;
 	if (is_ranged(to) && is_array(src) && src->len >= 0 && to->base && type_eq(to->base, src->base))
 		return 1;
-	if (is_ranged(to) && expr && expr->kind == NStr && to->base && (to->base->kind == TY_CHAR || to->base->kind == TY_UCHAR))
+	if (is_ranged(to) && expr && expr->kind == NdStr && to->base && (to->base->kind == TyChar || to->base->kind == TyUChar))
 		return 1;
 	if (is_ptr(to) && is_ranged(from) && from->base && type_eq(to->base, from->base))
 		return 1;
 	if (is_arith(to) && is_arith(from)) {
-		if (to->kind == TY_DOUBLE)
+		if (to->kind == TyDouble)
 			return 1;
-		if (to->kind == TY_FLOAT && from->kind != TY_DOUBLE)
+		if (to->kind == TyFloat && from->kind != TyDouble)
 			return 1;
 		if (is_int(to) && is_int(from)) {
 			/* Tagged enums are distinct: widen to int-like; not back, not cross-enum */
-			if (to->kind == TY_ENUM && from->kind == TY_ENUM)
+			if (to->kind == TyEnum && from->kind == TyEnum)
 				return to == from;
-			if (to->kind == TY_ENUM)
+			if (to->kind == TyEnum)
 				return 0;
-			if (from->kind == TY_ENUM)
+			if (from->kind == TyEnum)
 				return from->size <= to->size;
-			if (expr && expr->kind == NLit && !expr->is_char_lit && int_lit_fits_type(to, expr->int_val))
+			if (expr && expr->kind == NdLit && !expr->is_char_lit && int_lit_fits_type(to, expr->int_val))
 				return 1;
-			if ((to->kind == TY_CHAR || to->kind == TY_UCHAR) && expr && expr->kind == NLit && expr->is_char_lit && (uint64_t)(unsigned char)expr->int_val == (uint64_t)expr->int_val)
+			if ((to->kind == TyChar || to->kind == TyUChar) && expr && expr->kind == NdLit && expr->is_char_lit && (uint64_t)(unsigned char)expr->int_val == (uint64_t)expr->int_val)
 				return 1;
 			return from->size <= to->size;
 		}
-		if (is_int(to) && (from->kind == TY_FLOAT || from->kind == TY_DOUBLE))
+		if (is_int(to) && (from->kind == TyFloat || from->kind == TyDouble))
 			return 0;
 		return 0;
 	}
@@ -798,7 +798,7 @@ Node* maybe_embed_deref_project(Compiler* c, Type* dst, Node* src) {
 				 type_name(from->base));
 		return src;
 	}
-	load = node1(NDeref, src->span, src);
+	load = node1(NdDeref, src->span, src);
 	load->type = from->base;
 	load->is_lvalue = 1;
 	load = type_expr(c, load);
@@ -817,10 +817,10 @@ Node* maybe_embed_project(Compiler* c, Type* dst, Node* src) {
 		return src;
 	if (anon_embed_offset(from, dst, NULL) != 1)
 		return src;
-	addr = node1(NAddr, src->span, src);
+	addr = node1(NdAddr, src->span, src);
 	addr->type = type_ptr(c, from);
 	up = maybe_embed_upcast(c, type_ptr(c, dst), addr);
-	deref = node1(NDeref, src->span, up);
+	deref = node1(NdDeref, src->span, up);
 	deref->type = dst;
 	deref->is_lvalue = 0;
 	return type_expr(c, deref);
@@ -846,19 +846,19 @@ Node* maybe_embed_upcast(Compiler* c, Type* dst, Node* src) {
 	if (r != 1)
 		return src;
 	if (off == 0) {
-		n = node1(NCast, src->span, src);
+		n = node1(NdCast, src->span, src);
 		n->type = to;
 		return n;
 	}
-	lit = node(NLit, src->span);
+	lit = node(NdLit, src->span);
 	lit->int_val = off;
 	lit->type = c->type_llong;
-	cp = node1(NCast, src->span, src);
+	cp = node1(NdCast, src->span, src);
 	cp->type = type_ptr(c, c->type_char);
-	add = node2(NBin, src->span, cp, lit);
-	add->op = PPlus;
+	add = node2(NdBin, src->span, cp, lit);
+	add->op = PnPlus;
 	add->type = cp->type;
-	n = node1(NCast, src->span, add);
+	n = node1(NdCast, src->span, add);
 	n->type = to;
 	return n;
 }
@@ -868,7 +868,7 @@ static Node*
 mk_builtin_name(Compiler* c, Span sp, const char* name) {
 	Node* fn;
 
-	fn = node(NName, sp);
+	fn = node(NdName, sp);
 	fn->s = (char*)name;
 	return fn;
 }
@@ -884,13 +884,13 @@ Node* maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 	if (is_ranged(src->type) && type_eq(dst, src->type))
 		return src;
 	if (is_array(src->type) && src->type->len >= 0 && dst->base && type_eq(dst->base, src->type->base)) {
-		call = node1(NCall, src->span, mk_builtin_name(c, src->span, "ranged"));
+		call = node1(NdCall, src->span, mk_builtin_name(c, src->span, "ranged"));
 		node_add(call, src);
 		call->type = type_ranged(c, src->type->base);
 		return call;
 	}
-	if (src->kind == NStr && dst->base && (dst->base->kind == TY_CHAR || dst->base->kind == TY_UCHAR)) {
-		call = node1(NCall, src->span, mk_builtin_name(c, src->span, "ranged"));
+	if (src->kind == NdStr && dst->base && (dst->base->kind == TyChar || dst->base->kind == TyUChar)) {
+		call = node1(NdCall, src->span, mk_builtin_name(c, src->span, "ranged"));
 		node_add(call, src);
 		call->type = type_ranged(c, dst->base);
 		return call;
@@ -910,7 +910,7 @@ Node* maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 		return src;
 	if (!type_eq(dst->base, src->type->base))
 		return src;
-	d = node(NDot, src->span);
+	d = node(NdDot, src->span);
 	d->a = src;
 	d->s = "ptr";
 	d->type = dst;
@@ -1043,7 +1043,7 @@ int
 expr_is_immutable(Node* n) {
 	if (n == NULL)
 		return 0;
-	if (n->kind == NComma)
+	if (n->kind == NdComma)
 		return expr_is_immutable(n->b);
 	return n->is_immutable;
 }
@@ -1091,45 +1091,45 @@ type_name(Type* t) {
 	if (t == NULL)
 		return "<null>";
 	switch (t->kind) {
-	case TY_VOID:
+	case TyVoid:
 		return "void";
-	case TY_CHAR:
+	case TyChar:
 		return "char";
-	case TY_UCHAR:
+	case TyUChar:
 		return "unsigned char";
-	case TY_SHORT:
+	case TyShort:
 		return "short";
-	case TY_USHORT:
+	case TyUShort:
 		return "unsigned short";
-	case TY_INT:
+	case TyInt:
 		return "int";
-	case TY_UINT:
+	case TyUInt:
 		return "unsigned int";
-	case TY_LONG:
+	case TyLong:
 		return "long";
-	case TY_ULONG:
+	case TyULong:
 		return "unsigned long";
-	case TY_LLONG:
+	case TyLLong:
 		return "long long";
-	case TY_ULLONG:
+	case TyULLong:
 		return "unsigned long long";
-	case TY_FLOAT:
+	case TyFloat:
 		return "float";
-	case TY_DOUBLE:
+	case TyDouble:
 		return "double";
-	case TY_BOOL:
+	case TyBool:
 		return "bool";
-	case TY_PTR:
+	case TyPtr:
 		return "pointer";
-	case TY_ARRAY:
+	case TyArray:
 		return "array";
-	case TY_FUNC:
+	case TyFunc:
 		return "function";
-	case TY_STRUCT:
+	case TyStruct:
 		return t->is_ranged ? "ranged array" : (t->tag ? t->tag : "struct");
-	case TY_UNION:
+	case TyUnion:
 		return t->tag ? t->tag : "union";
-	case TY_ENUM:
+	case TyEnum:
 		return t->tag ? t->tag : "enum";
 	default:
 		return "?";
@@ -1140,20 +1140,20 @@ type_name(Type* t) {
 char qbe_class(Type* t) {
 	if (t == NULL)
 		return 'w';
-	if (t->kind == TY_PTR || t->kind == TY_ARRAY || t->kind == TY_FUNC)
+	if (t->kind == TyPtr || t->kind == TyArray || t->kind == TyFunc)
 		return 'l';
 	if (is_aggr(t))
 		return '@';
 	switch (t->kind) {
-	case TY_LONG:
-	case TY_ULONG:
+	case TyLong:
+	case TyULong:
 		return t->size == 8 ? 'l' : 'w';
-	case TY_LLONG:
-	case TY_ULLONG:
+	case TyLLong:
+	case TyULLong:
 		return 'l';
-	case TY_FLOAT:
+	case TyFloat:
 		return 's';
-	case TY_DOUBLE:
+	case TyDouble:
 		return 'd';
 	default:
 		return 'w';
@@ -1250,120 +1250,120 @@ eval_rec(Compiler* c, Node* n, int64_t* out) {
 	if (n == NULL)
 		return 0;
 	switch (n->kind) {
-	case NLit:
+	case NdLit:
 		*out = n->int_val;
 		return 1;
-	case NSizeof:
-	case NSizeofT:
+	case NdSizeof:
+	case NdSizeofT:
 		if (n->type)
-			*out = type_size(c, n->kind == NSizeof && n->a && n->a->type ? n->a->type : n->type);
+			*out = type_size(c, n->kind == NdSizeof && n->a && n->a->type ? n->a->type : n->type);
 		else if (n->a && n->a->type)
 			*out = type_size(c, n->a->type);
 		else
 			return 0;
 		return 1;
-	case NCast:
+	case NdCast:
 		if (!eval_rec(c, n->a, out))
 			return 0;
 		return 1;
-	case NUn:
+	case NdUn:
 		if (!eval_rec(c, n->a, &a))
 			return 0;
 		switch (n->op) {
-		case PPlus:
+		case PnPlus:
 			*out = a;
 			return 1;
-		case PMinus:
+		case PnMinus:
 			*out = -a;
 			return 1;
-		case PTilde:
+		case PnTilde:
 			*out = ~a;
 			return 1;
-		case PBang:
+		case PnBang:
 			*out = !a;
 			return 1;
 		default:
 			return 0;
 		}
-	case NBin:
+	case NdBin:
 		if (!eval_rec(c, n->a, &a) || !eval_rec(c, n->b, &b))
 			return 0;
 		switch (n->op) {
-		case PPlus:
+		case PnPlus:
 			*out = a + b;
 			return 1;
-		case PMinus:
+		case PnMinus:
 			*out = a - b;
 			return 1;
-		case PStar:
+		case PnStar:
 			*out = a * b;
 			return 1;
-		case PSlash:
+		case PnSlash:
 			*out = b ? a / b : 0;
 			return 1;
-		case PPercent:
+		case PnPercent:
 			*out = b ? a % b : 0;
 			return 1;
-		case PAmp:
+		case PnAmp:
 			*out = a & b;
 			return 1;
-		case PPipe:
+		case PnPipe:
 			*out = a | b;
 			return 1;
-		case PCaret:
+		case PnCaret:
 			*out = a ^ b;
 			return 1;
-		case PShl:
+		case PnShl:
 			*out = a << b;
 			return 1;
-		case PShr:
+		case PnShr:
 			*out = a >> b;
 			return 1;
-		case PEqEq:
+		case PnEqEq:
 			*out = a == b;
 			return 1;
-		case PBangEq:
+		case PnBangEq:
 			*out = a != b;
 			return 1;
-		case PLt:
+		case PnLt:
 			*out = a < b;
 			return 1;
-		case PGt:
+		case PnGt:
 			*out = a > b;
 			return 1;
-		case PLe:
+		case PnLe:
 			*out = a <= b;
 			return 1;
-		case PGe:
+		case PnGe:
 			*out = a >= b;
 			return 1;
-		case PAmpAmp:
+		case PnAmpAmp:
 			*out = a && b;
 			return 1;
-		case PPipePipe:
+		case PnPipePipe:
 			*out = a || b;
 			return 1;
 		default:
 			return 0;
 		}
-	case NCond:
+	case NdCond:
 		if (!eval_rec(c, n->a, &a))
 			return 0;
 		return eval_rec(c, a ? n->b : n->c, out);
-	case NAddr:
+	case NdAddr:
 		/* offsetof: &((T*)0)->member */
-		if (n->a && (n->a->kind == NArrow || n->a->kind == NDot)) {
+		if (n->a && (n->a->kind == NdArrow || n->a->kind == NdDot)) {
 			*out = n->a->int_val;
 			return 1;
 		}
 		return 0;
-	case NName:
-		if (n->symbol && n->symbol->kind == SK_ENUMCON) {
+	case NdName:
+		if (n->symbol && n->symbol->kind == SkEnumCon) {
 			*out = n->symbol->int_val;
 			return 1;
 		}
 		return 0;
-	case NComma:
+	case NdComma:
 		return eval_rec(c, n->b, out);
 	default:
 		(void)d;
@@ -1422,7 +1422,7 @@ static Type*
 ptr_base(Type* t) {
 	if (t == NULL)
 		return t;
-	if (t->kind == TY_ARRAY || t->kind == TY_PTR)
+	if (t->kind == TyArray || t->kind == TyPtr)
 		return t->base;
 	return t;
 }
@@ -1439,7 +1439,7 @@ lower_method_call(Compiler* c, Node* n) {
 	Symbol* sym;
 	int i;
 
-	if (n == NULL || n->a == NULL || n->a->kind != NMethod)
+	if (n == NULL || n->a == NULL || n->a->kind != NdMethod)
 		return n;
 	recv = type_expr(c, n->a->a);
 	if (recv == NULL || recv->type == NULL)
@@ -1447,7 +1447,7 @@ lower_method_call(Compiler* c, Node* n) {
 	if (!is_ptr(recv->type)) {
 		if (!recv->is_lvalue)
 			error_at(c, n->span, "method call requires an lvalue receiver");
-		recv = node1(NAddr, n->span, recv);
+		recv = node1(NdAddr, n->span, recv);
 		recv = type_expr(c, recv);
 	}
 	sym = symbol_resolve_method_call(c, recv->type, n->a->s, n->span);
@@ -1458,12 +1458,12 @@ lower_method_call(Compiler* c, Node* n) {
 	for (i = 0; i < n->children_len; i++)
 		if (n->children[i])
 			n->children[i] = type_expr(c, n->children[i]);
-	nm = node(NName, n->span);
+	nm = node(NdName, n->span);
 	nm->s = sym->name;
 	nm->symbol = sym;
 	nm->type = sym->type;
 	mark_symbol_used(nm);
-	call = node1(NCall, n->span, nm);
+	call = node1(NdCall, n->span, nm);
 	call->int_val = n->int_val;
 	node_add(call, recv);
 	for (i = 0; i < n->children_len; i++)
@@ -1478,10 +1478,10 @@ type_expr_call(Compiler* c, Node* n) {
 	Symbol* osym;
 	int i;
 
-	if (n->a && n->a->kind == NMethod)
+	if (n->a && n->a->kind == NdMethod)
 		return lower_method_call(c, n);
 	n->a = type_expr(c, n->a);
-	if (n->a && n->a->kind == NName && n->a->s && symbol_has_overload(c, n->a->s) && !n->int_val) {
+	if (n->a && n->a->kind == NdName && n->a->s && symbol_has_overload(c, n->a->s) && !n->int_val) {
 		for (i = 0; i < n->children_len; i++)
 			if (n->children[i])
 				n->children[i] = type_expr(c, n->children[i]);
@@ -1495,9 +1495,9 @@ type_expr_call(Compiler* c, Node* n) {
 	ft = n->a ? n->a->type : NULL;
 	if (ft && is_ptr(ft) && is_func(ft->base))
 		ft = ft->base;
-	if (ft && is_func(ft) == 0 && n->a && n->a->kind == NName && n->a->symbol)
+	if (ft && is_func(ft) == 0 && n->a && n->a->kind == NdName && n->a->symbol)
 		ft = n->a->symbol->type;
-	if (n->a && n->a->kind == NName && n->a->s)
+	if (n->a && n->a->kind == NdName && n->a->s)
 		bn = n->a->s;
 	if (bn && strcmp(bn, "__builtin_va_start") == 0) {
 		n->type = c->type_void;
@@ -1528,7 +1528,7 @@ type_expr_call(Compiler* c, Node* n) {
 				n->type = type_ranged(c, x->type->base);
 				return n;
 			}
-			if (x && x->kind == NStr && x->type && x->type->base && (x->type->base->kind == TY_CHAR || x->type->base->kind == TY_UCHAR)) {
+			if (x && x->kind == NdStr && x->type && x->type->base && (x->type->base->kind == TyChar || x->type->base->kind == TyUChar)) {
 				n->type = type_ranged(c, x->type->base);
 				return n;
 			}
@@ -1577,7 +1577,7 @@ type_expr_call(Compiler* c, Node* n) {
 			n->type = c->type_ullong;
 			return n;
 		}
-		if (x && x->kind == NName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0) {
+		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0) {
 			n->type = c->type_ullong;
 			return n;
 		}
@@ -1633,7 +1633,7 @@ type_expr_bin(Compiler* c, Node* n) {
 	n->b = type_expr(c, n->b);
 	lt = n->a ? decay(c, n->a->type) : NULL;
 	rt = n->b ? decay(c, n->b->type) : NULL;
-	if (n->op == PPlus) {
+	if (n->op == PnPlus) {
 		if (is_ptr(lt) && is_int(rt)) {
 			if (n->type == NULL)
 				reject_void_ptr_arith(c, n->span, lt);
@@ -1644,7 +1644,7 @@ type_expr_bin(Compiler* c, Node* n) {
 			n->type = rt;
 		} else
 			n->type = usual_arith(c, lt, rt);
-	} else if (n->op == PMinus) {
+	} else if (n->op == PnMinus) {
 		if (is_ptr(lt) && is_ptr(rt)) {
 			if (n->type == NULL) {
 				reject_void_ptr_arith(c, n->span, lt);
@@ -1657,13 +1657,13 @@ type_expr_bin(Compiler* c, Node* n) {
 			n->type = lt;
 		} else
 			n->type = usual_arith(c, lt, rt);
-	} else if (n->op == PEqEq || n->op == PBangEq || n->op == PAmpAmp || n->op == PPipePipe)
+	} else if (n->op == PnEqEq || n->op == PnBangEq || n->op == PnAmpAmp || n->op == PnPipePipe)
 		n->type = c->type_bool;
-	else if (n->op == PLt || n->op == PGt || n->op == PLe || n->op == PGe) {
+	else if (n->op == PnLt || n->op == PnGt || n->op == PnLe || n->op == PnGe) {
 		if (n->type == NULL)
 			check_sign_compare(c, n->span, lt, rt);
 		n->type = c->type_bool;
-	} else if (n->op == PShl || n->op == PShr) {
+	} else if (n->op == PnShl || n->op == PnShr) {
 		if (n->type == NULL)
 			check_shift_count(c, n->span, lt, n->b);
 		n->type = promote(c, lt);
@@ -1677,8 +1677,8 @@ static Node*
 type_expr_assign(Compiler* c, Node* n) {
 	int shift_chk, void_arith_chk;
 
-	shift_chk = (n->op == PShlEq || n->op == PShrEq) && n->type == NULL;
-	void_arith_chk = (n->op == PPlusEq || n->op == PMinusEq) && n->type == NULL;
+	shift_chk = (n->op == PnShlEq || n->op == PnShrEq) && n->type == NULL;
+	void_arith_chk = (n->op == PnPlusEq || n->op == PnMinusEq) && n->type == NULL;
 	n->a = type_expr(c, n->a);
 	n->b = type_expr(c, n->b);
 	n->type = n->a ? n->a->type : c->type_int;
@@ -1717,7 +1717,7 @@ type_expr_field(Compiler* c, Node* n) {
 	int off;
 
 	n->a = type_expr(c, n->a);
-	if (n->kind == NArrow && user_source(c, n->span))
+	if (n->kind == NdArrow && user_source(c, n->span))
 		error_at(c, n->span, "%%C uses '.' for field access; '->' is for headers");
 	lt = field_lhs(n->a ? n->a->type : NULL);
 	f = find_field(lt, n->s, &off);
@@ -1740,41 +1740,41 @@ Node* type_expr(Compiler* c, Node* n) {
 
 	if (n == NULL)
 		return n;
-	if (n->type && n->kind != NCast && n->kind != NSizeof && n->kind != NSizeofT && n->kind != NBin && n->kind != NUn && n->kind != NPost && n->kind != NCall && n->kind != NIndex && n->kind != NAddr && n->kind != NDeref && n->kind != NAssign && n->kind != NCond && n->kind != NComma && n->kind != NDot && n->kind != NArrow && n->kind != NTupleLit)
+	if (n->type && n->kind != NdCast && n->kind != NdSizeof && n->kind != NdSizeofT && n->kind != NdBin && n->kind != NdUn && n->kind != NdPost && n->kind != NdCall && n->kind != NdIndex && n->kind != NdAddr && n->kind != NdDeref && n->kind != NdAssign && n->kind != NdCond && n->kind != NdComma && n->kind != NdDot && n->kind != NdArrow && n->kind != NdTupleLit)
 		return n;
 
 	switch (n->kind) {
-	case NLit:
+	case NdLit:
 		return n;
-	case NStr:
+	case NdStr:
 		n->is_immutable = 1;
 		return n;
-	case NName:
+	case NdName:
 		if (n->symbol)
 			n->type = n->symbol->type;
 		return n;
-	case NSizeofT:
+	case NdSizeofT:
 		n->int_val = type_size(c, n->type);
 		n->type = c->type_ullong;
-		n->kind = NLit;
+		n->kind = NdLit;
 		return n;
-	case NSizeof:
+	case NdSizeof:
 		n->a = type_expr(c, n->a);
-		if (n->a && n->a->kind == NName && n->a->symbol && n->a->symbol->array_param && user_source(c, n->span) && n->a->symbol->param_fixed_len < 0)
+		if (n->a && n->a->kind == NdName && n->a->symbol && n->a->symbol->array_param && user_source(c, n->span) && n->a->symbol->param_fixed_len < 0)
 			error_at(c, n->span,
 				 "sizeof on array parameter '%s' is the size of a pointer",
 				 n->a->symbol->name);
 		mark_symbol_used(n->a);
 		n->int_val = n->a && n->a->type ? type_size(c, n->a->type) : 0;
 		n->type = c->type_ullong;
-		n->kind = NLit;
+		n->kind = NdLit;
 		n->a = NULL;
 		return n;
-	case NCast:
+	case NdCast:
 		n->a = type_expr(c, n->a);
 		if (n->type && is_ranged(n->type))
 			n->a = apply_implicit_conversions(c, n->type, n->a);
-		if (n->type && n->type->kind == TY_VOID)
+		if (n->type && n->type->kind == TyVoid)
 			return n;
 		/* Auto-const escape: cast to non-readonly pointer strips IMMUTABLE. */
 		if (n->a && expr_is_immutable(n->a)) {
@@ -1786,13 +1786,13 @@ Node* type_expr(Compiler* c, Node* n) {
 				n->is_immutable = 1;
 		}
 		return n;
-	case NAddr:
+	case NdAddr:
 		n->a = type_expr(c, n->a);
 		if (n->a && n->a->type)
 			n->type = type_ptr(c, n->a->type);
 		n->is_lvalue = 0;
 		return n;
-	case NDeref:
+	case NdDeref:
 		n->a = type_expr(c, n->a);
 		lt = n->a ? decay(c, n->a->type) : NULL;
 		if (lt && is_ptr(lt)) {
@@ -1801,13 +1801,13 @@ Node* type_expr(Compiler* c, Node* n) {
 		} else
 			error_at(c, n->span, "indirection requires a pointer");
 		return n;
-	case NUn:
+	case NdUn:
 		n->a = type_expr(c, n->a);
-		if (n->op == PBang) {
+		if (n->op == PnBang) {
 			n->type = c->type_bool;
 			return n;
 		}
-		if (n->op == PPlusPlus || n->op == PMinusMinus) {
+		if (n->op == PnPlusPlus || n->op == PnMinusMinus) {
 			if (n->type == NULL && n->a)
 				reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
 			n->type = n->a ? n->a->type : c->type_int;
@@ -1816,13 +1816,13 @@ Node* type_expr(Compiler* c, Node* n) {
 		}
 		n->type = n->a ? promote(c, n->a->type) : c->type_int;
 		return n;
-	case NPost:
+	case NdPost:
 		n->a = type_expr(c, n->a);
-		if (n->type == NULL && n->a && (n->op == PPlusPlus || n->op == PMinusMinus))
+		if (n->type == NULL && n->a && (n->op == PnPlusPlus || n->op == PnMinusMinus))
 			reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
 		n->type = n->a ? n->a->type : c->type_int;
 		return n;
-	case NIndex:
+	case NdIndex:
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
 		lt = n->a ? n->a->type : NULL;
@@ -1843,7 +1843,7 @@ Node* type_expr(Compiler* c, Node* n) {
 			error_at(c, n->span, "subscripted value is not an array or pointer");
 		n->is_lvalue = 1;
 		return n;
-	case NSubrange: {
+	case NdSubrange: {
 		Type* elem;
 		int64_t lo, hi;
 
@@ -1891,13 +1891,13 @@ Node* type_expr(Compiler* c, Node* n) {
 		n->is_lvalue = 0;
 		return n;
 	}
-	case NDot:
-	case NArrow:
+	case NdDot:
+	case NdArrow:
 		return type_expr_field(c, n);
-	case NMethod:
+	case NdMethod:
 		n->a = type_expr(c, n->a);
 		return n;
-	case NTupleLit:
+	case NdTupleLit:
 		for (i = 0; i < n->children_len; i++)
 			n->children[i] = type_expr(c, n->children[i]);
 		nk = 0;
@@ -1912,13 +1912,13 @@ Node* type_expr(Compiler* c, Node* n) {
 			}
 		}
 		return n;
-	case NCall:
+	case NdCall:
 		return type_expr_call(c, n);
-	case NBin:
+	case NdBin:
 		return type_expr_bin(c, n);
-	case NAssign:
+	case NdAssign:
 		return type_expr_assign(c, n);
-	case NCond:
+	case NdCond:
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
 		n->c = type_expr(c, n->c);
@@ -1931,7 +1931,7 @@ Node* type_expr(Compiler* c, Node* n) {
 		else
 			n->type = rt;
 		return n;
-	case NComma:
+	case NdComma:
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
 		n->type = n->b ? n->b->type : c->type_int;
@@ -1950,7 +1950,7 @@ mark_symbol_used(Node* n) {
 
 	if (n == NULL)
 		return;
-	if (n->kind == NName && n->symbol)
+	if (n->kind == NdName && n->symbol)
 		n->symbol->used = 1;
 	mark_symbol_used(n->a);
 	mark_symbol_used(n->b);

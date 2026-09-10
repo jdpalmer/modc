@@ -4,7 +4,7 @@
  * Compilation pipeline: lex → [pp] → parse → type check → emit → QBE
  *
  * Consumes the lexer Tok stream and rewrites c->tokens in place. Conditional
- * stack is IF_ON / IF_WAIT / IF_DONE. Macro expansion follows Prosser-ish
+ * stack is IfOn / IfWait / IfDone. Macro expansion follows Prosser-ish
  * argument expand / # / ## rules. After pp_run, parse sees a flat token list
  * with no directives left.
  */
@@ -19,9 +19,9 @@
 #endif
 
 enum {
-	IF_ON = 0, /* taking tokens */
-	IF_WAIT,   /* skipping until else/elif/endif; sibling not yet taken */
-	IF_DONE,   /* already took a branch; skip rest */
+	IfOn = 0, /* taking tokens */
+	IfWait,   /* skipping until else/elif/endif; sibling not yet taken */
+	IfDone,   /* already took a branch; skip rest */
 };
 
 static void emit_tok(Compiler* c, Tok t);
@@ -154,7 +154,7 @@ make_file_tok(Span sp) {
 	int i, j, n;
 
 	memset(&t, 0, sizeof(t));
-	t.kind = TString;
+	t.kind = TkString;
 	t.span = sp;
 	path = sp.file ? sp.file : "";
 	n = 0;
@@ -182,7 +182,7 @@ make_line_tok(Span sp) {
 	char buf[32];
 
 	memset(&t, 0, sizeof(t));
-	t.kind = TNumber;
+	t.kind = TkNumber;
 	t.span = sp;
 	t.int_val = sp.line;
 	snprintf(buf, sizeof(buf), "%d", sp.line);
@@ -371,21 +371,21 @@ emit_tok(Compiler* c, Tok t) {
 // True when t is a '#' punctuator (start of a directive).
 static int
 tok_is_hash(Tok* t) {
-	return t && t->kind == TPunct && t->punct == PHash;
+	return t && t->kind == TkPunct && t->punct == PnHash;
 }
 
 // True when t is an identifier spelling exactly s.
 static int
 ident_is(Tok* t, const char* s) {
-	return t && t->kind == TIdent && t->s && strcmp(t->s, s) == 0;
+	return t && t->kind == TkIdent && t->s && strcmp(t->s, s) == 0;
 }
 
 // Advance past the rest of a preprocessor line (through newline).
 static void
 skip_nl(Tok* src, int src_files_len, int* i) {
-	while (*i < src_files_len && src[*i].kind != TNewline && src[*i].kind != TEof)
+	while (*i < src_files_len && src[*i].kind != TkNewline && src[*i].kind != TkEof)
 		(*i)++;
-	if (*i < src_files_len && src[*i].kind == TNewline)
+	if (*i < src_files_len && src[*i].kind == TkNewline)
 		(*i)++;
 }
 
@@ -638,51 +638,51 @@ detect_include_guard(Tok* tokens, int tokens_len) {
 	const char* name;
 
 	i = 0;
-	while (i < tokens_len && tokens[i].kind == TNewline)
+	while (i < tokens_len && tokens[i].kind == TkNewline)
 		i++;
 	/* Skip leading #pragma once / #pragma warning lines. */
-	while (i + 1 < tokens_len && tokens[i].kind == TPunct && tokens[i].punct == PHash && tokens[i].bol &&
-	       tokens[i + 1].kind == TIdent && strcmp(tokens[i + 1].s, "pragma") == 0) {
+	while (i + 1 < tokens_len && tokens[i].kind == TkPunct && tokens[i].punct == PnHash && tokens[i].bol &&
+	       tokens[i + 1].kind == TkIdent && strcmp(tokens[i + 1].s, "pragma") == 0) {
 		i += 2;
-		while (i < tokens_len && tokens[i].kind != TNewline && tokens[i].kind != TEof)
+		while (i < tokens_len && tokens[i].kind != TkNewline && tokens[i].kind != TkEof)
 			i++;
-		while (i < tokens_len && tokens[i].kind == TNewline)
+		while (i < tokens_len && tokens[i].kind == TkNewline)
 			i++;
 	}
-	if (i + 2 >= tokens_len || !(tokens[i].kind == TPunct && tokens[i].punct == PHash && tokens[i].bol))
+	if (i + 2 >= tokens_len || !(tokens[i].kind == TkPunct && tokens[i].punct == PnHash && tokens[i].bol))
 		return NULL;
 	i++;
 	name = NULL;
-	if (tokens[i].kind == TIdent && strcmp(tokens[i].s, "ifndef") == 0) {
+	if (tokens[i].kind == TkIdent && strcmp(tokens[i].s, "ifndef") == 0) {
 		i++;
-		if (i < tokens_len && tokens[i].kind == TIdent)
+		if (i < tokens_len && tokens[i].kind == TkIdent)
 			name = tokens[i].s;
-	} else if (tokens[i].kind == TIdent && strcmp(tokens[i].s, "if") == 0) {
+	} else if (tokens[i].kind == TkIdent && strcmp(tokens[i].s, "if") == 0) {
 		i++;
-		if (i < tokens_len && tokens[i].kind == TPunct && tokens[i].punct == PBang)
+		if (i < tokens_len && tokens[i].kind == TkPunct && tokens[i].punct == PnBang)
 			i++;
 		else
 			return NULL;
-		if (i < tokens_len && tokens[i].kind == TIdent && strcmp(tokens[i].s, "defined") == 0)
+		if (i < tokens_len && tokens[i].kind == TkIdent && strcmp(tokens[i].s, "defined") == 0)
 			i++;
 		else
 			return NULL;
-		if (i < tokens_len && tokens[i].kind == TPunct && tokens[i].punct == PLparen)
+		if (i < tokens_len && tokens[i].kind == TkPunct && tokens[i].punct == PnLparen)
 			i++;
-		if (i < tokens_len && tokens[i].kind == TIdent)
+		if (i < tokens_len && tokens[i].kind == TkIdent)
 			name = tokens[i].s;
 	}
 	if (name == NULL)
 		return NULL;
 	/* Next directive should be #define NAME */
 	i++;
-	while (i < tokens_len && tokens[i].kind == TNewline)
+	while (i < tokens_len && tokens[i].kind == TkNewline)
 		i++;
-	if (i + 2 >= tokens_len || !(tokens[i].kind == TPunct && tokens[i].punct == PHash && tokens[i].bol))
+	if (i + 2 >= tokens_len || !(tokens[i].kind == TkPunct && tokens[i].punct == PnHash && tokens[i].bol))
 		return NULL;
-	if (!(tokens[i + 1].kind == TIdent && strcmp(tokens[i + 1].s, "define") == 0))
+	if (!(tokens[i + 1].kind == TkIdent && strcmp(tokens[i + 1].s, "define") == 0))
 		return NULL;
-	if (!(tokens[i + 2].kind == TIdent && strcmp(tokens[i + 2].s, name) == 0))
+	if (!(tokens[i + 2].kind == TkIdent && strcmp(tokens[i + 2].s, name) == 0))
 		return NULL;
 	return name;
 }
@@ -787,30 +787,30 @@ header_name(Tok* src, int src_files_len, int* i, int* angled) {
 	if (*i >= src_files_len)
 		return NULL;
 	t = &src[*i];
-	if (t->kind == TString) {
+	if (t->kind == TkString) {
 		(*i)++;
 		return xstrdup(t->s);
 	}
-	if (t->kind == TPunct && t->punct == PLt) {
+	if (t->kind == TkPunct && t->punct == PnLt) {
 		*angled = 1;
 		(*i)++;
 		n = 0;
 		buf[0] = 0;
-		while (*i < src_files_len && !(src[*i].kind == TPunct && src[*i].punct == PGt) && src[*i].kind != TNewline && src[*i].kind != TEof) {
+		while (*i < src_files_len && !(src[*i].kind == TkPunct && src[*i].punct == PnGt) && src[*i].kind != TkNewline && src[*i].kind != TkEof) {
 			t = &src[*i];
-			if (t->kind == TIdent || t->kind == TNumber || t->kind == TString) {
+			if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkString) {
 				n += snprintf(buf + n, sizeof(buf) - n, "%s", t->s ? t->s : "");
-			} else if (t->kind == TPunct) {
+			} else if (t->kind == TkPunct) {
 				switch (t->punct) {
-				case PDot:
+				case PnDot:
 					buf[n++] = '.';
 					buf[n] = 0;
 					break;
-				case PSlash:
+				case PnSlash:
 					buf[n++] = '/';
 					buf[n] = 0;
 					break;
-				case PMinus:
+				case PnMinus:
 					buf[n++] = '-';
 					buf[n] = 0;
 					break;
@@ -822,7 +822,7 @@ header_name(Tok* src, int src_files_len, int* i, int* angled) {
 			if (n >= (int)sizeof(buf) - 1)
 				break;
 		}
-		if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PGt)
+		if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnGt)
 			(*i)++;
 		return xstrdup(buf);
 	}
@@ -895,8 +895,8 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 	c->tokens = saved;
 	c->tokens_len = nsave;
 	c->tokens_cap = capsave;
-	/* drop trailing TEof */
-	if (tokens_len > 0 && itoks[tokens_len - 1].kind == TEof)
+	/* drop trailing TkEof */
+	if (tokens_len > 0 && itoks[tokens_len - 1].kind == TkEof)
 		tokens_len--;
 	guard = detect_include_guard(itoks, tokens_len);
 	{
@@ -926,7 +926,7 @@ do_define(Compiler* c, Tok* src, int src_files_len, int* i, int skipping) {
 	char** params;
 	int params_len, j;
 
-	if (*i >= src_files_len || (src[*i].kind != TIdent && src[*i].kind != TKw)) {
+	if (*i >= src_files_len || (src[*i].kind != TkIdent && src[*i].kind != TkKw)) {
 		if (!skipping)
 			error_tok(c, *i < src_files_len ? &src[*i] : NULL, "expected macro name");
 		skip_nl(src, src_files_len, i);
@@ -938,21 +938,21 @@ do_define(Compiler* c, Tok* src, int src_files_len, int* i, int skipping) {
 	varargs = 0;
 	params = NULL;
 	params_len = 0;
-	if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PLparen && !src[*i].ws) {
+	if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnLparen && !src[*i].ws) {
 		func = 1;
 		(*i)++;
-		if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PRparen)
+		if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnRparen)
 			(*i)++;
 		else {
 			for (;;) {
-				if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PEllipsis) {
+				if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnEllipsis) {
 					varargs = 1;
 					(*i)++;
-					if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PRparen)
+					if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnRparen)
 						(*i)++;
 					break;
 				}
-				if (*i >= src_files_len || src[*i].kind != TIdent) {
+				if (*i >= src_files_len || src[*i].kind != TkIdent) {
 					if (!skipping)
 						error_tok(c, *i < src_files_len ? &src[*i] : name, "bad macro parameter");
 					break;
@@ -961,11 +961,11 @@ do_define(Compiler* c, Tok* src, int src_files_len, int* i, int skipping) {
 					params = xrealloc(params, (params_len + 4) * sizeof(char*));
 				params[params_len++] = xstrdup(src[*i].s);
 				(*i)++;
-				if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PComma) {
+				if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnComma) {
 					(*i)++;
 					continue;
 				}
-				if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PRparen) {
+				if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnRparen) {
 					(*i)++;
 					break;
 				}
@@ -982,7 +982,7 @@ do_define(Compiler* c, Tok* src, int src_files_len, int* i, int skipping) {
 	n = 0;
 	cap = 0;
 	m->body = NULL;
-	while (*i < src_files_len && src[*i].kind != TNewline && src[*i].kind != TEof) {
+	while (*i < src_files_len && src[*i].kind != TkNewline && src[*i].kind != TkEof) {
 		if (n >= cap) {
 			cap = cap ? cap * 2 : 8;
 			m->body = xrealloc(m->body, cap * sizeof(Tok));
@@ -995,13 +995,13 @@ do_define(Compiler* c, Tok* src, int src_files_len, int* i, int skipping) {
 		return;
 	/* Constraints on # / ## in the replacement list (ISO). */
 	for (j = 0; j < m->body_len; j++) {
-		if (m->body[j].kind == TPunct && m->body[j].punct == PHashHash) {
+		if (m->body[j].kind == TkPunct && m->body[j].punct == PnHashHash) {
 			if (j == 0 || j + 1 >= m->body_len)
 				error_tok(c, &m->body[j], "'##' cannot appear at either end of a macro body");
 		}
-		if (m->func && m->body[j].kind == TPunct && m->body[j].punct == PHash) {
+		if (m->func && m->body[j].kind == TkPunct && m->body[j].punct == PnHash) {
 			int ok = 0, k;
-			if (j + 1 < m->body_len && m->body[j + 1].kind == TIdent && m->body[j + 1].s) {
+			if (j + 1 < m->body_len && m->body[j + 1].kind == TkIdent && m->body[j + 1].s) {
 				if (m->varargs && strcmp(m->body[j + 1].s, "__VA_ARGS__") == 0)
 					ok = 1;
 				for (k = 0; !ok && k < m->params_len; k++)
@@ -1030,11 +1030,11 @@ typedef struct {
 // Peek the next non-newline token in a #if expression parse.
 static Tok*
 ip_peek(Ifp* p) {
-	while (p->p < p->n && p->t[p->p].kind == TNewline)
+	while (p->p < p->n && p->t[p->p].kind == TkNewline)
 		p->p++;
 	if (p->p >= p->n) {
 		static Tok eof;
-		eof.kind = TEof;
+		eof.kind = TkEof;
 		return &eof;
 	}
 	return &p->t[p->p];
@@ -1046,7 +1046,7 @@ ip_take(Ifp* p) {
 	Tok* t;
 
 	t = ip_peek(p);
-	if (t->kind != TEof)
+	if (t->kind != TkEof)
 		p->p++;
 	return t;
 }
@@ -1065,7 +1065,7 @@ static int64_t iprimary(Ifp* p);
 // Consume an expected punctuator in #if parsing.
 static int
 ip_eatp(Ifp* p, int punct) {
-	if (ip_peek(p)->kind == TPunct && ip_peek(p)->punct == punct) {
+	if (ip_peek(p)->kind == TkPunct && ip_peek(p)->punct == punct) {
 		ip_take(p);
 		return 1;
 	}
@@ -1084,7 +1084,7 @@ ior(Ifp* p) {
 	int64_t a, b;
 
 	a = iandand(p);
-	while (ip_eatp(p, PPipePipe)) {
+	while (ip_eatp(p, PnPipePipe)) {
 		b = iandand(p); /* always parse */
 		a = a || b;
 	}
@@ -1097,7 +1097,7 @@ iandand(Ifp* p) {
 	int64_t a, b;
 
 	a = ibit(p);
-	while (ip_eatp(p, PAmpAmp)) {
+	while (ip_eatp(p, PnAmpAmp)) {
 		b = ibit(p);
 		a = a && b;
 	}
@@ -1112,14 +1112,14 @@ ibit(Ifp* p) {
 
 	a = icmp(p);
 	for (;;) {
-		op = ip_peek(p)->kind == TPunct ? ip_peek(p)->punct : -1;
-		if (op != PAmp && op != PPipe && op != PCaret)
+		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
+		if (op != PnAmp && op != PnPipe && op != PnCaret)
 			break;
 		ip_take(p);
 		b = icmp(p);
-		if (op == PAmp)
+		if (op == PnAmp)
 			a &= b;
-		else if (op == PPipe)
+		else if (op == PnPipe)
 			a |= b;
 		else
 			a ^= b;
@@ -1135,28 +1135,28 @@ icmp(Ifp* p) {
 
 	a = ishift(p);
 	for (;;) {
-		op = ip_peek(p)->kind == TPunct ? ip_peek(p)->punct : -1;
-		if (op != PEqEq && op != PBangEq && op != PLt && op != PGt && op != PLe && op != PGe)
+		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
+		if (op != PnEqEq && op != PnBangEq && op != PnLt && op != PnGt && op != PnLe && op != PnGe)
 			break;
 		ip_take(p);
 		b = ishift(p);
 		switch (op) {
-		case PEqEq:
+		case PnEqEq:
 			a = a == b;
 			break;
-		case PBangEq:
+		case PnBangEq:
 			a = a != b;
 			break;
-		case PLt:
+		case PnLt:
 			a = a < b;
 			break;
-		case PGt:
+		case PnGt:
 			a = a > b;
 			break;
-		case PLe:
+		case PnLe:
 			a = a <= b;
 			break;
-		case PGe:
+		case PnGe:
 			a = a >= b;
 			break;
 		}
@@ -1172,12 +1172,12 @@ ishift(Ifp* p) {
 
 	a = iadd(p);
 	for (;;) {
-		op = ip_peek(p)->kind == TPunct ? ip_peek(p)->punct : -1;
-		if (op != PShl && op != PShr)
+		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
+		if (op != PnShl && op != PnShr)
 			break;
 		ip_take(p);
 		b = iadd(p);
-		a = op == PShl ? a << b : a >> b;
+		a = op == PnShl ? a << b : a >> b;
 	}
 	return a;
 }
@@ -1190,12 +1190,12 @@ iadd(Ifp* p) {
 
 	a = imul(p);
 	for (;;) {
-		op = ip_peek(p)->kind == TPunct ? ip_peek(p)->punct : -1;
-		if (op != PPlus && op != PMinus)
+		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
+		if (op != PnPlus && op != PnMinus)
 			break;
 		ip_take(p);
 		b = imul(p);
-		a = op == PPlus ? a + b : a - b;
+		a = op == PnPlus ? a + b : a - b;
 	}
 	return a;
 }
@@ -1208,16 +1208,16 @@ imul(Ifp* p) {
 
 	a = iunary(p);
 	for (;;) {
-		op = ip_peek(p)->kind == TPunct ? ip_peek(p)->punct : -1;
-		if (op != PStar && op != PSlash && op != PPercent)
+		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
+		if (op != PnStar && op != PnSlash && op != PnPercent)
 			break;
 		ip_take(p);
 		b = iunary(p);
-		if (op == PStar)
+		if (op == PnStar)
 			a *= b;
 		else if (b == 0)
 			a = 0;
-		else if (op == PSlash)
+		else if (op == PnSlash)
 			a /= b;
 		else
 			a %= b;
@@ -1228,13 +1228,13 @@ imul(Ifp* p) {
 // Parse unary ! ~ + - in #if expressions.
 static int64_t
 iunary(Ifp* p) {
-	if (ip_eatp(p, PBang))
+	if (ip_eatp(p, PnBang))
 		return !iunary(p);
-	if (ip_eatp(p, PTilde))
+	if (ip_eatp(p, PnTilde))
 		return ~iunary(p);
-	if (ip_eatp(p, PPlus))
+	if (ip_eatp(p, PnPlus))
 		return iunary(p);
-	if (ip_eatp(p, PMinus))
+	if (ip_eatp(p, PnMinus))
 		return -iunary(p);
 	return iprimary(p);
 }
@@ -1248,10 +1248,10 @@ iprimary(Ifp* p) {
 	char* name;
 
 	t = ip_peek(p);
-	if (t->kind == TPunct && t->punct == PLparen) {
+	if (t->kind == TkPunct && t->punct == PnLparen) {
 		ip_take(p);
 		v = iexpr(p);
-		if (!ip_eatp(p, PRparen)) {
+		if (!ip_eatp(p, PnRparen)) {
 			p->err = 1;
 			error_tok(p->c, t, "syntax in #if");
 		}
@@ -1260,15 +1260,15 @@ iprimary(Ifp* p) {
 	if (ident_is(t, "defined")) {
 		ip_take(p);
 		t = ip_peek(p);
-		if (t->kind == TPunct && t->punct == PLparen) {
+		if (t->kind == TkPunct && t->punct == PnLparen) {
 			ip_take(p);
 			t = ip_take(p);
-			name = t->kind == TIdent ? t->s : NULL;
-			if (!ip_eatp(p, PRparen)) {
+			name = t->kind == TkIdent ? t->s : NULL;
+			if (!ip_eatp(p, PnRparen)) {
 				p->err = 1;
 				error_tok(p->c, t, "syntax in #if");
 			}
-		} else if (t->kind == TIdent) {
+		} else if (t->kind == TkIdent) {
 			name = t->s;
 			ip_take(p);
 		} else {
@@ -1278,19 +1278,19 @@ iprimary(Ifp* p) {
 		}
 		return name && find_macro(p->c, name) != NULL;
 	}
-	if (t->kind == TNumber || t->kind == TCharLit) {
+	if (t->kind == TkNumber || t->kind == TkCharLit) {
 		v = t->int_val;
 		ip_take(p);
 		return v;
 	}
-	if (t->kind == TKw) {
+	if (t->kind == TkKw) {
 		/* sizeof and such are not allowed */
 		p->err = 1;
 		error_tok(p->c, t, "syntax in #if");
 		ip_take(p);
 		return 0;
 	}
-	if (t->kind == TIdent) {
+	if (t->kind == TkIdent) {
 		if (strcmp(t->s, "__LINE__") == 0 && find_macro(p->c, t->s) != NULL) {
 			v = t->span.line;
 			ip_take(p);
@@ -1300,7 +1300,7 @@ iprimary(Ifp* p) {
 		ip_take(p);
 		if (m == NULL || m->hide)
 			return 0;
-		if (m->body_len == 1 && (m->body[0].kind == TNumber || m->body[0].kind == TCharLit))
+		if (m->body_len == 1 && (m->body[0].kind == TkNumber || m->body[0].kind == TkCharLit))
 			return m->body[0].int_val;
 		if (m->body_len == 0)
 			return 0;
@@ -1310,9 +1310,9 @@ iprimary(Ifp* p) {
 			Tok* body = m->body;
 			int nb = m->body_len;
 			/* If body is a single ident, recurse once */
-			if (nb == 1 && body[0].kind == TIdent) {
+			if (nb == 1 && body[0].kind == TkIdent) {
 				Macro* m2 = find_macro(p->c, body[0].s);
-				if (m2 && m2->body_len == 1 && m2->body[0].kind == TNumber)
+				if (m2 && m2->body_len == 1 && m2->body[0].kind == TkNumber)
 					return m2->body[0].int_val;
 				return 0;
 			}
@@ -1330,7 +1330,7 @@ iprimary(Ifp* p) {
 	}
 	p->err = 1;
 	error_tok(p->c, t, "syntax in #if");
-	if (t->kind != TEof)
+	if (t->kind != TkEof)
 		ip_take(p);
 	return 0;
 }
@@ -1350,7 +1350,7 @@ if_eval(Compiler* c, Tok* src, int src_files_len, int* i) {
 	cap = 0;
 	line = NULL;
 	end = start;
-	while (end < src_files_len && src[end].kind != TNewline && src[end].kind != TEof) {
+	while (end < src_files_len && src[end].kind != TkNewline && src[end].kind != TkEof) {
 		if (n >= cap) {
 			int ncap = cap ? cap * 2 : 16;
 			line = pp_bump_grow(line, (size_t)cap * sizeof(Tok), (size_t)ncap * sizeof(Tok));
@@ -1367,37 +1367,37 @@ if_eval(Compiler* c, Tok* src, int src_files_len, int* i) {
 		if (!ident_is(&line[j], "defined"))
 			continue;
 		name = NULL;
-		if (j + 1 < n && line[j + 1].kind == TIdent) {
+		if (j + 1 < n && line[j + 1].kind == TkIdent) {
 			name = line[j + 1].s;
 			memset(&one, 0, sizeof(one));
-			one.kind = TNumber;
+			one.kind = TkNumber;
 			one.int_val = name && find_macro(c, name) != NULL;
 			one.s = one.int_val ? "1" : "0";
 			one.span = line[j].span;
 			line[j] = one;
 			/* blank the identifier so expansion skips it */
 			memset(&line[j + 1], 0, sizeof(Tok));
-			line[j + 1].kind = TNewline;
+			line[j + 1].kind = TkNewline;
 			j++;
 			continue;
 		}
-		if (j + 3 < n && line[j + 1].kind == TPunct && line[j + 1].punct == PLparen &&
-		    (line[j + 2].kind == TIdent || line[j + 2].kind == TKw) &&
-		    line[j + 3].kind == TPunct && line[j + 3].punct == PRparen) {
+		if (j + 3 < n && line[j + 1].kind == TkPunct && line[j + 1].punct == PnLparen &&
+		    (line[j + 2].kind == TkIdent || line[j + 2].kind == TkKw) &&
+		    line[j + 3].kind == TkPunct && line[j + 3].punct == PnRparen) {
 			name = line[j + 2].s;
 			defined = name && find_macro(c, name) != NULL;
 			memset(&one, 0, sizeof(one));
-			one.kind = TNumber;
+			one.kind = TkNumber;
 			one.int_val = defined;
 			one.s = defined ? "1" : "0";
 			one.span = line[j].span;
 			line[j] = one;
 			memset(&line[j + 1], 0, sizeof(Tok));
-			line[j + 1].kind = TNewline;
+			line[j + 1].kind = TkNewline;
 			memset(&line[j + 2], 0, sizeof(Tok));
-			line[j + 2].kind = TNewline;
+			line[j + 2].kind = TkNewline;
 			memset(&line[j + 3], 0, sizeof(Tok));
-			line[j + 3].kind = TNewline;
+			line[j + 3].kind = TkNewline;
 			j += 3;
 		}
 	}
@@ -1425,14 +1425,14 @@ collect_args(Tok* src, int src_files_len, int* i, Tok*** args, int** argn, int* 
 	Tok* buf;
 
 	/* *i is on '(' */
-	if (*i >= src_files_len || src[*i].kind != TPunct || src[*i].punct != PLparen)
+	if (*i >= src_files_len || src[*i].kind != TkPunct || src[*i].punct != PnLparen)
 		return 0;
 	(*i)++;
 	na = 0;
 	acap = 0;
 	*args = NULL;
 	*argn = NULL;
-	if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PRparen) {
+	if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnRparen) {
 		(*i)++;
 		*args_len = 0;
 		return 1;
@@ -1443,13 +1443,13 @@ collect_args(Tok* src, int src_files_len, int* i, Tok*** args, int** argn, int* 
 		buf = NULL;
 		depth = 0;
 		while (*i < src_files_len) {
-			if (src[*i].kind == TPunct && src[*i].punct == PLparen)
+			if (src[*i].kind == TkPunct && src[*i].punct == PnLparen)
 				depth++;
-			else if (src[*i].kind == TPunct && src[*i].punct == PRparen) {
+			else if (src[*i].kind == TkPunct && src[*i].punct == PnRparen) {
 				if (depth == 0)
 					break;
 				depth--;
-			} else if (src[*i].kind == TPunct && src[*i].punct == PComma && depth == 0)
+			} else if (src[*i].kind == TkPunct && src[*i].punct == PnComma && depth == 0)
 				break;
 			if (n >= cap) {
 				int ncap = cap ? cap * 2 : 8;
@@ -1467,11 +1467,11 @@ collect_args(Tok* src, int src_files_len, int* i, Tok*** args, int** argn, int* 
 		(*args)[na] = buf;
 		(*argn)[na] = n;
 		na++;
-		if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PComma) {
+		if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnComma) {
 			(*i)++;
 			continue;
 		}
-		if (*i < src_files_len && src[*i].kind == TPunct && src[*i].punct == PRparen) {
+		if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnRparen) {
 			(*i)++;
 			break;
 		}
@@ -1482,8 +1482,8 @@ collect_args(Tok* src, int src_files_len, int* i, Tok*** args, int** argn, int* 
 }
 
 enum {
-	PARAM_NONE = -3,
-	PARAM_VA = -1
+	MpNone = -3,
+	MpVa = -1
 };
 
 static void expand_list_into(Compiler* c, Tok* src, int src_files_len, Tok** out, int* out_len);
@@ -1507,7 +1507,7 @@ pp_append_n(Tok** dst, int* n, int* cap, Tok* src, int src_files_len) {
 
 	add = 0;
 	for (i = 0; i < src_files_len; i++)
-		if (src[i].kind != TNewline && src[i].kind != TEof)
+		if (src[i].kind != TkNewline && src[i].kind != TkEof)
 			add++;
 	if (add == 0)
 		return;
@@ -1519,7 +1519,7 @@ pp_append_n(Tok** dst, int* n, int* cap, Tok* src, int src_files_len) {
 		*cap = ncap;
 	}
 	for (i = 0; i < src_files_len; i++)
-		if (src[i].kind != TNewline && src[i].kind != TEof)
+		if (src[i].kind != TkNewline && src[i].kind != TkEof)
 			(*dst)[(*n)++] = src[i];
 }
 
@@ -1531,10 +1531,10 @@ spell_tok(Tok* t, char** buf, int* len, int* cap) {
 
 	if (t == NULL)
 		return;
-	if (t->kind == TIdent || t->kind == TNumber || t->kind == TKw) {
+	if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkKw) {
 		s = t->s ? t->s : "";
 		n = (int)strlen(s);
-	} else if (t->kind == TString) {
+	} else if (t->kind == TkString) {
 		/* Include quotes; escape interior \ and " for stringize. */
 		n = 2;
 		s = t->s ? t->s : "";
@@ -1556,7 +1556,7 @@ spell_tok(Tok* t, char** buf, int* len, int* cap) {
 		(*buf)[(*len)++] = '"';
 		(*buf)[*len] = 0;
 		return;
-	} else if (t->kind == TCharLit) {
+	} else if (t->kind == TkCharLit) {
 		n = 2;
 		s = t->s ? t->s : "";
 		for (i = 0; s[i]; i++) {
@@ -1577,7 +1577,7 @@ spell_tok(Tok* t, char** buf, int* len, int* cap) {
 		(*buf)[(*len)++] = '\'';
 		(*buf)[*len] = 0;
 		return;
-	} else if (t->kind == TPunct) {
+	} else if (t->kind == TkPunct) {
 		s = punct_spell(t->punct);
 		n = (int)strlen(s);
 	} else
@@ -1602,7 +1602,7 @@ stringize_arg(Tok* src, int src_files_len, Span span) {
 	cap = 0;
 	needsp = 0;
 	for (i = 0; i < src_files_len; i++) {
-		if (src[i].kind == TNewline || src[i].kind == TEof)
+		if (src[i].kind == TkNewline || src[i].kind == TkEof)
 			continue;
 		if (needsp && src[i].ws) {
 			if (len + 2 > cap) {
@@ -1616,7 +1616,7 @@ stringize_arg(Tok* src, int src_files_len, Span span) {
 		needsp = 1;
 	}
 	memset(&t, 0, sizeof(t));
-	t.kind = TString;
+	t.kind = TkString;
 	t.s = buf ? buf : xstrdup("");
 	t.span = span;
 	return t;
@@ -1630,7 +1630,7 @@ match_punct_spell(const char* s, int* np) {
 
 	best = -1;
 	bestlen = 0;
-	for (p = 0; p < Npunc; p++) {
+	for (p = 0; p < PnCount; p++) {
 		sp = punct_spell(p);
 		n = (int)strlen(sp);
 		if (n > bestlen && strncmp(s, sp, n) == 0) {
@@ -1663,11 +1663,11 @@ tok_from_spell(Compiler* c, const char* s, Span span, Tok* out) {
 		copy = str_intern(c, s);
 		kw = keyword(copy);
 		if (kw >= 0) {
-			out->kind = TKw;
+			out->kind = TkKw;
 			out->kw = kw;
 			out->s = copy;
 		} else {
-			out->kind = TIdent;
+			out->kind = TkIdent;
 			out->s = copy;
 		}
 		return 1;
@@ -1680,14 +1680,14 @@ tok_from_spell(Compiler* c, const char* s, Span span, Tok* out) {
 			error_tok(c, out, "invalid token paste \"%s\"", s);
 			return 0;
 		}
-		out->kind = TNumber;
+		out->kind = TkNumber;
 		out->s = xstrdup(s);
 		out->int_val = strtoll(s, NULL, 0);
 		return 1;
 	}
 	p = match_punct_spell(s, &np);
 	if (p >= 0 && s[np] == 0) {
-		out->kind = TPunct;
+		out->kind = TkPunct;
 		out->punct = p;
 		return 1;
 	}
@@ -1726,14 +1726,14 @@ static int
 param_idx(Macro* m, Tok* t) {
 	int k;
 
-	if (!m->func || t == NULL || t->kind != TIdent || t->s == NULL)
-		return PARAM_NONE;
+	if (!m->func || t == NULL || t->kind != TkIdent || t->s == NULL)
+		return MpNone;
 	if (m->varargs && strcmp(t->s, "__VA_ARGS__") == 0)
-		return PARAM_VA;
+		return MpVa;
 	for (k = 0; k < m->params_len; k++)
 		if (strcmp(t->s, m->params[k]) == 0)
 			return k;
-	return PARAM_NONE;
+	return MpNone;
 }
 
 // Fetch raw (unexpanded) argument tokens for # or ## substitution.
@@ -1745,14 +1745,14 @@ raw_arg(Macro* m, Tok** args, int* argn, int args_len, int pi, Tok** out, int* o
 	*owned = 0;
 	*out = NULL;
 	*out_len = 0;
-	if (pi == PARAM_VA) {
+	if (pi == MpVa) {
 		n = 0;
 		cap = 0;
 		for (i = m->params_len; i < args_len; i++) {
 			if (i > m->params_len) {
 				memset(&comma, 0, sizeof(comma));
-				comma.kind = TPunct;
-				comma.punct = PComma;
+				comma.kind = TkPunct;
+				comma.punct = PnComma;
 				pp_append(out, &n, &cap, comma);
 			}
 			for (j = 0; j < argn[i]; j++)
@@ -1771,13 +1771,13 @@ raw_arg(Macro* m, Tok** args, int* argn, int args_len, int pi, Tok** out, int* o
 // True when t is the token-paste operator ##.
 static int
 is_hashhash(Tok* t) {
-	return t && t->kind == TPunct && t->punct == PHashHash;
+	return t && t->kind == TkPunct && t->punct == PnHashHash;
 }
 
 // True when t is the stringize operator #.
 static int
 is_hash(Tok* t) {
-	return t && t->kind == TPunct && t->punct == PHash;
+	return t && t->kind == TkPunct && t->punct == PnHash;
 }
 
 // Expand a macro body: substitute args, apply # and ##, pre-expand where required.
@@ -1808,7 +1808,7 @@ subst_body(Compiler* c, Macro* m, Tok** args, int* argn, int args_len, Tok** out
 		}
 	}
 	if (m->func && m->varargs) {
-		raw_arg(m, args, argn, args_len, PARAM_VA, &raw, &nraw, &raw_owned);
+		raw_arg(m, args, argn, args_len, MpVa, &raw, &nraw, &raw_owned);
 		expand_list_into(c, raw, nraw, &va_exp, &va_exp_n);
 		(void)raw_owned;
 		va_owned = 1;
@@ -1825,7 +1825,7 @@ subst_body(Compiler* c, Macro* m, Tok** args, int* argn, int args_len, Tok** out
 				i++;
 				continue;
 			}
-			if (i + 1 >= m->body_len || (pi = param_idx(m, &m->body[i + 1])) == PARAM_NONE) {
+			if (i + 1 >= m->body_len || (pi = param_idx(m, &m->body[i + 1])) == MpNone) {
 				error_tok(c, &m->body[i], "'#' is not followed by a macro parameter");
 				i++;
 				continue;
@@ -1849,7 +1849,7 @@ subst_body(Compiler* c, Macro* m, Tok** args, int* argn, int args_len, Tok** out
 			nleft = 0;
 			capleft = 0;
 			pi = param_idx(m, &m->body[i]);
-			if (pi != PARAM_NONE) {
+			if (pi != MpNone) {
 				raw_arg(m, args, argn, args_len, pi, &raw, &nraw, &raw_owned);
 				pp_append_n(&left, &nleft, &capleft, raw, nraw);
 				(void)raw_owned;
@@ -1864,10 +1864,10 @@ subst_body(Compiler* c, Macro* m, Tok** args, int* argn, int args_len, Tok** out
 				}
 				pi = param_idx(m, &m->body[i]);
 				/* GNU ', ## __VA_ARGS__': drop comma when varargs empty */
-				if (pi == PARAM_VA) {
-					raw_arg(m, args, argn, args_len, PARAM_VA, &raw, &nraw, &raw_owned);
+				if (pi == MpVa) {
+					raw_arg(m, args, argn, args_len, MpVa, &raw, &nraw, &raw_owned);
 					if (nraw == 0) {
-						if (nleft > 0 && left[nleft - 1].kind == TPunct && left[nleft - 1].punct == PComma)
+						if (nleft > 0 && left[nleft - 1].kind == TkPunct && left[nleft - 1].punct == PnComma)
 							nleft--;
 						(void)raw_owned;
 						i++;
@@ -1882,7 +1882,7 @@ subst_body(Compiler* c, Macro* m, Tok** args, int* argn, int args_len, Tok** out
 					i++;
 					goto after_paste;
 				}
-				if (pi != PARAM_NONE) {
+				if (pi != MpNone) {
 					raw_arg(m, args, argn, args_len, pi, &raw, &nraw, &raw_owned);
 					glue_seq(c, &left, &nleft, &capleft, raw, nraw, m->body[i].span);
 					(void)raw_owned;
@@ -1903,7 +1903,7 @@ subst_body(Compiler* c, Macro* m, Tok** args, int* argn, int args_len, Tok** out
 
 		/* Ordinary parameter: insert expanded argument */
 		pi = param_idx(m, &m->body[i]);
-		if (pi == PARAM_VA) {
+		if (pi == MpVa) {
 			pp_append_n(&dst, &n, &cap, va_exp, va_exp_n);
 			i++;
 			continue;
@@ -1939,7 +1939,7 @@ expand_list_into(Compiler* c, Tok* src, int src_files_len, Tok** out, int* out_l
 	dst = NULL;
 	i = 0;
 	while (i < src_files_len) {
-		if (src[i].kind == TIdent) {
+		if (src[i].kind == TkIdent) {
 			Macro* m = find_macro(c, src[i].s);
 			if (m && !m->hide) {
 				fully = NULL;
@@ -1948,12 +1948,12 @@ expand_list_into(Compiler* c, Tok* src, int src_files_len, Tok** out, int* out_l
 				pp_append_n(&dst, &n, &cap, fully, nfully);
 				i = ni;
 			} else {
-				if (src[i].kind != TNewline && src[i].kind != TEof)
+				if (src[i].kind != TkNewline && src[i].kind != TkEof)
 					pp_append(&dst, &n, &cap, src[i]);
 				i++;
 			}
 		} else {
-			if (src[i].kind != TNewline && src[i].kind != TEof)
+			if (src[i].kind != TkNewline && src[i].kind != TkEof)
 				pp_append(&dst, &n, &cap, src[i]);
 			i++;
 		}
@@ -1994,9 +1994,9 @@ expand_into_buf(Compiler* c, Tok* src, int src_files_len, int i, int* ni, Tok** 
 	argn = NULL;
 	args_len = 0;
 	if (m->func) {
-		while (i < src_files_len && src[i].kind == TNewline)
+		while (i < src_files_len && src[i].kind == TkNewline)
 			i++;
-		if (i >= src_files_len || src[i].kind != TPunct || src[i].punct != PLparen) {
+		if (i >= src_files_len || src[i].kind != TkPunct || src[i].punct != PnLparen) {
 			int cap = 0;
 			pp_append(out, out_len, &cap, src[start]);
 			*ni = start + 1;
@@ -2047,7 +2047,7 @@ skipping_now(int* st, int nsp) {
 	int i;
 
 	for (i = 0; i < nsp; i++)
-		if (st[i] != IF_ON)
+		if (st[i] != IfOn)
 			return 1;
 	return 0;
 }
@@ -2060,7 +2060,7 @@ pragma_collect_csource(Tok* src, int src_files_len, int* i) {
 
 	if (*i >= src_files_len)
 		return NULL;
-	if (src[*i].kind == TString) {
+	if (src[*i].kind == TkString) {
 		char* path = xstrdup(src[*i].s);
 
 		(*i)++;
@@ -2070,14 +2070,14 @@ pragma_collect_csource(Tok* src, int src_files_len, int* i) {
 	while (*i < src_files_len) {
 		Tok* t = &src[*i];
 
-		if (t->kind == TPunct && (t->punct == PRparen || t->punct == PComma))
+		if (t->kind == TkPunct && (t->punct == PnRparen || t->punct == PnComma))
 			break;
-		if (t->kind == TIdent)
+		if (t->kind == TkIdent)
 			off += snprintf(buf + off, sizeof(buf) - (size_t)off, "%s", t->s);
-		else if (t->kind == TPunct && t->punct == PSlash) {
+		else if (t->kind == TkPunct && t->punct == PnSlash) {
 			if (off < (int)sizeof(buf))
 				buf[off++] = '/';
-		} else if (t->kind == TPunct && t->punct == PDot) {
+		} else if (t->kind == TkPunct && t->punct == PnDot) {
 			if (off < (int)sizeof(buf))
 				buf[off++] = '.';
 		} else
@@ -2101,23 +2101,23 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 		if (c->fatal)
 			break;
 		t = &src[i];
-		if (t->kind == TEof)
+		if (t->kind == TkEof)
 			break;
-		if (t->kind == TNewline) {
+		if (t->kind == TkNewline) {
 			i++;
 			continue;
 		}
 		skip = skipping_now(st, *nsp);
 		if (t->bol && tok_is_hash(t)) {
 			i++;
-			while (i < src_files_len && src[i].kind == TNewline)
+			while (i < src_files_len && src[i].kind == TkNewline)
 				i++;
 			if (i >= src_files_len)
 				break;
 			dir = NULL;
-			if (src[i].kind == TIdent || src[i].kind == TKw)
+			if (src[i].kind == TkIdent || src[i].kind == TkKw)
 				dir = src[i].s;
-			else if (src[i].kind == TKw)
+			else if (src[i].kind == TkKw)
 				dir = src[i].s;
 			if (dir == NULL) {
 				skip_nl(src, src_files_len, &i);
@@ -2128,8 +2128,8 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 			if (strcmp(dir, "ifdef") == 0 || strcmp(dir, "ifndef") == 0) {
 				int want = dir[2] == 'd'; /* ifdef vs ifndef: ifdef has 'd' at [2] */
 				want = strcmp(dir, "ifdef") == 0;
-				name = (i < src_files_len && src[i].kind == TIdent) ? src[i].s : NULL;
-				if (i < src_files_len && src[i].kind == TIdent)
+				name = (i < src_files_len && src[i].kind == TkIdent) ? src[i].s : NULL;
+				if (i < src_files_len && src[i].kind == TkIdent)
 					i++;
 				val = name != NULL && find_macro(c, name) != NULL;
 				if (!want)
@@ -2139,16 +2139,16 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 					continue;
 				}
 				if (skip)
-					st[(*nsp)++] = IF_DONE;
+					st[(*nsp)++] = IfDone;
 				else
-					st[(*nsp)++] = val ? IF_ON : IF_WAIT;
+					st[(*nsp)++] = val ? IfOn : IfWait;
 				continue;
 			}
 			if (strcmp(dir, "if") == 0) {
 				if (skip) {
 					skip_nl(src, src_files_len, &i);
 					if (*nsp < 64)
-						st[(*nsp)++] = IF_DONE;
+						st[(*nsp)++] = IfDone;
 					continue;
 				}
 				val = if_eval(c, src, src_files_len, &i);
@@ -2156,7 +2156,7 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 					error_tok(c, t, "too many nested #if");
 					continue;
 				}
-				st[(*nsp)++] = val ? IF_ON : IF_WAIT;
+				st[(*nsp)++] = val ? IfOn : IfWait;
 				continue;
 			}
 			if (strcmp(dir, "elif") == 0) {
@@ -2164,12 +2164,12 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 					error_tok(c, t, "#elif without #if");
 					continue;
 				}
-				if (st[*nsp - 1] == IF_WAIT && !skipping_now(st, *nsp - 1)) {
+				if (st[*nsp - 1] == IfWait && !skipping_now(st, *nsp - 1)) {
 					val = if_eval(c, src, src_files_len, &i);
-					st[*nsp - 1] = val ? IF_ON : IF_WAIT;
+					st[*nsp - 1] = val ? IfOn : IfWait;
 				} else {
-					if (st[*nsp - 1] == IF_ON)
-						st[*nsp - 1] = IF_DONE;
+					if (st[*nsp - 1] == IfOn)
+						st[*nsp - 1] = IfDone;
 					skip_nl(src, src_files_len, &i);
 					continue;
 				}
@@ -2178,10 +2178,10 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 			if (strcmp(dir, "else") == 0) {
 				if (*nsp <= 0)
 					error_tok(c, t, "#else without #if");
-				else if (st[*nsp - 1] == IF_ON)
-					st[*nsp - 1] = IF_DONE;
-				else if (st[*nsp - 1] == IF_WAIT)
-					st[*nsp - 1] = IF_ON;
+				else if (st[*nsp - 1] == IfOn)
+					st[*nsp - 1] = IfDone;
+				else if (st[*nsp - 1] == IfWait)
+					st[*nsp - 1] = IfOn;
 				continue;
 			}
 			if (strcmp(dir, "endif") == 0) {
@@ -2201,7 +2201,7 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 				continue;
 			}
 			if (strcmp(dir, "undef") == 0) {
-				if (i < src_files_len && (src[i].kind == TIdent || src[i].kind == TKw))
+				if (i < src_files_len && (src[i].kind == TkIdent || src[i].kind == TkKw))
 					undef_macro(c, src[i].s);
 				skip_nl(src, src_files_len, &i);
 				continue;
@@ -2221,12 +2221,12 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 				int nmsg = 0;
 				msg[0] = 0;
 				nmsg = snprintf(msg, sizeof(msg), "#error");
-				while (i < src_files_len && src[i].kind != TNewline && src[i].kind != TEof) {
-					if (src[i].kind == TString)
+				while (i < src_files_len && src[i].kind != TkNewline && src[i].kind != TkEof) {
+					if (src[i].kind == TkString)
 						nmsg += snprintf(msg + nmsg, sizeof(msg) - nmsg, " \"%s\"", src[i].s);
-					else if (src[i].kind == TIdent || src[i].kind == TNumber)
+					else if (src[i].kind == TkIdent || src[i].kind == TkNumber)
 						nmsg += snprintf(msg + nmsg, sizeof(msg) - nmsg, " %s", src[i].s);
-					else if (src[i].kind == TPunct)
+					else if (src[i].kind == TkPunct)
 						nmsg += snprintf(msg + nmsg, sizeof(msg) - nmsg, " %c", '?');
 					i++;
 					if (nmsg >= (int)sizeof(msg) - 1)
@@ -2246,10 +2246,10 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 					i++;
 					if (i < src_files_len && ident_is(&src[i], "c_libs")) {
 						i++;
-						if (i < src_files_len && src[i].kind == TPunct && src[i].punct == PLparen) {
+						if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnLparen) {
 							i++;
-							while (i < src_files_len && !(src[i].kind == TPunct && src[i].punct == PRparen)) {
-								if (src[i].kind == TIdent || src[i].kind == TString)
+							while (i < src_files_len && !(src[i].kind == TkPunct && src[i].punct == PnRparen)) {
+								if (src[i].kind == TkIdent || src[i].kind == TkString)
 									pkg_add_clib(c, src[i].s);
 								i++;
 							}
@@ -2258,10 +2258,10 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 						}
 					} else if (i < src_files_len && ident_is(&src[i], "frameworks")) {
 						i++;
-						if (i < src_files_len && src[i].kind == TPunct && src[i].punct == PLparen) {
+						if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnLparen) {
 							i++;
-							while (i < src_files_len && !(src[i].kind == TPunct && src[i].punct == PRparen)) {
-								if (src[i].kind == TIdent || src[i].kind == TString)
+							while (i < src_files_len && !(src[i].kind == TkPunct && src[i].punct == PnRparen)) {
+								if (src[i].kind == TkIdent || src[i].kind == TkString)
 									pkg_add_framework(c, src[i].s);
 								i++;
 							}
@@ -2270,12 +2270,12 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 						}
 					} else if (i < src_files_len && ident_is(&src[i], "c_sources")) {
 						i++;
-						if (i < src_files_len && src[i].kind == TPunct && src[i].punct == PLparen) {
+						if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnLparen) {
 							i++;
-							while (i < src_files_len && !(src[i].kind == TPunct && src[i].punct == PRparen)) {
+							while (i < src_files_len && !(src[i].kind == TkPunct && src[i].punct == PnRparen)) {
 								char* path;
 
-								if (i < src_files_len && src[i].kind == TPunct && src[i].punct == PComma) {
+								if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnComma) {
 									i++;
 									continue;
 								}
@@ -2301,7 +2301,7 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 			i++;
 			continue;
 		}
-		if (t->kind == TIdent) {
+		if (t->kind == TkIdent) {
 			Macro* m = find_macro(c, t->s);
 			if (m && !m->hide) {
 				double t0 = 0;
@@ -2353,22 +2353,22 @@ void pp_define(Compiler* c, const char* def) {
 	copy = xstrdup(def);
 	eq = strchr(copy, '=');
 	memset(src, 0, sizeof(src));
-	src[0].kind = TIdent;
+	src[0].kind = TkIdent;
 	src[0].s = copy;
 	ii = 1;
 	if (eq) {
 		*eq = 0;
-		src[1].kind = TNumber;
+		src[1].kind = TkNumber;
 		src[1].s = eq + 1;
 		src[1].int_val = strtoll(eq + 1, NULL, 0);
 		ii = 2;
 	} else {
-		src[1].kind = TNumber;
+		src[1].kind = TkNumber;
 		src[1].s = "1";
 		src[1].int_val = 1;
 		ii = 2;
 	}
-	src[ii].kind = TNewline;
+	src[ii].kind = TkNewline;
 	ii = 0;
 	do_define(c, src, 3, &ii, 0);
 }
@@ -2492,7 +2492,7 @@ void pp_run(Compiler* c) {
 	nsp = 0;
 	process(c, src, src_files_len, skipstack, &nsp);
 	memset(&eof, 0, sizeof(eof));
-	eof.kind = TEof;
+	eof.kind = TkEof;
 	eof.span.file = c->infile;
 	emit_tok(c, eof);
 	pp_arena_clear();

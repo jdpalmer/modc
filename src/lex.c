@@ -66,7 +66,7 @@ int keyword(const char* s) {
 	if (!ready) {
 		int k;
 		memset(keys, 0, sizeof(keys));
-		for (k = 0; k < K_nkw; k++) {
+		for (k = 0; k < KwNkw; k++) {
 			h = str_hash(kwname[k]) & 127u;
 			while (keys[h])
 				h = (h + 1) & 127u;
@@ -76,7 +76,7 @@ int keyword(const char* s) {
 		/* Aliases not in kwname[]. */
 		{
 			const char* alias[] = {"bool", "_Static_assert"};
-			int akw[] = {K_bool, K_static_assert};
+			int akw[] = {KwBool, KwStaticAssert};
 			for (k = 0; k < 2; k++) {
 				h = str_hash(alias[k]) & 127u;
 				while (keys[h])
@@ -190,7 +190,7 @@ splice_lines(const char* in) {
 // Append one token to c->tokens, attaching any pending doc comment to it.
 static void
 addtok(Compiler* c, Tok t) {
-	if (t.kind != TNewline && t.kind != TEof && c->pending_doc) {
+	if (t.kind != TkNewline && t.kind != TkEof && c->pending_doc) {
 		t.doc = c->pending_doc;
 		c->pending_doc = NULL;
 	}
@@ -310,7 +310,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 					end++;
 				if (c->keep_comments) {
 					memset(&t, 0, sizeof(t));
-					t.kind = TComment;
+					t.kind = TkComment;
 					t.s = xstrndup(src + i, end - i);
 					t.span.file = path;
 					t.span.line = line;
@@ -363,7 +363,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 				}
 				if (c->keep_comments) {
 					memset(&t, 0, sizeof(t));
-					t.kind = TComment;
+					t.kind = TkComment;
 					t.s = xstrndup(src + cstart, i - cstart);
 					t.span.file = path;
 					t.span.line = line; /* end line; ok for fmt */
@@ -384,7 +384,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 					doc_clear(c);
 				after_doc = 0;
 				memset(&t, 0, sizeof(t));
-				t.kind = TNewline;
+				t.kind = TkNewline;
 				t.span.file = path;
 				t.span.line = line;
 				t.span.col = col;
@@ -458,7 +458,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 				i = j;
 				kw = keyword(t.s);
 				if (kw >= 0) {
-					t.kind = TKw;
+					t.kind = TkKw;
 					t.kw = kw;
 				} else {
 					int a;
@@ -473,7 +473,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 							}
 						}
 					}
-					t.kind = TIdent;
+					t.kind = TkIdent;
 				}
 				t.span.endcol = col;
 				addtok(c, t);
@@ -481,7 +481,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 			}
 			/* MSVC apiset .def sugar: `X @##ordinal` in macro bodies. */
 			if (ch == '@') {
-				t.kind = TIdent;
+				t.kind = TkIdent;
 				t.s = str_intern(c, "@");
 				i++;
 				col++;
@@ -551,7 +551,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 				}
 				while (isalpha((unsigned char)src[j]))
 					j++;
-				t.kind = TNumber;
+				t.kind = TkNumber;
 				t.s = xstrndup(src + i, j - i);
 				if (binary)
 					t.int_val = (int64_t)uv;
@@ -593,8 +593,8 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 					col++;
 				} else
 					error_at(c, t.span, "unterminated %s", quote == '"' ? "string" : "character constant");
-				t.kind = quote == '"' ? TString : TCharLit;
-				if (t.kind == TCharLit) {
+				t.kind = quote == '"' ? TkString : TkCharLit;
+				if (t.kind == TkCharLit) {
 					if (t.s[0] == '\\') {
 						switch (t.s[1]) {
 						case 'n':
@@ -628,179 +628,179 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 				continue;
 			}
 
-			t.kind = TPunct;
+			t.kind = TkPunct;
 			if (src[i] == '.' && src[i + 1] == '.' && src[i + 2] == '.') {
-				t.punct = PEllipsis;
+				t.punct = PnEllipsis;
 				i += 3;
 				col += 3;
 			} else if (src[i] == '.' && src[i + 1] == '.') {
-				t.punct = PDotDot;
+				t.punct = PnDotDot;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '<' && src[i + 1] == '<' && src[i + 2] == '=') {
-				t.punct = PShlEq;
+				t.punct = PnShlEq;
 				i += 3;
 				col += 3;
 			} else if (src[i] == '>' && src[i + 1] == '>' && src[i + 2] == '=') {
-				t.punct = PShrEq;
+				t.punct = PnShrEq;
 				i += 3;
 				col += 3;
 			} else if (src[i] == '#' && src[i + 1] == '#') {
-				t.punct = PHashHash;
+				t.punct = PnHashHash;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '+' && src[i + 1] == '+') {
-				t.punct = PPlusPlus;
+				t.punct = PnPlusPlus;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '-' && src[i + 1] == '-') {
-				t.punct = PMinusMinus;
+				t.punct = PnMinusMinus;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '-' && src[i + 1] == '>') {
-				t.punct = PArrow;
+				t.punct = PnArrow;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '<' && src[i + 1] == '<') {
-				t.punct = PShl;
+				t.punct = PnShl;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '>' && src[i + 1] == '>') {
-				t.punct = PShr;
+				t.punct = PnShr;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '&' && src[i + 1] == '&') {
-				t.punct = PAmpAmp;
+				t.punct = PnAmpAmp;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '|' && src[i + 1] == '|') {
-				t.punct = PPipePipe;
+				t.punct = PnPipePipe;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '=' && src[i + 1] == '=') {
-				t.punct = PEqEq;
+				t.punct = PnEqEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '!' && src[i + 1] == '=') {
-				t.punct = PBangEq;
+				t.punct = PnBangEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '<' && src[i + 1] == '=') {
-				t.punct = PLe;
+				t.punct = PnLe;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '>' && src[i + 1] == '=') {
-				t.punct = PGe;
+				t.punct = PnGe;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '+' && src[i + 1] == '=') {
-				t.punct = PPlusEq;
+				t.punct = PnPlusEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '-' && src[i + 1] == '=') {
-				t.punct = PMinusEq;
+				t.punct = PnMinusEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '*' && src[i + 1] == '=') {
-				t.punct = PStarEq;
+				t.punct = PnStarEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '/' && src[i + 1] == '=') {
-				t.punct = PSlashEq;
+				t.punct = PnSlashEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '%' && src[i + 1] == '=') {
-				t.punct = PPercentEq;
+				t.punct = PnPercentEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '&' && src[i + 1] == '=') {
-				t.punct = PAmpEq;
+				t.punct = PnAmpEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '|' && src[i + 1] == '=') {
-				t.punct = PPipeEq;
+				t.punct = PnPipeEq;
 				i += 2;
 				col += 2;
 			} else if (src[i] == '^' && src[i + 1] == '=') {
-				t.punct = PCaretEq;
+				t.punct = PnCaretEq;
 				i += 2;
 				col += 2;
 			} else {
 				switch (src[i]) {
 				case '+':
-					t.punct = PPlus;
+					t.punct = PnPlus;
 					break;
 				case '-':
-					t.punct = PMinus;
+					t.punct = PnMinus;
 					break;
 				case '*':
-					t.punct = PStar;
+					t.punct = PnStar;
 					break;
 				case '/':
-					t.punct = PSlash;
+					t.punct = PnSlash;
 					break;
 				case '%':
-					t.punct = PPercent;
+					t.punct = PnPercent;
 					break;
 				case '&':
-					t.punct = PAmp;
+					t.punct = PnAmp;
 					break;
 				case '|':
-					t.punct = PPipe;
+					t.punct = PnPipe;
 					break;
 				case '^':
-					t.punct = PCaret;
+					t.punct = PnCaret;
 					break;
 				case '~':
-					t.punct = PTilde;
+					t.punct = PnTilde;
 					break;
 				case '!':
-					t.punct = PBang;
+					t.punct = PnBang;
 					break;
 				case '=':
-					t.punct = PEq;
+					t.punct = PnEq;
 					break;
 				case '<':
-					t.punct = PLt;
+					t.punct = PnLt;
 					break;
 				case '>':
-					t.punct = PGt;
+					t.punct = PnGt;
 					break;
 				case '?':
-					t.punct = PQuestion;
+					t.punct = PnQuestion;
 					break;
 				case ':':
-					t.punct = PColon;
+					t.punct = PnColon;
 					break;
 				case ',':
-					t.punct = PComma;
+					t.punct = PnComma;
 					break;
 				case ';':
-					t.punct = PSemi;
+					t.punct = PnSemi;
 					break;
 				case '(':
-					t.punct = PLparen;
+					t.punct = PnLparen;
 					break;
 				case ')':
-					t.punct = PRparen;
+					t.punct = PnRparen;
 					break;
 				case '[':
-					t.punct = PLbrack;
+					t.punct = PnLbrack;
 					break;
 				case ']':
-					t.punct = PRbrack;
+					t.punct = PnRbrack;
 					break;
 				case '{':
-					t.punct = PLbrace;
+					t.punct = PnLbrace;
 					break;
 				case '}':
-					t.punct = PRbrace;
+					t.punct = PnRbrace;
 					break;
 				case '.':
-					t.punct = PDot;
+					t.punct = PnDot;
 					break;
 				case '#':
-					t.punct = PHash;
+					t.punct = PnHash;
 					break;
 				default:
 					error_at(c, t.span, "unexpected character '%c'", src[i]);
@@ -816,7 +816,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 		}
 	} /* after_doc */
 	memset(&t, 0, sizeof(t));
-	t.kind = TEof;
+	t.kind = TkEof;
 	t.span.file = path;
 	t.span.line = line;
 	t.span.col = col;
@@ -828,55 +828,55 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 const char*
 punct_spell(int p) {
 	switch (p) {
-	case PPlus: return "+";
-	case PMinus: return "-";
-	case PStar: return "*";
-	case PSlash: return "/";
-	case PPercent: return "%";
-	case PAmp: return "&";
-	case PPipe: return "|";
-	case PCaret: return "^";
-	case PTilde: return "~";
-	case PBang: return "!";
-	case PEq: return "=";
-	case PPlusEq: return "+=";
-	case PMinusEq: return "-=";
-	case PStarEq: return "*=";
-	case PSlashEq: return "/=";
-	case PPercentEq: return "%=";
-	case PAmpEq: return "&=";
-	case PPipeEq: return "|=";
-	case PCaretEq: return "^=";
-	case PShlEq: return "<<=";
-	case PShrEq: return ">>=";
-	case PEqEq: return "==";
-	case PBangEq: return "!=";
-	case PLt: return "<";
-	case PGt: return ">";
-	case PLe: return "<=";
-	case PGe: return ">=";
-	case PShl: return "<<";
-	case PShr: return ">>";
-	case PAmpAmp: return "&&";
-	case PPipePipe: return "||";
-	case PPlusPlus: return "++";
-	case PMinusMinus: return "--";
-	case PQuestion: return "?";
-	case PColon: return ":";
-	case PComma: return ",";
-	case PSemi: return ";";
-	case PLparen: return "(";
-	case PRparen: return ")";
-	case PLbrack: return "[";
-	case PRbrack: return "]";
-	case PLbrace: return "{";
-	case PRbrace: return "}";
-	case PDot: return ".";
-	case PDotDot: return "..";
-	case PArrow: return "->";
-	case PEllipsis: return "...";
-	case PHash: return "#";
-	case PHashHash: return "##";
+	case PnPlus: return "+";
+	case PnMinus: return "-";
+	case PnStar: return "*";
+	case PnSlash: return "/";
+	case PnPercent: return "%";
+	case PnAmp: return "&";
+	case PnPipe: return "|";
+	case PnCaret: return "^";
+	case PnTilde: return "~";
+	case PnBang: return "!";
+	case PnEq: return "=";
+	case PnPlusEq: return "+=";
+	case PnMinusEq: return "-=";
+	case PnStarEq: return "*=";
+	case PnSlashEq: return "/=";
+	case PnPercentEq: return "%=";
+	case PnAmpEq: return "&=";
+	case PnPipeEq: return "|=";
+	case PnCaretEq: return "^=";
+	case PnShlEq: return "<<=";
+	case PnShrEq: return ">>=";
+	case PnEqEq: return "==";
+	case PnBangEq: return "!=";
+	case PnLt: return "<";
+	case PnGt: return ">";
+	case PnLe: return "<=";
+	case PnGe: return ">=";
+	case PnShl: return "<<";
+	case PnShr: return ">>";
+	case PnAmpAmp: return "&&";
+	case PnPipePipe: return "||";
+	case PnPlusPlus: return "++";
+	case PnMinusMinus: return "--";
+	case PnQuestion: return "?";
+	case PnColon: return ":";
+	case PnComma: return ",";
+	case PnSemi: return ";";
+	case PnLparen: return "(";
+	case PnRparen: return ")";
+	case PnLbrack: return "[";
+	case PnRbrack: return "]";
+	case PnLbrace: return "{";
+	case PnRbrace: return "}";
+	case PnDot: return ".";
+	case PnDotDot: return "..";
+	case PnArrow: return "->";
+	case PnEllipsis: return "...";
+	case PnHash: return "#";
+	case PnHashHash: return "##";
 	default: return "?";
 	}
 }
