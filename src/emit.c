@@ -150,18 +150,34 @@ aggregate_name(Type* t) {
 	return "su";
 }
 
+// Peel T, T[N], T[N][M], … down to the element type.
+static Type*
+array_elem(Type* t) {
+	while (t && t->kind == TyArray)
+		t = t->base;
+	return t;
+}
+
 // Assign a stable emit_id and recurse into nested aggregates before first use in IL.
 static void
 ensure_aggregate(Type* t) {
 	static int nextid = 1;
 	Field* f;
+	Type* e;
 
 	if (!is_aggr(t) || t->emit_id != 0)
 		return;
 	t->emit_id = nextid++;
-	for (f = t->fields; f; f = f->next)
+	for (f = t->fields; f; f = f->next) {
 		if (is_aggr(f->type))
 			ensure_aggregate(f->type);
+		else {
+			/* T[N] / T[N][M] fields: QBE prints :Inner N, so Inner must be defined first. */
+			e = array_elem(f->type);
+			if (is_aggr(e))
+				ensure_aggregate(e);
+		}
+	}
 }
 
 // Byte size used for alloc/blit; incomplete types default to 4.
@@ -2746,13 +2762,15 @@ emitstrdata(Compiler* c) {
 static int
 su_ready(Type* t) {
 	Field* f;
+	Type* e;
 
 	if (t == NULL || !is_aggr(t) || t->emit_id <= 0)
 		return 0;
 	for (f = t->fields; f; f = f->next) {
 		if (is_aggr(f->type) && f->type->emit_id > 0)
 			return 0;
-		if (f->type && f->type->kind == TyArray && is_aggr(f->type->base) && f->type->base->emit_id > 0)
+		e = array_elem(f->type);
+		if (e != f->type && is_aggr(e) && e->emit_id > 0)
 			return 0;
 	}
 	return 1;

@@ -28,6 +28,7 @@ test/goto_decl.mc
 test/proto.mc
 test/forward_ref.mc
 test/nestarr.mc
+test/nest_aggr_arr.mc
 test/globals.mc
 test/statics.mc
 test/byvalue.mc
