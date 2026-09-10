@@ -27,6 +27,7 @@ Classification is purely mechanical: if a file is a root compile translation uni
 | Control Flow              | Mandatory braces for if, for, while                  | Optional braces                       |
 | Switch Statements         | requires `break` or `fallthrough;`                   | Implicit fallthrough allowed          |
 | Function Declarations     | Function prototypes rejected                         | Standard C prototypes allowed         |
+| Vendor attributes         | Rejected                                             | Ignored (`__attribute__`, `__declspec`, `__asm` / Darwin aliases, calling conventions, …) |
 
 ## Build System & Driver Integration
 

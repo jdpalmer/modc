@@ -18,6 +18,7 @@ test/autoconst_return_derive.mc
 test/autoconst_return_transitive.mc
 test/autoconst_readonly_ret.mc
 test/attr_hdr.mc
+test/asm_label_hdr.mc
 test/unseq_hdr.mc
 test/union_ptr_ok.mc
 -Ftest/fwk_root test/fwk_include.mc

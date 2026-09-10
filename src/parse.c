@@ -511,6 +511,9 @@ is_vendor_attr_ident(const char* s) {
 	    "__declspec",
 	    "__pragma",
 	    "_Pragma",
+	    "__asm",
+	    "__asm__",
+	    "asm",
 	    "__stdcall",
 	    "__cdecl",
 	    "__fastcall",
@@ -565,7 +568,8 @@ eat_vendor_attr(Compiler* c) {
 	take(c);
 	if (strcmp(name, "__attribute__") == 0 || strcmp(name, "__declspec") == 0 ||
 	    strcmp(name, "__pragma") == 0 || strcmp(name, "_Pragma") == 0 ||
-	    strcmp(name, "__noop") == 0)
+	    strcmp(name, "__noop") == 0 || strcmp(name, "__asm") == 0 ||
+	    strcmp(name, "__asm__") == 0 || strcmp(name, "asm") == 0)
 		skip_paren_group(c);
 	return 1;
 }
@@ -900,6 +904,9 @@ parse_suffix(Compiler* c, Type* base) {
 	if (eat(c, PnLparen)) {
 		base = parse_param_list(c, base);
 		expect(c, PnRparen, "')'");
+		/* Darwin/GNU: int f(int) __asm("_f"); after the parameter list. */
+		while (eat_vendor_attr(c))
+			;
 		base = parse_suffix(c, base);
 		return base;
 	}

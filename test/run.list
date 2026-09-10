@@ -67,6 +67,7 @@ test/uchar.mc
 test/signed_char_hdr.mc
 test/qualifier_hdr.mc
 test/attr_hdr.mc
+test/asm_label_hdr.mc
 test/void_union_hdr.mc
 test/wrap.mc
 test/ltr.mc
