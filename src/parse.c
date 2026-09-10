@@ -251,6 +251,7 @@ static Node* parse_range_for(Compiler* c, Span sp);
 static int peek_tuple_type(Compiler* c);
 static int peek_method_receiver(Compiler* c);
 static int peek_method_decl(Compiler* c);
+static Type* parse_method_ret_prefix(Compiler* c, Type* base);
 static Type* parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, Type** recv_ty, char** recv_tag);
 static Type* parse_tuple_type(Compiler* c);
 static Node* parse_tuple_lit(Compiler* c, Type* tuple, Span sp);
@@ -1117,15 +1118,85 @@ peek_method_receiver(Compiler* c) {
 	return 1;
 }
 
-// True when the next tokens are optional *s then (T *recv).method.
+// Skip * and [..]/[N]/[] prefixes that may precede a method receiver.
+static void
+skip_method_ret_prefix(Compiler* c) {
+	int depth;
+
+	for (;;) {
+		while (eat_vendor_attr(c))
+			;
+		while (at(c, PnStar)) {
+			take(c);
+			while (eat_vendor_attr(c) || eat_c_reject_kw(c, KwConst, "const") ||
+			       eat_c_reject_kw(c, KwVolatile, "volatile") ||
+			       eat_c_reject_kw(c, KwRestrict, "restrict"))
+				;
+		}
+		while (eat_vendor_attr(c))
+			;
+		if (!at(c, PnLbrack))
+			return;
+		take(c); /* [ */
+		if (eat(c, PnDotDot)) {
+			if (!eat(c, PnRbrack))
+				return;
+			continue;
+		}
+		if (eat(c, PnRbrack))
+			continue;
+		depth = 1;
+		while (depth > 0 && peek(c)->kind != TkEof) {
+			if (at(c, PnLbrack))
+				depth++;
+			else if (at(c, PnRbrack))
+				depth--;
+			take(c);
+		}
+	}
+}
+
+// Apply * and [..]/[N]/[] that precede (T *recv).method.
+static Type*
+parse_method_ret_prefix(Compiler* c, Type* base) {
+	Node* n;
+	int64_t len;
+
+	for (;;) {
+		base = parse_pointers(c, base);
+		while (eat_vendor_attr(c))
+			;
+		if (!eat(c, PnLbrack))
+			return base;
+		if (eat(c, PnDotDot)) {
+			expect(c, PnRbrack, "']'");
+			base = type_ranged(c, base);
+			continue;
+		}
+		if (eat(c, PnRbrack)) {
+			base = type_array(c, base, -1);
+			continue;
+		}
+		n = parse_expr(c);
+		n = type_expr(c, n);
+		expect(c, PnRbrack, "']'");
+		if (!eval_const(c, n, &len) || len <= 0) {
+			if (user_source(c, peek(c)->span))
+				error_tok(c, peek(c), "array size must be a positive constant");
+			len = 1;
+		}
+		base = type_array(c, base, len);
+	}
+}
+
+// True when the next tokens are optional * / [..] then (T *recv).method.
 static int
 peek_method_decl(Compiler* c) {
 	int save, save_pc, r;
 
 	save = c->pos;
 	save_pc = pending_pointee_const;
-	while (at(c, PnStar))
-		take(c);
+	skip_method_ret_prefix(c);
 	r = peek_method_receiver(c);
 	c->pos = save;
 	pending_pointee_const = save_pc;
@@ -3275,7 +3346,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			skip_to_balance(c);
 			return;
 		}
-		base = parse_pointers(c, base);
+		base = parse_method_ret_prefix(c, base);
 		ty = parse_method_declarator(c, base, &name, &recv_name, &recv_ty, &recv_tag);
 	} else
 		ty = parse_declarator(c, base, &name, 1);
@@ -3737,7 +3808,7 @@ prescan_toplevel(Compiler* c) {
 	name = NULL;
 	if (peek_method_decl(c)) {
 		ismethod = 1;
-		base = parse_pointers(c, base);
+		base = parse_method_ret_prefix(c, base);
 		ty = parse_method_declarator(c, base, &name, &recv_name, &recv_ty, &recv_tag);
 	} else
 		ty = parse_declarator(c, base, &name, 1);

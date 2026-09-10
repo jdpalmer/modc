@@ -42,6 +42,7 @@ test/defer.mc
 test/overload.mc
 test/method.mc
 test/method_len.mc
+test/method_ranged_ret.mc
 test/overload_ranged.mc
 test/range_for.mc
 test/range_hooks.mc
