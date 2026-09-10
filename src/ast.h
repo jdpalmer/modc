@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
@@ -603,11 +604,11 @@ int pkg_resolve_spec(Compiler* c, const char* spec, char* out, size_t out_len);
 int vendor_cmd(int argc, char** argv);
 
 /* ---- cache.c ---- */
-unsigned long long cache_hash_bytes(const void* data, size_t n);
-unsigned long long cache_hash_str(const char* s);
-unsigned long long cache_hash_file(const char* path);
-unsigned long long cache_hash_mix(unsigned long long a, unsigned long long b);
-void cache_hash_hex(unsigned long long h, char* out, size_t out_len);
+uint64_t cache_hash_bytes(const void* data, size_t n);
+uint64_t cache_hash_str(const char* s);
+uint64_t cache_hash_file(const char* path);
+uint64_t cache_hash_mix(uint64_t a, uint64_t b);
+void cache_hash_hex(uint64_t h, char* out, size_t out_len);
 int cache_root_for(const char* entry, char* out, size_t out_len);
 /* Directory that owns .modc-cache (parent of cache_root_for). */
 int cache_project_root(const char* entry, char* out, size_t out_len);

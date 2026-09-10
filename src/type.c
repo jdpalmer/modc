@@ -940,15 +940,15 @@ check_fixed_array_arg(Compiler* c, Span sp, Type* param, Node* arg, int64_t fixe
 	if (at && is_array(at) && at->len >= 0) {
 		if (at->len != fixed_n)
 			error_at(c, sp,
-				 "cannot pass fixed array of length %lld to parameter expecting %lld",
-				 (long long)at->len, (long long)fixed_n);
+				 "cannot pass fixed array of length %" PRId64 " to parameter expecting %" PRId64,
+				 (int64_t)at->len, (int64_t)fixed_n);
 		if (type_eq(at->base, param->base))
 			return;
 	}
 	if (at && is_ptr(at) && type_eq(at->base, param->base))
 		error_at(c, sp,
-			 "cannot pass pointer where fixed array of length %lld is required",
-			 (long long)fixed_n);
+			 "cannot pass pointer where fixed array of length %" PRId64 " is required",
+			 (int64_t)fixed_n);
 }
 
 // Diagnose implicit conversions that conv_implicit_ok would reject.
@@ -1012,8 +1012,8 @@ void check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count) {
 	if (!eval_const(c, count, &v))
 		return;
 	if (v < 0 || v >= (int64_t)bits)
-		error_at(c, sp, "shift count %lld is out of range for %d-bit type",
-			 (long long)v, bits);
+		error_at(c, sp, "shift count %" PRId64 " is out of range for %d-bit type",
+			 (int64_t)v, bits);
 }
 
 // Warn on signed vs unsigned comparisons in user code.

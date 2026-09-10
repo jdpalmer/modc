@@ -17,8 +17,8 @@
 enum { CacheHexLen = 16 }; /* 64-bit hex */
 
 // FNV-1a 64-bit hash of n bytes, continuing from seed h (0 picks the offset basis).
-static unsigned long long
-fnv1a64(const void* data, size_t n, unsigned long long h) {
+static uint64_t
+fnv1a64(const void* data, size_t n, uint64_t h) {
 	const unsigned char* p = data;
 
 	if (h == 0) {
@@ -32,13 +32,13 @@ fnv1a64(const void* data, size_t n, unsigned long long h) {
 }
 
 // Hash an arbitrary byte buffer for cache keys.
-unsigned long long
+uint64_t
 cache_hash_bytes(const void* data, size_t n) {
 	return fnv1a64(data, n, 0);
 }
 
 // Hash a C string (NULL treated as empty).
-unsigned long long
+uint64_t
 cache_hash_str(const char* s) {
 	if (s == NULL) {
 		return cache_hash_bytes("", 0);
@@ -47,10 +47,10 @@ cache_hash_str(const char* s) {
 }
 
 // Hash file contents; returns 0 if the file cannot be read.
-unsigned long long
+uint64_t
 cache_hash_file(const char* path) {
 	size_t n;
-	unsigned long long h;
+	uint64_t h;
 	char* text;
 
 	text = read_file(path, &n);
@@ -62,21 +62,21 @@ cache_hash_file(const char* path) {
 }
 
 // Fold hash b into a (order-sensitive mix for composing keys).
-unsigned long long
-cache_hash_mix(unsigned long long a, unsigned long long b) {
+uint64_t
+cache_hash_mix(uint64_t a, uint64_t b) {
 	return fnv1a64(&b, sizeof(b), a ? a : 14695981039346656037ull);
 }
 
 // Format h as a fixed-width lowercase hex string for cache path segments.
 void
-cache_hash_hex(unsigned long long h, char* out, size_t out_len) {
+cache_hash_hex(uint64_t h, char* out, size_t out_len) {
 	if (out_len < CacheHexLen + 1) {
 		if (out_len) {
 			out[0] = 0;
 		}
 		return;
 	}
-	snprintf(out, out_len, "%016llx", (unsigned long long)h);
+	snprintf(out, out_len, "%016" PRIx64, (uint64_t)h);
 }
 
 // Create parent directories for path (best-effort mkdir -p of dirname).

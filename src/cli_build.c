@@ -20,8 +20,8 @@ typedef struct {
 typedef struct {
 	char dir[HOST_PATH_MAX];
 	char id[128];
-	unsigned long long impl;
-	unsigned long long key;
+	uint64_t impl;
+	uint64_t key;
 	char hex[24];
 	char objpath[HOST_PATH_MAX];
 	char ifacepath[HOST_PATH_MAX];
@@ -506,9 +506,9 @@ cache_host_os(void) {
 }
 
 // Fingerprint toolchain, target, and user -D/-I for package cache keys.
-static unsigned long long
+static uint64_t
 hash_compile_knobs(Compiler* c, const char* projroot) {
-	unsigned long long h;
+	uint64_t h;
 	char key[HOST_PATH_MAX];
 	int i;
 
@@ -528,9 +528,9 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 }
 
 // Content-address key for one c_sources object (arch-aware).
-static unsigned long long
+static uint64_t
 foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* projroot) {
-	unsigned long long h;
+	uint64_t h;
 	char key[HOST_PATH_MAX];
 	int i;
 
@@ -560,7 +560,7 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 	char cmd[8192], srcdir[1024], crooot[HOST_PATH_MAX], cached[HOST_PATH_MAX];
 	char hex[32], what[HOST_PATH_MAX], projroot[HOST_PATH_MAX];
 	int i, off;
-	unsigned long long key;
+	uint64_t key;
 
 	*nobj = 0;
 	crooot[0] = 0;
@@ -728,8 +728,8 @@ collect_build_pkgs(char** files, int nfiles, BuildPkg* pkgs, int* npkgs) {
 }
 
 // Mix immediate *.h files under dir into an impl hash.
-static unsigned long long
-hash_pkg_headers(const char* dir, unsigned long long h) {
+static uint64_t
+hash_pkg_headers(const char* dir, uint64_t h) {
 	HostDir* d;
 	const char* name;
 	char path[HOST_PATH_MAX];
@@ -753,9 +753,9 @@ hash_pkg_headers(const char* dir, unsigned long long h) {
 }
 
 // Content hash of a package implementation (.mc + local .h).
-static unsigned long long
+static uint64_t
 pkg_impl_hash(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
-	unsigned long long h;
+	uint64_t h;
 	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], key[HOST_PATH_MAX];
 	int i;
 
@@ -774,10 +774,10 @@ pkg_impl_hash(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 }
 
 // Digest of non-static API symbols visible to importers.
-static unsigned long long
+static uint64_t
 pkg_iface_hash(Compiler* c, const char* pkg_dir) {
 	Symbol* s;
-	unsigned long long h;
+	uint64_t h;
 	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], home[HOST_PATH_MAX];
 	const char* src;
 
@@ -804,7 +804,7 @@ pkg_iface_hash(Compiler* c, const char* pkg_dir) {
 		if (strcmp(home, root) != 0)
 			continue;
 		h = cache_hash_mix(h, cache_hash_str(s->name));
-		h = cache_hash_mix(h, (unsigned long long)s->kind);
+		h = cache_hash_mix(h, (uint64_t)s->kind);
 		h = cache_hash_mix(h, cache_hash_str(type_name(s->type)));
 	}
 	return h;
@@ -812,9 +812,9 @@ pkg_iface_hash(Compiler* c, const char* pkg_dir) {
 
 // Compute cache paths and hit flags from impl + dep iface needs.
 static void
-pkg_fill_keys(BuildPkg* pkgs, int npkgs, unsigned long long knobs, const char* crooot) {
+pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
 	int i, j;
-	unsigned long long h, needsh;
+	uint64_t h, needsh;
 	char iface[128], path[HOST_PATH_MAX], needspath[HOST_PATH_MAX], stored[256];
 	char hex[24];
 
@@ -852,9 +852,9 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, unsigned long long knobs, const char* c
 }
 
 // Whole-graph stamp over package impl hashes and knobs.
-static unsigned long long
-graph_digest(BuildPkg* pkgs, int npkgs, unsigned long long knobs) {
-	unsigned long long h;
+static uint64_t
+graph_digest(BuildPkg* pkgs, int npkgs, uint64_t knobs) {
+	uint64_t h;
 	int i;
 
 	h = knobs;
@@ -988,14 +988,14 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	char** files;
 	int nfiles, npkgs, i, j, all_hit, r;
 	BuildPkg pkgs[MaxCachePkgs];
-	unsigned long long knobs, ghash;
+	uint64_t knobs, ghash;
 	char crooot[HOST_PATH_MAX], projroot[HOST_PATH_MAX], ghex[24], meta[HOST_PATH_MAX],
 		stamp[HOST_PATH_MAX];
 	char stamphex[24], stored[64], what[HOST_PATH_MAX];
 	char foreign[MaxForeignObj][512];
 	char objs[MaxCachePkgs][512];
 	int nforeign;
-	unsigned long long linkh;
+	uint64_t linkh;
 
 	files = NULL;
 	nfiles = 0;
@@ -1050,7 +1050,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		foreign_ready = 1;
 		for (i = 0; i < c->csources_len; i++) {
 			char cached[HOST_PATH_MAX], hex[32];
-			unsigned long long key;
+			uint64_t key;
 
 			key = foreign_obj_key(c, c->csources[i],
 					      src_is_cxx(c->csources[i]) ? tool_cxx()
@@ -1103,7 +1103,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		char ifacehex[MaxCachePkgs][24];
 		char curiface[HOST_PATH_MAX], needspath[HOST_PATH_MAX], needshex[24],
 			stored[64];
-		unsigned long long needs;
+		uint64_t needs;
 
 		for (i = 0; i < npkgs; i++) {
 			cache_hash_hex(pkg_iface_hash(c, pkgs[i].dir), ifacehex[i],

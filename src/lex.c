@@ -496,7 +496,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 			number: {
 				int j = i;
 				int hexfloat = 0, octal = 0, binary = 0, isfloat = 0;
-				unsigned long long uv = 0;
+				uint64_t uv = 0;
 
 				if (src[j] == '0' && (src[j + 1] == 'x' || src[j + 1] == 'X')) {
 					j += 2;

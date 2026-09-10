@@ -257,7 +257,7 @@ fmt_type(Type* t, char* buf, size_t n) {
 	if (t->kind == TyArray) {
 		fmt_type(t->base, inner, sizeof(inner));
 		if (t->len >= 0)
-			snprintf(buf, n, "%s[%lld]", inner, (long long)t->len);
+			snprintf(buf, n, "%s[%" PRId64 "]", inner, (int64_t)t->len);
 		else
 			snprintf(buf, n, "%s[]", inner);
 		return;

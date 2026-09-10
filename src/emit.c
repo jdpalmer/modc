@@ -721,7 +721,7 @@ vimm(char cls, int64_t n, Type* t) {
 	memset(&v, 0, sizeof(v));
 	v.cls = cls;
 	v.type = t;
-	snprintf(v.text, sizeof(v.text), "%lld", (long long)n);
+	snprintf(v.text, sizeof(v.text), "%" PRId64, (int64_t)n);
 	return v;
 }
 
@@ -1000,7 +1000,7 @@ emitlval(Compiler* c, Node* n) {
 				i = coerce(i, 'l', c->type_llong);
 			if (step != 1) {
 				s = vtmp('l', c->type_llong);
-				fprintf(outf, "\t%s =l mul %s, %lld\n", s.text, i.text, (long long)step);
+				fprintf(outf, "\t%s =l mul %s, %" PRId64 "\n", s.text, i.text, (int64_t)step);
 				i = s;
 			}
 			v = vtmp('l', n->type);
@@ -1022,7 +1022,7 @@ emitlval(Compiler* c, Node* n) {
 			b = coerce(b, 'l', c->type_void_ptr);
 		if (step != 1) {
 			s = vtmp('l', c->type_llong);
-			fprintf(outf, "\t%s =l mul %s, %lld\n", s.text, i.text, (long long)step);
+			fprintf(outf, "\t%s =l mul %s, %" PRId64 "\n", s.text, i.text, (int64_t)step);
 			i = s;
 		}
 		v = vtmp('l', n->type);
@@ -1603,7 +1603,7 @@ emitexpr(Compiler* c, Node* n) {
 			fpconst(&v, n->type, n->s);
 			return v;
 		}
-		snprintf(v.text, sizeof(v.text), "%lld", (long long)n->int_val);
+		snprintf(v.text, sizeof(v.text), "%" PRId64, (int64_t)n->int_val);
 		return v;
 	case NdStr:
 		return emitgaddr(c, n);
@@ -2181,11 +2181,11 @@ emitstmt_ret(Compiler* c, Node* n) {
 			if (arms[i].lo == arms[i].hi) {
 				cmp = vtmp('w', c->type_int);
 				if (cls == 'l')
-					fprintf(outf, "\t%s =w ceql %s, %lld\n",
-						cmp.text, v.text, (long long)arms[i].lo);
+					fprintf(outf, "\t%s =w ceql %s, %" PRId64 "\n",
+						cmp.text, v.text, (int64_t)arms[i].lo);
 				else
-					fprintf(outf, "\t%s =w ceqw %s, %lld\n",
-						cmp.text, v.text, (long long)arms[i].lo);
+					fprintf(outf, "\t%s =w ceqw %s, %" PRId64 "\n",
+						cmp.text, v.text, (int64_t)arms[i].lo);
 				emitjnz(cmp.text, arms[i].lbl, t);
 			} else {
 				/* x >= lo && x <= hi (signed); value first, imm second */
@@ -2193,15 +2193,15 @@ emitstmt_ret(Compiler* c, Node* n) {
 				thi = vtmp('w', c->type_int);
 				cmp = vtmp('w', c->type_int);
 				if (cls == 'l') {
-					fprintf(outf, "\t%s =w csgel %s, %lld\n",
-						tlo.text, v.text, (long long)arms[i].lo);
-					fprintf(outf, "\t%s =w cslel %s, %lld\n",
-						thi.text, v.text, (long long)arms[i].hi);
+					fprintf(outf, "\t%s =w csgel %s, %" PRId64 "\n",
+						tlo.text, v.text, (int64_t)arms[i].lo);
+					fprintf(outf, "\t%s =w cslel %s, %" PRId64 "\n",
+						thi.text, v.text, (int64_t)arms[i].hi);
 				} else {
-					fprintf(outf, "\t%s =w csgew %s, %lld\n",
-						tlo.text, v.text, (long long)arms[i].lo);
-					fprintf(outf, "\t%s =w cslew %s, %lld\n",
-						thi.text, v.text, (long long)arms[i].hi);
+					fprintf(outf, "\t%s =w csgew %s, %" PRId64 "\n",
+						tlo.text, v.text, (int64_t)arms[i].lo);
+					fprintf(outf, "\t%s =w cslew %s, %" PRId64 "\n",
+						thi.text, v.text, (int64_t)arms[i].hi);
 				}
 				fprintf(outf, "\t%s =w and %s, %s\n",
 					cmp.text, tlo.text, thi.text);
@@ -2539,16 +2539,16 @@ emitgsym(Compiler* c, Node* d) {
 			else {
 				switch (gi->w) {
 				case 1:
-					fprintf(outf, " b %lld", (long long)(gi->val & 0xff));
+					fprintf(outf, " b %" PRId64, (int64_t)(gi->val & 0xff));
 					break;
 				case 2:
-					fprintf(outf, " h %lld", (long long)(gi->val & 0xffff));
+					fprintf(outf, " h %" PRId64, (int64_t)(gi->val & 0xffff));
 					break;
 				case 8:
-					fprintf(outf, " l %lld", (long long)gi->val);
+					fprintf(outf, " l %" PRId64, (int64_t)gi->val);
 					break;
 				default:
-					fprintf(outf, " w %lld", (long long)(gi->val & 0xffffffffu));
+					fprintf(outf, " w %" PRId64, (int64_t)(gi->val & 0xffffffffu));
 					break;
 				}
 			}

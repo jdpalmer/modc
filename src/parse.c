@@ -1491,7 +1491,7 @@ type_number_lit(Compiler* c, Span sp, const char* s, int64_t* out) {
 	int i, isfloat, ishex, isbin;
 	const char* suf;
 	char num[128];
-	unsigned long long uv;
+	uint64_t uv;
 	char* end;
 
 	*out = 0;

@@ -37,7 +37,7 @@ static int pp_prof;
 static int pp_ninc_open, pp_ninc_once, pp_ninc_guard, pp_ninc_miss;
 static double pp_t_find, pp_t_read, pp_t_lex, pp_t_proc;
 static double pp_t_emit, pp_t_expand, pp_t_dir;
-static unsigned long long pp_n_emit, pp_n_expand, pp_n_dir;
+static uint64_t pp_n_emit, pp_n_expand, pp_n_dir;
 
 /* Bump arena for macro-expansion Tok[] scratch (reset after each top-level expand). */
 typedef struct PpChunk {
