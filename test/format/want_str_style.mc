@@ -10,7 +10,7 @@ char[..] sub(char[..] s, size_t lo, size_t hi) {
 }
 
 (int, bool) find(char[..] hay, char[..] needle) {
-	if (needle.len == 0) {
+	if (len(needle) == 0) {
 		return (true, hay[0 .. 0]);
 	}
 	return (false, hay[0 .. 0]);
@@ -23,5 +23,5 @@ int demo(void) {
 	int x;
 	x = (int)ca - (int)cb;
 	dst[0] = (char)0;
-	return (ok, hit.len);
+	return (ok, len(hit));
 }

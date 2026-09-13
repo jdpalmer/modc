@@ -6,7 +6,7 @@
 | ---------------- | ------- | ---------------------------------------------------------------------------------------------------- |
 | **Fixed array**  | `T[N]`  | Fixed compile-time size N. Allocates stack storage or establishes an exact-size parameter contract.  |
 | **Open array**   | `T[]`   | C-compatible parameter syntax. Decays directly to T * with no length metadata preserved in the type. |
-| **Ranged array** | `T[..]` | A runtime view struct { T *ptr; size_t len } (interned per element type T).                          |
+| **Ranged array** | `T[..]` | A runtime view struct { T *ptr; size_t len; size_t cap } (interned per element type T). |
 
 ## Fixed Arrays `T[N]`
 
@@ -31,7 +31,11 @@ Open arrays should be reserved for external C headers and foreign function bound
 
 ## Ranged Arrays `T[..]`
 
-A ranged array is a lightweight struct containing a pointer `.ptr` and an element count `.len`. It acts as an explicit slice view rather than an implicit fat pointer over `T *`.
+A ranged array is an opaque slice header over storage the caller already owns.
+Internally it is `{ T *ptr; size_t len; size_t cap }` (interned per element type),
+but user code does not name those fields. Use `len(s)`, `cap(s)`, and `ptr(s)`.
+Mutate the header only by assigning a new view (`s = …`); element writes through
+`s[i]` are fine. There is no allocator on the header.
 
 ```c
 int[..] s = {0};
@@ -40,7 +44,15 @@ char[..] line = {0};
 void upload(Vertex[..] verts);
 ```
 
-Element indexing (`s[i]`) operates on the underlying pointer `.ptr[i]`, while `len(s)` accesses the stored element count directly.
+`len(s)` is the initialized window. Indexing (`s[i]`), `len(s)`, and range-for
+stop there. `cap(s)` is how many elements are addressable from `ptr(s)`
+(`len <= cap`). Spare room is for mutators that grow into the same block; it is
+not inherited by a subslice.
+
+Views (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set `len == cap`. A
+writable scratch over storage you own is `ranged(p, 0, n)` — length zero,
+capacity `n`. To grow length into spare capacity, assign a new view
+(`s = ranged(ptr(s), new_len, cap(s))`), do not write fields.
 
 ### Constructing Ranged Arrays
 
@@ -49,14 +61,18 @@ int a[4] = {0};
 int[..] s = {0};
 char[..] line = {0};
 
-s = a;                  /* implicit at ranged sites */
-s = ranged(a, 2);       /* pointer + explicit count */
-s = a[1..3];            /* subrange; end exclusive */
+s = a;                  /* implicit at ranged sites; len == cap == 4 */
+s = ranged(a, 2);       /* pointer + count; len == cap == 2 */
+s = ranged(a, 0, 4);    /* empty scratch over a; len 0, cap 4 */
+s = a[1..3];            /* subrange; end exclusive; len == cap */
 s = a[2..];             /* open end through len(a) */
-line = "James";         /* char[..] only; NUL excluded from len */
+line = "James";         /* char[..] only; NUL excluded from len and cap */
 ```
 
-Assigning a string literal to `char[..]` sets `.len` to the byte length of the text **excluding** the trailing NUL terminator. However, the backing read-only memory retains the NUL byte, preserving compatibility with standard C APIs.
+Assigning a string literal to `char[..]` sets length and capacity to the byte
+length of the text **excluding** the trailing NUL terminator. However, the
+backing read-only memory retains the NUL byte, preserving compatibility with
+standard C APIs.
 
 ### Implicit conversions
 
@@ -69,7 +85,7 @@ At ranged-typed parameters and assignments:
 
 At pointer-typed parameters and assignments (C boundary):
 
-- `T[..]` → `T *` (uses `.ptr`; same as writing `s.ptr`)
+- `T[..]` → `T *` or `void *` (same as `ptr(s)`)
 
 There is no implicit conversion from `T *` to `T[..]`. You must supply a length with
 `ranged(p, n)`.
@@ -84,12 +100,12 @@ At call sites expecting `T *`, a ranged array automatically decays to its underl
 char[..] name = {0};
 
 name = "James";
-strlen(name);           /* same as strlen(name.ptr) */
+strlen(name);           /* same as strlen(ptr(name)) */
 ```
 
 This automatic decay saves syntax overhead but does not make standard C functions length-aware. C library expectations remain unchanged; string functions continue scanning until encountering a NUL byte.
 
-Because pointer decay passes `.ptr` without length boundaries, slicing string buffers requires caution when invoking C string utilities:
+Because pointer decay passes `ptr(s)` without length boundaries, slicing string buffers requires caution when invoking C string utilities:
 
 ```c
 char buf[] = "hello world";
@@ -99,7 +115,7 @@ word = buf[0..5];       /* len == 5; indices 0..4 are "hello" */
 strlen(word);           /* scans until NUL → 11, not 5 */
 ```
 
-To perform bounded reads safely, use `len(word)` within %C code, or pass explicit length bounds to compliant C functions (such as `strnlen(word.ptr, word.len)`). Similarly, when wrapping non-NUL-terminated buffers (such as output from `read()`), `strlen(chunk)` will read out of bounds because no NUL terminator exists at `chunk.len`.
+To perform bounded reads safely, use `len(word)` within %C code, or pass explicit length bounds to compliant C functions (such as `strnlen(ptr(word), len(word))`). Similarly, when wrapping non-NUL-terminated buffers (such as output from `read()`), `strlen(chunk)` will read out of bounds because no NUL terminator exists at `len(chunk)`.
 
 ## Range-for
 
@@ -170,7 +186,7 @@ view = buf;
 view[0] = 'x';          /* ok: mutates buf[0] */
 ```
 
-Attempting to pass a literal-backed `char[..]` to a function expecting a mutable `char *` parameter is caught by auto-const analysis regardless of whether `name` or `name.ptr` is supplied.
+Attempting to pass a literal-backed `char[..]` to a function expecting a mutable `char *` parameter is caught by auto-const analysis regardless of whether `name` or `ptr(name)` is supplied.
 
 ## Quick Reference
 
@@ -178,8 +194,8 @@ Attempting to pass a literal-backed `char[..]` to a function expecting a mutable
 | -------------------------------------------- | ----------------------------------------------------- |
 | **Stack Allocation**                         | Fixed array `T[N]`                                    |
 | **Unbounded C API Boundary**                 | Open array `T[]` or raw pointer `T *`                 |
-| **Safe Pointer + Length Pair**               | Ranged view `T[..]`, `ranged(p, n)`, and `len()`      |
-| **C String Integration (`strlen`/`printf`)** | `char[..]` (decays to `.ptr`; verify NUL termination) |
+| **Safe Pointer + Length Pair**               | Opaque `T[..]`, `ranged(p, n)`, `ranged(p, len, cap)`, `len()` / `cap()` / `ptr()` |
+| **C String Integration (`strlen`/`printf`)** | `char[..]` (decays to `ptr(s)`; verify NUL termination) |
 | **Literal Text Management**                  | `char[..] = "..."` or `char *` managed by auto-const  |
 | **Subrange Slicing**                         | Syntax forms `s[lo..hi]`, `s[lo..]`, or `s[..hi]`     |
 
@@ -189,4 +205,6 @@ Attempting to pass a literal-backed `char[..]` to a function expecting a mutable
 
 The standard library includes two essential packages for working with string views and memory. Importing `str` (`import "str";`) provides non-owning utilities for `char[..]` views, including safe buffer writes to fixed `char[N]` targets via `cstr_write(buf, view)`, string splitting with `str_split_once`, trimming, chomping, comparisons, and numeric parsing via `str_to_long`. It also supports substring searching through `str_find` and `str_ifind`, which return `(bool, char[..])` tuples where an empty needle matches at position zero. Full definitions are located in `str/mod.mc`.
 
-Similarly, importing `arena` (`import "arena";`) introduces bump allocation strategies and `U8` builders. This package handles memory copying and concatenation using `a.copy`, `a.join`, and `a.replace`, incremental byte buffer construction via `u.put`, and NUL-terminated C string allocations with `a.z`. Full definitions are located in `arena/mod.mc`.
+Similarly, importing `arena` (`import "arena";`) introduces bump allocation. This package handles memory copying and concatenation using `a.copy`, `a.join`, and `a.replace`, incremental growth via `a.append` / `a.append_byte` (assign the returned view), and NUL-terminated C string allocations with `a.z`. Full definitions are located in `arena/mod.mc`.
+
+`path`, `fs`, and `os` sit beside `str` and `arena`: slash paths, `File` handles, and process helpers, with `(T, bool)` results rather than POSIX or Win32 types. See [os.md](os.md).

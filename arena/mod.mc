@@ -1,17 +1,15 @@
-// arena — bump region allocator and U8 string building (byte spans in arena memory).
+// arena — bump region allocator; builds return opaque char[..] views.
 //
 // Arena: one defer a.free() per scope; no per-string free. Reset with a.reset()
 // to reuse the same arena without freeing backing storage.
 //
-// Arena methods copy/join/replace into the region; returns char[..] views valid
-// until a.free() or a.reset(). Byte semantics (same as str); not UTF-8 validation.
-//
-// U8: incremental builder (anonymous char[..] embed); projects to char[..] for str_*.
-//   u.begin(&a); u.put(chunk); str_eq(u, "…");
+// Methods copy/append/join/replace into the region; returned views are valid
+// until a.free() or a.reset(). Byte semantics (same as str); not UTF-8
+// validation. Grow with s = a.append(s, …) — assign a new view, do not mutate
+// T[..] fields.
 //
 // Preconditions:
 //   Arena* a — non-null on Arena methods except a.free() when a is NULL (like free(3)).
-//   U8* u — non-null on U8 mutators; u.arena set by u.begin.
 import "str";
 
 #include <stddef.h>
@@ -24,14 +22,11 @@ struct Arena {
 	size_t off;
 };
 
-struct U8 {
-	Arena* arena;
-	char[..];
-};
-
 static bool arena_ensure(Arena* a, size_t need) {
-	char* p = {0};
-	size_t newcap = {0};
+	char* p = {
+		0 };
+	size_t newcap = {
+		0 };
 	if (a == NULL) {
 		return false;
 	}
@@ -98,57 +93,12 @@ void (Arena* a).reset(void) {
 	a.off = 0;
 }
 
-// Bind a builder to an arena and clear the view.
-void (U8* u).begin(Arena* a) {
-	u.arena = a;
-	u.ptr = NULL;
-	u.len = 0;
-}
-
-// Append a view; copies into the arena. Returns false on OOM.
-bool (U8* u).put(char[..] s) {
-	Arena* a = {0};
-	size_t n = {0};
-	size_t newlen = {0};
-	char* p = {0};
-	if (u == NULL || u.arena == NULL) {
-		return false;
-	}
-	a = u.arena;
-	n = len(s);
-	newlen = u.len + n;
-	if (newlen < u.len) {
-		return false;
-	}
-	if (newlen == 0) {
-		return true;
-	}
-	p = arena_bump(a, newlen);
-	if (p == NULL) {
-		return false;
-	}
-	if (u.len != 0) {
-		memcpy(p, u.ptr, u.len);
-	}
-	if (n != 0) {
-		memcpy(p + u.len, s.ptr, n);
-	}
-	u.ptr = p;
-	u.len = newlen;
-	return true;
-}
-
-// Append one byte.
-bool (U8* u).put_byte(char c) {
-	char one[1] = {0};
-	one[0] = c;
-	return u.put(ranged(one, 1));
-}
-
 // Copy a view into the arena.
 (bool, char[..]) (Arena* a).copy(char[..] s) {
-	size_t n = {0};
-	char* p = {0};
+	size_t n = {
+		0 };
+	char* p = {
+		0 };
 	if (a == NULL) {
 		return (false, str_empty());
 	}
@@ -160,69 +110,135 @@ bool (U8* u).put_byte(char c) {
 	if (p == NULL) {
 		return (false, str_empty());
 	}
-	memcpy(p, s.ptr, n);
+	memcpy(p, ptr(s), n);
 	return (true, ranged(p, n));
+}
+
+// Append s onto cur; copies into the arena. Returns a new view (assign it).
+(bool, char[..]) (Arena* a).append(char[..] cur, char[..] s) {
+	size_t cn = {
+		0 };
+	size_t n = {
+		0 };
+	size_t newlen = {
+		0 };
+	char* p = {
+		0 };
+	if (a == NULL) {
+		return (false, str_empty());
+	}
+	cn = len(cur);
+	n = len(s);
+	newlen = cn + n;
+	if (newlen < cn) {
+		return (false, str_empty());
+	}
+	if (newlen == 0) {
+		return (true, str_empty());
+	}
+	if (n == 0) {
+		return (true, cur);
+	}
+	p = arena_bump(a, newlen);
+	if (p == NULL) {
+		return (false, str_empty());
+	}
+	if (cn != 0) {
+		memcpy(p, ptr(cur), cn);
+	}
+	memcpy(p + cn, ptr(s), n);
+	return (true, ranged(p, newlen));
+}
+
+// Append one byte onto cur.
+(bool, char[..]) (Arena* a).append_byte(char[..] cur, char c) {
+	char one[1] = {
+		0 };
+	one[0] = c;
+	return a.append(cur, ranged(one, 1));
 }
 
 // Join parts with sep into the arena.
 (bool, char[..]) (Arena* a).join(char[..] sep, char[..] * parts, size_t nparts) {
-	U8 u = {0};
-	size_t i = {0};
+	char[..] out = {
+		0 };
+	size_t i = {
+		0 };
 	if (a == NULL) {
 		return (false, str_empty());
 	}
-	u.begin(a);
+	out = str_empty();
 	for (i = 0; i < nparts; i++) {
 		if (i != 0) {
-			if (!u.put(sep)) {
+			auto (ok, next) = a.append(out, sep);
+			if (!ok) {
 				return (false, str_empty());
 			}
+			out = next;
 		}
-		if (!u.put(parts[i])) {
-			return (false, str_empty());
+		{
+			auto (ok, next) = a.append(out, parts[i]);
+			if (!ok) {
+				return (false, str_empty());
+			}
+			out = next;
 		}
 	}
-	return (true, u);
+	return (true, out);
 }
 
 // Replace every occurrence of old with new.
 (bool, char[..]) (Arena* a).replace(char[..] s, char[..] old, char[..] new) {
-	U8 u = {0};
-	size_t i = {0};
+	char[..] out = {
+		0 };
+	size_t i = {
+		0 };
 	if (a == NULL) {
 		return (false, str_empty());
 	}
 	if (len(old) == 0) {
 		return a.copy(s);
 	}
-	u.begin(a);
+	out = str_empty();
 	i = 0;
 	while (i < len(s)) {
 		char[..] tail = s[i ..];
 		auto (ok, hit) = str_find(tail, old);
-		size_t off = {0};
+		size_t off = {
+			0 };
 		if (!ok) {
-			if (!u.put(tail)) {
+			auto (put_ok, next) = a.append(out, tail);
+			if (!put_ok) {
 				return (false, str_empty());
 			}
-			return (true, u);
+			return (true, next);
 		}
-		off = (size_t)(hit.ptr - tail.ptr);
-		if (!u.put(tail[0 .. off])) {
-			return (false, str_empty());
+		off = (size_t)(ptr(hit) - ptr(tail));
+		{
+			auto (put_ok, next) = a.append(out, tail[0 .. off]);
+			if (!put_ok) {
+				return (false, str_empty());
+			}
+			out = next;
 		}
-		if (!u.put(new)) {
-			return (false, str_empty());
+		{
+			auto (put_ok, next) = a.append(out, new);
+			if (!put_ok) {
+				return (false, str_empty());
+			}
+			out = next;
 		}
 		i = i + off + len(old);
 	}
-	return (true, u);
+	return (true, out);
 }
 
 // NUL-terminated copy of s in the arena (C boundary).
 char* (Arena* a).z(char[..] s) {
-	size_t n = {0};
-	char* p = {0};
+	size_t n = {
+		0 };
+	char* p = {
+		0 };
 	if (a == NULL) {
 		return NULL;
 	}
@@ -232,7 +248,7 @@ char* (Arena* a).z(char[..] s) {
 		return NULL;
 	}
 	if (n != 0) {
-		memcpy(p, s.ptr, n);
+		memcpy(p, ptr(s), n);
 	}
 	p[n] = '\0';
 	return p;

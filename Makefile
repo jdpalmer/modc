@@ -186,17 +186,31 @@ endif
 	$(MAKE) install DESTDIR=$(BUILD)/destdir PREFIX=/usr/local
 	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/str/mod.mc
 	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/arena/mod.mc
+	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/path/mod.mc
+	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/fs/mod.mc
+	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/os/mod.mc
+	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/tty/mod.mc
 	$(BUILD)/destdir/usr/local/bin/modc check test/str_pkg.mc
 	$(BUILD)/destdir/usr/local/bin/modc check test/arena_pkg.mc
+	$(BUILD)/destdir/usr/local/bin/modc check test/path_pkg.mc
+	$(BUILD)/destdir/usr/local/bin/modc check test/fs_pkg.mc
+	$(BUILD)/destdir/usr/local/bin/modc check test/os_pkg.mc
+	$(BUILD)/destdir/usr/local/bin/modc check test/tty_pkg.mc
 	@env -u MODC_NO_SYSTEM_INCLUDES $(BUILD)/destdir/usr/local/bin/modc check -v test/str_pkg.mc 2>&1 | grep -q 'modc pkg:'
 
 install: $(MODC)
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg
 	install -m 755 $(MODC) $(DESTDIR)$(BINDIR)/modc
 	cp -R $(HOST)/. $(DESTDIR)$(MODCLIB)/include/
-	rm -rf $(DESTDIR)$(MODCLIB)/pkg/str $(DESTDIR)$(MODCLIB)/pkg/arena
+	rm -rf $(DESTDIR)$(MODCLIB)/pkg/str $(DESTDIR)$(MODCLIB)/pkg/arena \
+		$(DESTDIR)$(MODCLIB)/pkg/path $(DESTDIR)$(MODCLIB)/pkg/fs \
+		$(DESTDIR)$(MODCLIB)/pkg/os $(DESTDIR)$(MODCLIB)/pkg/tty
 	cp -R $(ROOT)/str $(DESTDIR)$(MODCLIB)/pkg/str
 	cp -R $(ROOT)/arena $(DESTDIR)$(MODCLIB)/pkg/arena
+	cp -R $(ROOT)/path $(DESTDIR)$(MODCLIB)/pkg/path
+	cp -R $(ROOT)/fs $(DESTDIR)$(MODCLIB)/pkg/fs
+	cp -R $(ROOT)/os $(DESTDIR)$(MODCLIB)/pkg/os
+	cp -R $(ROOT)/tty $(DESTDIR)$(MODCLIB)/pkg/tty
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/modc

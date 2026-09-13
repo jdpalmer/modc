@@ -103,7 +103,11 @@ load_env_file() {
 		*=*)
 			key=${envline%%=*}
 			val=$(expand_vars "${envline#*=}")
-			export "$key=$val"
+			if [ -z "$val" ]; then
+				unset "$key"
+			else
+				export "$key=$val"
+			fi
 			;;
 		esac
 	done < "$envf"

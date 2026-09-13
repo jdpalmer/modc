@@ -30,6 +30,7 @@ Start with [Installation](installation.md) and the [Quickstart](quickstart.md).
 | Document | Description |
 | -------- | ----------- |
 | [Packages](packages.md) | `import`, vendoring, and the build cache |
+| [path, fs, os, tty](os.md) | Slash paths, file handles, Cmd/Poll, tty, and process helpers |
 | [`modc format`](modc-format.md) | Source formatting |
 | [`modc test`](modc-test.md) | Package test runner |
 | [`modc doc`](modc-doc.md) | Package API docs |

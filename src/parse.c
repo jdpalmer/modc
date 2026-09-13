@@ -1740,8 +1740,8 @@ parse_primary(Compiler* c) {
 		take(c);
 		n = node(NdName, t->span);
 		n->s = t->s;
-		/* Builtins len()/ranged() may be undeclared; user defs still bind. */
-		if (t->s && (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0) && at(c, PnLparen)) {
+		/* Builtins len()/cap()/ptr()/ranged() may be undeclared; user defs still bind. */
+		if (t->s && (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0 || strcmp(t->s, "cap") == 0 || strcmp(t->s, "ptr") == 0) && at(c, PnLparen)) {
 			s = symbol_lookup(c, t->s);
 			if (s) {
 				n->symbol = s;
@@ -2349,6 +2349,7 @@ typed_dot(Compiler* c, Span sp, Node* base, const char* field) {
 
 	n = node1(NdDot, sp, base);
 	n->s = xstrdup(field);
+	n->is_synth = 1;
 	return type_expr(c, n);
 }
 

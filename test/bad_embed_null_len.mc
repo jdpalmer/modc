@@ -1,5 +1,8 @@
-import "arena";
+typedef struct Buf {
+	char[..];
+}
+Buf;
 
 int bad(void) {
-	return (int)len((U8 *)0);
+	return (int)len((Buf *)0);
 }

@@ -78,6 +78,7 @@ static const char* emit_pkg_filter; /* non-NULL during emit_qbe_pkg */
 static Symbol** locals;
 static Type** localty;
 static int* localparam;
+static char** localslot; /* QBE slot basename; uniquified when names collide */
 static int locals_len;
 static int locals_cap;
 static int loopbrk[MaxLoop], loopcont[MaxLoop], loop_defer[MaxLoop], loops_len;
@@ -414,6 +415,39 @@ ensure_locals_cap(int need) {
 	locals = xrealloc(locals, (size_t)locals_cap * sizeof(*locals));
 	localty = xrealloc(localty, (size_t)locals_cap * sizeof(*localty));
 	localparam = xrealloc(localparam, (size_t)locals_cap * sizeof(*localparam));
+	localslot = xrealloc(localslot, (size_t)locals_cap * sizeof(*localslot));
+}
+
+/* QBE %name.addr must be unique per function; block-scoped shadows share C names. */
+static char*
+unique_local_slot(const char* name) {
+	char buf[96];
+	int n = 0;
+	int i;
+
+	if (name == NULL || name[0] == 0)
+		name = "tmp";
+	for (i = 0; i < locals_len; i++) {
+		if (locals[i] && locals[i]->name && strcmp(locals[i]->name, name) == 0)
+			n++;
+	}
+	if (n == 0)
+		return xstrdup(name);
+	snprintf(buf, sizeof(buf), "%s__%d", name, n);
+	return xstrdup(buf);
+}
+
+static const char*
+slot_for_local(Symbol* s) {
+	int i;
+
+	if (s == NULL)
+		return "g";
+	for (i = 0; i < locals_len; i++) {
+		if (locals[i] == s)
+			return localslot[i] ? localslot[i] : (s->name ? s->name : "g");
+	}
+	return s->name ? s->name : "g";
 }
 
 static void
@@ -433,6 +467,7 @@ addlocal(Symbol* s, Type* t, int isparam) {
 	ensure_locals_cap(locals_len + 1);
 	localparam[locals_len] = isparam;
 	localty[locals_len] = t ? t : s->type;
+	localslot[locals_len] = unique_local_slot(s->name);
 	locals[locals_len++] = s;
 }
 
@@ -592,7 +627,7 @@ slot_basename(Symbol* s) {
 			if (inl.site->map[i].symbol == s)
 				return inl.site->map[i].name;
 	}
-	return s->name;
+	return slot_for_local(s);
 }
 
 // Lookup the pre-registered InlineSite for a call node.
@@ -1463,9 +1498,10 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		return v;
 	}
 	if (bn && strcmp(bn, "ranged") == 0 && !(n->a && n->a->symbol)) {
-		Val p, ln, slot;
-		int off;
+		Val p, ln, cp, slot;
+		int lenoff, capoff;
 		int64_t alen;
+		Field* f;
 
 		ensure_aggregate(n->type);
 		if (n->symbol)
@@ -1485,11 +1521,16 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		if (p.cls != 'l')
 			p = coerce(p, 'l', c->type_void_ptr);
 		fprintf(outf, "\tstorel %s, %s\n", p.text, slot.text);
-		off = 8;
-		if (n->type && n->type->fields && n->type->fields->next)
-			off = n->type->fields->next->offset;
+		lenoff = 8;
+		capoff = 16;
+		for (f = n->type ? n->type->fields : NULL; f; f = f->next) {
+			if (f->name && strcmp(f->name, "len") == 0)
+				lenoff = f->offset;
+			if (f->name && strcmp(f->name, "cap") == 0)
+				capoff = f->offset;
+		}
 		ln = vtmp('l', c->type_ullong);
-		fprintf(outf, "\t%s =l add %s, %d\n", ln.text, slot.text, off);
+		fprintf(outf, "\t%s =l add %s, %d\n", ln.text, slot.text, lenoff);
 		alen = 0;
 		if (n->children_len == 1 && n->children[0] && n->children[0]->kind == NdStr && n->children[0]->type && n->children[0]->type->base && (n->children[0]->type->base->kind == TyChar || n->children[0]->type->base->kind == TyUChar) && n->children[0]->type->len > 0)
 			alen = n->children[0]->type->len - 1;
@@ -1504,6 +1545,18 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		} else
 			r = vimm('l', 0, c->type_ullong);
 		fprintf(outf, "\tstorel %s, %s\n", r.text, ln.text);
+		/* cap: third arg, else same as len (full view). */
+		cp = vtmp('l', c->type_ullong);
+		fprintf(outf, "\t%s =l add %s, %d\n", cp.text, slot.text, capoff);
+		if (n->children_len >= 3) {
+			Val cv;
+
+			cv = emitexpr(c, n->children[2]);
+			if (cv.cls != 'l')
+				cv = coerce(cv, 'l', c->type_ullong);
+			fprintf(outf, "\tstorel %s, %s\n", cv.text, cp.text);
+		} else
+			fprintf(outf, "\tstorel %s, %s\n", r.text, cp.text);
 		snprintf(v.text, sizeof(v.text), "%s", slot.text);
 		v.cls = '@';
 		v.type = n->type;
@@ -1553,6 +1606,121 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 					ln = vtmp('l', c->type_ullong);
 					fprintf(outf, "\t%s =l loadl %s\n", ln.text, off.text);
 					return ln;
+				}
+			}
+		}
+		v.text[0] = '0';
+		v.text[1] = 0;
+		v.cls = 'l';
+		return v;
+	}
+	if (bn && strcmp(bn, "cap") == 0 && !(n->a && n->a->symbol)) {
+		Node* x;
+		Val base, off, cv;
+		int capoff;
+		Field* f;
+
+		x = n->children_len >= 1 ? n->children[0] : NULL;
+		if (x && is_ranged(x->type)) {
+			base = emitexpr(c, x);
+			if (base.cls != 'l' && base.cls != '@')
+				base = coerce(base, 'l', c->type_void_ptr);
+			capoff = 16;
+			for (f = x->type->fields; f; f = f->next)
+				if (f->name && strcmp(f->name, "cap") == 0)
+					capoff = f->offset;
+			off = vtmp('l', c->type_void_ptr);
+			fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, capoff);
+			cv = vtmp('l', c->type_ullong);
+			fprintf(outf, "\t%s =l loadl %s\n", cv.text, off.text);
+			return cv;
+		}
+		if (x && is_array(x->type) && x->type->len >= 0)
+			return vimm('l', x->type->len, c->type_ullong);
+		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0)
+			return vimm('l', x->symbol->param_fixed_len, c->type_ullong);
+		if (x) {
+			Type* ag;
+
+			ag = field_lhs(x->type);
+			if (ag && anon_embed_unique_ranged(ag, NULL, NULL) == 1) {
+				if (find_field(ag, "cap", &capoff)) {
+					if (x->type && is_aggr(x->type))
+						base = emitlval(c, x);
+					else
+						base = emitexpr(c, x);
+					if (base.cls != 'l' && base.cls != '@')
+						base = coerce(base, 'l', c->type_void_ptr);
+					off = vtmp('l', c->type_void_ptr);
+					fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, capoff);
+					cv = vtmp('l', c->type_ullong);
+					fprintf(outf, "\t%s =l loadl %s\n", cv.text, off.text);
+					return cv;
+				}
+			}
+		}
+		v.text[0] = '0';
+		v.text[1] = 0;
+		v.cls = 'l';
+		return v;
+	}
+	if (bn && strcmp(bn, "ptr") == 0 && !(n->a && n->a->symbol)) {
+		Node* x;
+		Val base, p;
+		int ptroff;
+		Field* f;
+
+		x = n->children_len >= 1 ? n->children[0] : NULL;
+		if (x && is_ranged(x->type)) {
+			base = emitexpr(c, x);
+			if (base.cls != 'l' && base.cls != '@')
+				base = coerce(base, 'l', c->type_void_ptr);
+			ptroff = 0;
+			for (f = x->type->fields; f; f = f->next)
+				if (f->name && strcmp(f->name, "ptr") == 0)
+					ptroff = f->offset;
+			if (ptroff == 0) {
+				p = vtmp('l', n->type ? n->type : c->type_void_ptr);
+				fprintf(outf, "\t%s =l loadl %s\n", p.text, base.text);
+				return p;
+			}
+			{
+				Val off;
+
+				off = vtmp('l', c->type_void_ptr);
+				fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, ptroff);
+				p = vtmp('l', n->type ? n->type : c->type_void_ptr);
+				fprintf(outf, "\t%s =l loadl %s\n", p.text, off.text);
+				return p;
+			}
+		}
+		if (x && is_array(x->type)) {
+			p = emitexpr(c, x);
+			if (p.cls != 'l')
+				p = coerce(p, 'l', n->type ? n->type : c->type_void_ptr);
+			return p;
+		}
+		if (x) {
+			Type* ag;
+
+			ag = field_lhs(x->type);
+			if (ag && anon_embed_unique_ranged(ag, NULL, NULL) == 1) {
+				if (find_field(ag, "ptr", &ptroff)) {
+					if (x->type && is_aggr(x->type))
+						base = emitlval(c, x);
+					else
+						base = emitexpr(c, x);
+					if (base.cls != 'l' && base.cls != '@')
+						base = coerce(base, 'l', c->type_void_ptr);
+					{
+						Val off;
+
+						off = vtmp('l', c->type_void_ptr);
+						fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, ptroff);
+						p = vtmp('l', n->type ? n->type : c->type_void_ptr);
+						fprintf(outf, "\t%s =l loadl %s\n", p.text, off.text);
+						return p;
+					}
 				}
 			}
 		}
@@ -1948,6 +2116,18 @@ emitexpr(Compiler* c, Node* n) {
 		off = vtmp('l', c->type_void_ptr);
 		fprintf(outf, "\t%s =l add %s, %d\n", off.text, slot.text, lenoff);
 		fprintf(outf, "\tstorel %s, %s\n", tmp.text, off.text);
+		/* Subrange is a closed view: cap == len (no parent spare). */
+		{
+			int capoff = 16;
+			Val cpoff;
+
+			for (f = n->type->fields; f; f = f->next)
+				if (f->name && strcmp(f->name, "cap") == 0)
+					capoff = f->offset;
+			cpoff = vtmp('l', c->type_void_ptr);
+			fprintf(outf, "\t%s =l add %s, %d\n", cpoff.text, slot.text, capoff);
+			fprintf(outf, "\tstorel %s, %s\n", tmp.text, cpoff.text);
+		}
 		snprintf(v.text, sizeof(v.text), "%s", slot.text);
 		v.cls = '@';
 		v.type = n->type;
@@ -2563,12 +2743,15 @@ emitallocs(Compiler* c) {
 	int i, w, align;
 	Symbol* s;
 	Type* t;
+	const char* sn;
 
 	for (i = 0; i < locals_len; i++) {
 		s = locals[i];
 		t = localty[i];
+		sn = localslot[i] ? localslot[i] : (s->name ? s->name : "g");
 		if (localparam[i] && is_aggr(t)) {
-			fprintf(outf, "\t%%%s.addr =l copy %%%s\n", s->name, s->name);
+			/* Aggregate param arrives as a pointer; slot may be renamed. */
+			fprintf(outf, "\t%%%s.addr =l copy %%%s\n", sn, s->name);
 			continue;
 		}
 		w = storewidth(c, t);
@@ -2576,16 +2759,18 @@ emitallocs(Compiler* c) {
 		if (align < 4)
 			align = 4;
 		if (align >= 8)
-			fprintf(outf, "\t%%%s.addr =l alloc8 %d\n", s->name, w);
+			fprintf(outf, "\t%%%s.addr =l alloc8 %d\n", sn, w);
 		else
-			fprintf(outf, "\t%%%s.addr =l alloc4 %d\n", s->name, w);
+			fprintf(outf, "\t%%%s.addr =l alloc4 %d\n", sn, w);
 	}
 	for (i = 0; i < locals_len; i++) {
 		if (!localparam[i] || is_aggr(localty[i]))
 			continue;
 		s = locals[i];
+		sn = localslot[i] ? localslot[i] : (s->name ? s->name : "g");
+		/* SSA param name stays as declared; .addr uses uniquified slot. */
 		fprintf(outf, "\t%s %%%s, %%%s.addr\n",
-			storeop(c, localty[i]), s->name, s->name);
+			storeop(c, localty[i]), s->name, sn);
 	}
 }
 

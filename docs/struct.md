@@ -72,19 +72,24 @@ Entity e = {0};
 draw(e);
 
 char[..] s = {0};
-U8 u = {0};
-s = u;                /* U8 → char[..] */
-str_eq(p, "hi");      /* U8 * → char[..] when p is non-null */
+struct Buf {
+    char[..];
+};
+Buf b = {0};          /* Buf embeds char[..] anonymously */
+s = b;                /* Buf → char[..] by value projection */
 ```
 
 Several key rules and constraints govern value projections and ranged operations on embedded structs. First, conversions are strictly one-way; while an outer struct can project down to an inner embedded type, reverse conversions from inner types to outer types are explicitly rejected. Additionally, developers should be mindful of performance overhead, as passing large embedded structs by value forces a full copy of the subobject at the call site. Finally, null safety is strictly enforced: attempting to pass a null outer pointer during projection or ranged operations triggers a compile-time error.
 
 ### Ranged embed surface
 
-When the unique anonymous embed is a ranged type (`T[..]`), `len(x)` and
+When the unique anonymous embed is a ranged type (`T[..]`), `len(x)`, `cap(x)`, and
 `x[lo .. hi]` work on the outer value or pointer like the embedded view
-(promoted `.len`; subrange over the view, not a full struct copy). See
-[arrays.md](arrays.md) and owning containers in [packages.md](packages.md).
+(subrange over the view, not a full struct copy). Field access still goes through
+the outer type; the embedded `T[..]` header itself remains opaque
+(`len()` / `cap()` / `ptr()`, not `.len`). See [arrays.md](arrays.md). The
+`arena` package builds with `a.append` / `a.copy` and returns `char[..]` views
+rather than embedding a ranged header in an owner type.
 
 ### Ambiguity
 

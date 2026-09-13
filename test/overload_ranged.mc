@@ -2,25 +2,26 @@
 #include <string.h>
 
 overload size_t write_cap(char dst[], char[..] src, size_t cap) {
-	size_t n = {0};
+	size_t n = {
+		0 };
 	n = len(src);
 	if (cap == 0 || dst == NULL) {
 		return n;
 	}
 	if (n >= cap) {
-		memcpy(dst, src.ptr, cap - 1);
+		memcpy(dst, ptr(src), cap - 1);
 		dst[cap - 1] = '\0';
 		return n;
 	}
 	if (n != 0) {
-		memcpy(dst, src.ptr, n);
+		memcpy(dst, ptr(src), n);
 	}
 	dst[n] = '\0';
 	return n;
 }
 
 overload size_t write_buf(char[..] dst, char[..] src) {
-	return write_cap(dst.ptr, src, len(dst));
+	return write_cap(ptr(dst), src, cap(dst));
 }
 
 overload void take_int(int[..] x) {
@@ -28,8 +29,10 @@ overload void take_int(int[..] x) {
 }
 
 int test_fixed(void) {
-	char buf[8] = {0};
-	char[..] s = {0};
+	char buf[8] = {
+		0 };
+	char[..] s = {
+		0 };
 	s = "hi";
 	if (write_buf(buf, s) != 2) {
 		return 1;
@@ -41,7 +44,8 @@ int test_fixed(void) {
 }
 
 int test_literal(void) {
-	char buf[8] = {0};
+	char buf[8] = {
+		0 };
 	if (write_buf(buf, "ab") != 2) {
 		return 1;
 	}
@@ -59,7 +63,8 @@ int test_sizing(void) {
 }
 
 int test_int_ranged(void) {
-	int a[4] = {0};
+	int a[4] = {
+		0 };
 	take_int(a);
 	return 0;
 }

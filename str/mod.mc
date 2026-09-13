@@ -1,6 +1,6 @@
 // str — length-bounded char[..] views (non-owning) and cstr_* C boundary helpers.
 //
-// char[..] views do not own storage. Use import "arena" for Arena/U8 building in a region.
+// char[..] views do not own storage. Use import "arena" for Arena building in a region.
 //
 // Preconditions (caller bugs are not swallowed):
 //   char dst[] + cap — when cap > 0, dst is writable; cap == 0 or dst == NULL is
@@ -34,7 +34,7 @@ static char str_byte_tolower(char c) {
 // True when c appears in the delimiter/view set.
 static bool str_byte_in(char[..] set, char c) {
 	for (size_t i = 0; i < len(set); i++) {
-		if (set.ptr[i] == c) {
+		if (set[i] == c) {
 			return true;
 		}
 	}
@@ -75,7 +75,7 @@ bool str_eq(char[..] a, char[..] b) {
 	if (n != len(b)) {
 		return false;
 	}
-	return memcmp(a.ptr, b.ptr, n) == 0;
+	return memcmp(ptr(a), ptr(b), n) == 0;
 }
 
 // Equality against a NUL-terminated C string.
@@ -87,7 +87,7 @@ bool str_eq_cstr(char[..] a, char* z) {
 	if (n != len(a)) {
 		return false;
 	}
-	return memcmp(a.ptr, z, n) == 0;
+	return memcmp(ptr(a), z, n) == 0;
 }
 
 // memcmp-style ordering; shorter view sorts first when prefixes match.
@@ -97,7 +97,7 @@ int str_cmp(char[..] a, char[..] b) {
 		n = len(b);
 	}
 	if (n != 0) {
-		int r = memcmp(a.ptr, b.ptr, n);
+		int r = memcmp(ptr(a), ptr(b), n);
 		if (r != 0) {
 			return r;
 		}
@@ -118,8 +118,8 @@ int str_icmp(char[..] a, char[..] b) {
 		n = len(b);
 	}
 	for (size_t i = 0; i < n; i++) {
-		char ca = str_byte_tolower(a.ptr[i]);
-		char cb = str_byte_tolower(b.ptr[i]);
+		char ca = str_byte_tolower(a[i]);
+		char cb = str_byte_tolower(b[i]);
 		if (ca != cb) {
 			return (int)ca - (int)cb;
 		}
@@ -139,7 +139,7 @@ bool str_starts_with(char[..] s, char[..] prefix) {
 	if (n > len(s)) {
 		return false;
 	}
-	return memcmp(s.ptr, prefix.ptr, n) == 0;
+	return memcmp(ptr(s), ptr(prefix), n) == 0;
 }
 
 // str_starts_with against a C string.
@@ -153,7 +153,7 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 	if (n > len(s)) {
 		return false;
 	}
-	return memcmp(s.ptr + (len(s) - n), suffix.ptr, n) == 0;
+	return memcmp(ptr(s) + (len(s) - n), ptr(suffix), n) == 0;
 }
 
 // First occurrence of needle in hay; (false, empty) when missing.
@@ -167,7 +167,7 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 		return (false, str_empty());
 	}
 	for (size_t i = 0; i + nlen <= hlen; i++) {
-		if (memcmp(hay.ptr + i, needle.ptr, nlen) == 0) {
+		if (memcmp(ptr(hay) + i, ptr(needle), nlen) == 0) {
 			return (true, hay[i .. i + nlen]);
 		}
 	}
@@ -188,7 +188,7 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 		return (false, str_empty());
 	}
 	for (size_t i = hlen - nlen;; i--) {
-		if (memcmp(hay.ptr + i, needle.ptr, nlen) == 0) {
+		if (memcmp(ptr(hay) + i, ptr(needle), nlen) == 0) {
 			return (true, hay[i .. i + nlen]);
 		}
 		if (i == 0) {
@@ -211,8 +211,8 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 	for (size_t i = 0; i + nlen <= hlen; i++) {
 		bool match = true;
 		for (size_t j = 0; j < nlen; j++) {
-			char hc = str_byte_tolower(hay.ptr[i + j]);
-			char nc = str_byte_tolower(needle.ptr[j]);
+			char hc = str_byte_tolower(hay[i + j]);
+			char nc = str_byte_tolower(needle[j]);
 			if (hc != nc) {
 				match = false;
 				break;
@@ -241,8 +241,8 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 	for (size_t i = hlen - nlen;; i--) {
 		bool match = true;
 		for (size_t j = 0; j < nlen; j++) {
-			char hc = str_byte_tolower(hay.ptr[i + j]);
-			char nc = str_byte_tolower(needle.ptr[j]);
+			char hc = str_byte_tolower(hay[i + j]);
+			char nc = str_byte_tolower(needle[j]);
 			if (hc != nc) {
 				match = false;
 				break;
@@ -268,7 +268,7 @@ overload void cstr_reset(char dst[], size_t cap) {
 
 // cstr_reset on fixed char[N].
 overload void cstr_reset(char[..] dst) {
-	cstr_reset(dst.ptr, len(dst));
+	cstr_reset(ptr(dst), cap(dst));
 }
 
 // Length of the filled prefix before the first NUL (capped by cap).
@@ -285,7 +285,7 @@ overload size_t cstr_zlen(char dst[], size_t cap) {
 
 // cstr_zlen on fixed char[N].
 overload size_t cstr_zlen(char[..] dst) {
-	return cstr_zlen(dst.ptr, len(dst));
+	return cstr_zlen(ptr(dst), cap(dst));
 }
 
 // Write view into dst (strlcpy-style). Always NUL-terminates when cap > 0.
@@ -296,26 +296,26 @@ overload size_t cstr_write(char dst[], char[..] src, size_t cap) {
 		return n;
 	}
 	if (n >= cap) {
-		memcpy(dst, src.ptr, cap - 1);
+		memcpy(dst, ptr(src), cap - 1);
 		dst[cap - 1] = '\0';
 		return n;
 	}
 	if (n != 0) {
-		memcpy(dst, src.ptr, n);
+		memcpy(dst, ptr(src), n);
 	}
 	dst[n] = '\0';
 	return n;
 }
 
-// Write view into fixed char[N]; cap is len(dst).
+// Write view into fixed char[N]; room is cap(dst).
 overload size_t cstr_write(char[..] dst, char[..] src) {
-	return cstr_write(dst.ptr, src, len(dst));
+	return cstr_write(ptr(dst), src, cap(dst));
 }
 
 // Split at the first byte in delims; no delimiter → (s, empty).
 (char[..], char[..]) str_split_once(char[..] s, char[..] delims) {
 	for (size_t i = 0; i < len(s); i++) {
-		if (str_byte_in(delims, s.ptr[i])) {
+		if (str_byte_in(delims, s[i])) {
 			return (s[0 .. i], s[(i + 1) ..]);
 		}
 	}
@@ -325,7 +325,7 @@ overload size_t cstr_write(char[..] dst, char[..] src) {
 // Trim leading and trailing bytes found in chars.
 char[..] str_trim_set(char[..] s, char[..] chars) {
 	size_t lo = 0;
-	while (lo < len(s) && str_byte_in(chars, s.ptr[lo])) {
+	while (lo < len(s) && str_byte_in(chars, s[lo])) {
 		lo = lo + 1;
 	}
 	if (lo >= len(s)) {
@@ -333,7 +333,7 @@ char[..] str_trim_set(char[..] s, char[..] chars) {
 	}
 	{
 		size_t hi = len(s);
-		while (hi > lo && str_byte_in(chars, s.ptr[hi - 1])) {
+		while (hi > lo && str_byte_in(chars, s[hi - 1])) {
 			hi = hi - 1;
 		}
 		return s[lo .. hi];
@@ -343,7 +343,7 @@ char[..] str_trim_set(char[..] s, char[..] chars) {
 // Trim leading ASCII whitespace.
 char[..] str_ltrim(char[..] s) {
 	size_t i = 0;
-	while (i < len(s) && str_is_space(s.ptr[i])) {
+	while (i < len(s) && str_is_space(s[i])) {
 		i = i + 1;
 	}
 	return s[i ..];
@@ -352,7 +352,7 @@ char[..] str_ltrim(char[..] s) {
 // Trim trailing ASCII whitespace.
 char[..] str_rtrim(char[..] s) {
 	size_t n = len(s);
-	while (n != 0 && str_is_space(s.ptr[n - 1])) {
+	while (n != 0 && str_is_space(s[n - 1])) {
 		n = n - 1;
 	}
 	return s[0 .. n];
@@ -366,10 +366,10 @@ char[..] str_trim(char[..] s) {
 // Strip one trailing LF or CRLF.
 char[..] str_chomp(char[..] s) {
 	size_t n = len(s);
-	if (n != 0 && s.ptr[n - 1] == '\n') {
+	if (n != 0 && s[n - 1] == '\n') {
 		n = n - 1;
 	}
-	if (n != 0 && s.ptr[n - 1] == '\r') {
+	if (n != 0 && s[n - 1] == '\r') {
 		n = n - 1;
 	}
 	return s[0 .. n];
@@ -382,10 +382,10 @@ char[..] str_chomp(char[..] s) {
 	}
 	size_t i = 0;
 	int neg = 0;
-	if (s.ptr[0] == '-') {
+	if (s[0] == '-') {
 		neg = 1;
 		i = 1;
-	} else if (s.ptr[0] == '+') {
+	} else if (s[0] == '+') {
 		i = 1;
 	}
 	if (i >= len(s)) {
@@ -394,7 +394,7 @@ char[..] str_chomp(char[..] s) {
 	int64_t v = 0;
 	int64_t maxv = 9223372036854775807L / (int64_t)base;
 	for (; i < len(s); i++) {
-		char c = s.ptr[i];
+		char c = s[i];
 		int digit = 0;
 		if (c >= '0' && c <= '9') {
 			digit = c - '0';

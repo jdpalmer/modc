@@ -42,6 +42,23 @@ Dependencies are typically declared directly inside user source files:
 
 To integrate external code, use `import` for pure %C packages while reserving `#include` paired with link pragmas for native C libraries and platform SDKs. Standard free functions without the `overload` modifier retain their original source symbol names to ensure seamless direct invocation from C, whereas object methods undergo name mangling using the `pkg_type_method` pattern.
 
+## Hosted include stubs
+
+`modc` ships curated headers under `lib/modc/include` (in-tree: `src/host/include`).
+They are searched **before** host system include paths, so `#include <stdint.h>`,
+`#include <unistd.h>`, or `#include <windows.h>` resolve to the stub, then link
+against the real libc or `kernel32`.
+
+The stubs are a **deliberate subset**: freestanding/hosted C (`stdio`, `stdlib`, …),
+POSIX pieces needed by the `fs` / `os` packages (`unistd`, `fcntl`, `sys/stat`,
+`dirent`, `poll`, `time`, `sys/wait`, `signal`), and a thin Win32 surface
+(`windows.h` with the `*A` APIs those packages call). Prefer growing a stub
+when a package needs a new call; use `#pragma modc c_sources(...)` for large
+native code.
+
+Package logic lives in `.mc` sources. System API declarations belong in hosted
+stubs (`unistd.h`, `windows.h`, …), not in the package.
+
 During compilation, the driver automatically injects target platform macros such as `__APPLE__`, `_WIN32`, and relevant architecture flags, though it intentionally omits `__GNUC__` to suppress heavy attribute macros. When targeting Windows, keep in mind that the object file format (COFF/PE) and the calling convention (Microsoft x64 via QBE `amd64_win`) operate as distinct layers; linkers cannot automatically rewrite SysV call sequences into Win64 ABI calls.
 
 ## Auto-const Across the Boundary

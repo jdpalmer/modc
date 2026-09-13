@@ -11,8 +11,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
-long write(int fd, const void *buf, unsigned long n);
+#include <unistd.h>
 
 #ifndef NDEBUG
 static int

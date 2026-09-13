@@ -370,6 +370,7 @@ struct Node {
 	int paren;	  /* wrapped in (…); assign-in-condition rules */
 	int is_immutable; /* Auto-const: string literal provenance */
 	int is_char_lit;  /* NdLit from '…' character constant */
+	int is_synth;	  /* compiler-built node (e.g. ranged→pointer decay) */
 };
 
 struct MArg {

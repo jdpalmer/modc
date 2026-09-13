@@ -132,10 +132,12 @@ Type* type_struct(Compiler* c, int kind, char* tag, Span sp) {
 	return t;
 }
 
-// Interned {ptr,len} struct for T[..]; one ranged Type per element type.
+// Interned {ptr,len,cap} struct for T[..]; one ranged Type per element type.
+// len is the initialized window; cap is addressable elements from ptr (len <= cap).
+// Views (literals, subranges, T[N]→T[..]) set len == cap. Spare room is not inherited.
 Type* type_ranged(Compiler* c, Type* elem) {
 	Type* t;
-	Field *ptr, *len;
+	Field *ptr, *len, *cap;
 	static int next;
 
 	if (elem == NULL)
@@ -154,7 +156,11 @@ Type* type_ranged(Compiler* c, Type* elem) {
 	len = xmalloc(sizeof(*len));
 	len->name = xstrdup("len");
 	len->type = c->type_ullong; /* size_t */
+	cap = xmalloc(sizeof(*cap));
+	cap->name = xstrdup("cap");
+	cap->type = c->type_ullong; /* size_t */
 	ptr->next = len;
+	len->next = cap;
 	t->fields = ptr;
 	type_layout(c, t);
 	return t;
@@ -747,7 +753,8 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 		return 1;
 	if (is_ranged(to) && expr && expr->kind == NdStr && to->base && (to->base->kind == TyChar || to->base->kind == TyUChar))
 		return 1;
-	if (is_ptr(to) && is_ranged(from) && from->base && type_eq(to->base, from->base))
+	if (is_ptr(to) && is_ranged(from) && from->base &&
+	    (type_eq(to->base, from->base) || to->base->kind == TyVoid))
 		return 1;
 	if (is_arith(to) && is_arith(from)) {
 		if (to->kind == TyDouble)
@@ -896,7 +903,7 @@ Node* maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 	return src;
 }
 
-// Take .ptr when a ranged value is used where T* is expected.
+// Take .ptr when a ranged value is used where T* or void* is expected.
 Node* maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 	Node* d;
 
@@ -906,14 +913,18 @@ Node* maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 		return src;
 	if (!is_ranged(src->type) || !src->type->base)
 		return src;
-	if (!type_eq(dst->base, src->type->base))
+	/* Element pointer or void* (memcpy/memcmp). */
+	if (!type_eq(dst->base, src->type->base) && dst->base->kind != TyVoid)
 		return src;
 	d = node(NdDot, src->span);
 	d->a = src;
 	d->s = "ptr";
-	d->type = dst;
+	d->type = type_ptr(c, src->type->base);
+	if (dst->base->kind == TyVoid)
+		d->type = dst;
 	d->int_val = 0;
 	d->is_lvalue = 0;
+	d->is_synth = 1;
 	return d;
 }
 
@@ -1558,10 +1569,11 @@ type_expr_call(Compiler* c, Node* n) {
 			n->type = c->type_int;
 		return n;
 	}
-	/* User funcs/methods named len/ranged win over the builtins. */
+	/* User funcs/methods named len/cap/ranged win over the builtins. */
 	if (bn && strcmp(bn, "ranged") == 0 && !(n->a && n->a->symbol)) {
-		Node *x, *y;
+		Node *x, *y, *z;
 		Type *et, *pt;
+		int64_t lv, cv;
 
 		if (n->children_len == 1) {
 			x = n->children[0];
@@ -1578,22 +1590,27 @@ type_expr_call(Compiler* c, Node* n) {
 			n->type = type_ranged(c, c->type_int);
 			return n;
 		}
-		if (n->children_len == 2) {
+		if (n->children_len == 2 || n->children_len == 3) {
 			x = n->children[0];
 			y = n->children[1];
+			z = n->children_len == 3 ? n->children[2] : NULL;
 			pt = x ? decay(c, x->type) : NULL;
 			if (pt && is_ptr(pt) && pt->base) {
 				et = pt->base;
 				if (y && y->type && !is_int(y->type))
 					error_at(c, n->span, "ranged() length must be an integer");
+				if (z && z->type && !is_int(z->type))
+					error_at(c, n->span, "ranged() capacity must be an integer");
+				if (z && eval_const(c, y, &lv) && eval_const(c, z, &cv) && lv > cv)
+					error_at(c, n->span, "ranged() length exceeds capacity");
 				n->type = type_ranged(c, et);
 				return n;
 			}
-			error_at(c, n->span, "ranged() with two arguments requires a pointer");
+			error_at(c, n->span, "ranged() with two or three arguments requires a pointer");
 			n->type = type_ranged(c, c->type_int);
 			return n;
 		}
-		error_at(c, n->span, "ranged() takes one or two arguments");
+		error_at(c, n->span, "ranged() takes one, two, or three arguments");
 		n->type = type_ranged(c, c->type_int);
 		return n;
 	}
@@ -1642,6 +1659,97 @@ type_expr_call(Compiler* c, Node* n) {
 		}
 		error_at(c, n->span, "len() requires a fixed or ranged array");
 		n->type = c->type_ullong;
+		return n;
+	}
+	if (bn && strcmp(bn, "cap") == 0 && !(n->a && n->a->symbol)) {
+		Node* x;
+		Type* lt;
+
+		if (n->children_len != 1) {
+			error_at(c, n->span, "cap() takes one argument");
+			n->type = c->type_ullong;
+			return n;
+		}
+		if (n->children[0])
+			n->children[0] = type_expr(c, n->children[0]);
+		x = n->children[0];
+		lt = x ? x->type : NULL;
+		if (is_ranged(lt)) {
+			n->type = c->type_ullong;
+			return n;
+		}
+		if (is_array(lt) && lt->len >= 0) {
+			n->type = c->type_ullong;
+			return n;
+		}
+		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0) {
+			n->type = c->type_ullong;
+			return n;
+		}
+		{
+			Type *ag, *rg;
+			int er;
+
+			ag = field_lhs(lt);
+			er = ag ? anon_embed_unique_ranged(ag, &rg, NULL) : 0;
+			if (er == 2) {
+				error_at(c, n->span,
+					 "ambiguous anonymous embed for cap()");
+				n->type = c->type_ullong;
+				return n;
+			}
+			if (er == 1) {
+				check_embed_ranged_null(c, n->span, x);
+				n->type = c->type_ullong;
+				return n;
+			}
+		}
+		error_at(c, n->span, "cap() requires a fixed or ranged array");
+		n->type = c->type_ullong;
+		return n;
+	}
+	if (bn && strcmp(bn, "ptr") == 0 && !(n->a && n->a->symbol)) {
+		Node* x;
+		Type* lt;
+
+		if (n->children_len != 1) {
+			error_at(c, n->span, "ptr() takes one argument");
+			n->type = c->type_void_ptr;
+			return n;
+		}
+		if (n->children[0])
+			n->children[0] = type_expr(c, n->children[0]);
+		x = n->children[0];
+		lt = x ? x->type : NULL;
+		if (is_ranged(lt) && lt->base) {
+			n->type = type_ptr(c, lt->base);
+			return n;
+		}
+		if (is_array(lt) && lt->base) {
+			n->type = type_ptr(c, lt->base);
+			return n;
+		}
+		{
+			Type *ag, *rg;
+			int er;
+			int off;
+
+			ag = field_lhs(lt);
+			er = ag ? anon_embed_unique_ranged(ag, &rg, &off) : 0;
+			if (er == 2) {
+				error_at(c, n->span,
+					 "ambiguous anonymous embed for ptr()");
+				n->type = c->type_void_ptr;
+				return n;
+			}
+			if (er == 1 && rg && rg->base) {
+				check_embed_ranged_null(c, n->span, x);
+				n->type = type_ptr(c, rg->base);
+				return n;
+			}
+		}
+		error_at(c, n->span, "ptr() requires a fixed or ranged array");
+		n->type = c->type_void_ptr;
 		return n;
 	}
 	if (ft && is_func(ft)) {
@@ -1751,6 +1859,7 @@ check_pkg_private_field(Compiler* c, Type* aggr, Field* f, Span sp) {
 }
 
 // Type-check . / -> field access and attach field type and offset.
+// T[..] headers are opaque: use len()/cap()/ptr(), not .len/.cap/.ptr.
 static Node*
 type_expr_field(Compiler* c, Node* n) {
 	Type* lt;
@@ -1761,6 +1870,15 @@ type_expr_field(Compiler* c, Node* n) {
 	if (n->kind == NdArrow && user_source(c, n->span))
 		error_at(c, n->span, "%%C uses '.' for field access; '->' is for headers");
 	lt = field_lhs(n->a ? n->a->type : NULL);
+	if (!n->is_synth && is_ranged(lt) && n->s &&
+	    (strcmp(n->s, "ptr") == 0 || strcmp(n->s, "len") == 0 || strcmp(n->s, "cap") == 0) &&
+	    user_source(c, n->span)) {
+		error_at(c, n->span,
+			 "T[..] is opaque; use len(), cap(), or ptr() (not .%s)",
+			 n->s);
+		n->type = c->type_void_ptr;
+		return n;
+	}
 	f = find_field(lt, n->s, &off);
 	if (f == NULL)
 		error_at(c, n->span, "no field named %s", n->s ? n->s : "");

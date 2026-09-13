@@ -238,6 +238,7 @@ Node* node(int kind, Span sp) {
 	Node* n;
 
 	n = xmalloc(sizeof(*n));
+	memset(n, 0, sizeof(*n));
 	n->kind = kind;
 	n->span = sp;
 	return n;

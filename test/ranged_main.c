@@ -1,11 +1,13 @@
 int from_array(void);
 int from_ptr(void);
+int from_scratch(void);
 int index_write(void);
 int roundtrip(void);
 int ranged_size(void);
 int from_string(void);
 int len_fixed(void);
 int len_ranged(void);
+int cap_ranged(void);
 
 int
 main(void)
@@ -18,7 +20,7 @@ main(void)
 		return 3;
 	if(roundtrip() != 9)
 		return 4;
-	if(ranged_size() != 16)
+	if(ranged_size() != 24)
 		return 5;
 	if(!from_string())
 		return 6;
@@ -26,5 +28,9 @@ main(void)
 		return 7;
 	if(len_ranged() != 3)
 		return 8;
+	if(from_scratch() != 3)
+		return 9;
+	if(cap_ranged() != 3)
+		return 10;
 	return 0;
 }

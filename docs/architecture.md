@@ -81,5 +81,5 @@ via `scripts/check-corpus.sh` (emit/link/run and expect-fail) and
 `scripts/check-special.sh` (format, vendor, cache, install, …). See
 [test/README.md](../test/README.md).
 
-Shipped packages include `str/` and `arena/`. Import resolution order is
+Shipped packages include `str/`, `arena/`, `path/`, `fs/`, `os/`, and `tty/`. Import resolution order is
 documented in [packages.md](packages.md).

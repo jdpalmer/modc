@@ -28,6 +28,7 @@ test/goto_decl.mc
 test/proto.mc
 test/forward_ref.mc
 test/nestarr.mc
+test/shadow_local_array.mc
 test/nest_aggr_arr.mc
 test/globals.mc
 test/statics.mc
@@ -38,6 +39,10 @@ test/ranged_conv.mc
 test/ranged_decay.mc
 test/str_pkg.mc
 test/arena_pkg.mc
+test/path_pkg.mc
+test/fs_pkg.mc
+test/os_pkg.mc
+test/tty_pkg.mc
 test/fixed_array_param.mc
 test/defer.mc
 test/overload.mc

@@ -45,9 +45,13 @@ make install
 
 ```sh
 $PREFIX/bin/modc
-$PREFIX/lib/modc/include/    # hosted include stubs
+$PREFIX/lib/modc/include/    # hosted include stubs (shadow system headers)
 $PREFIX/lib/modc/pkg/        # shipped packages
 ```
+
+Hosted stubs include the C library subset (`stdint.h`, `stdio.h`, …) plus
+curated POSIX and thin Win32 headers used by `fs` / `os`. See
+[interop.md](interop.md) (Hosted include stubs).
 
 If you are hacking on `modc` itself, the in-tree `./modc` uses the repo’s `src/host/include` and package dirs. The installed binary finds headers/packages relative to its location (or `MODC_INCLUDE` / `MODC_PKG`).
 

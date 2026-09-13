@@ -1779,6 +1779,10 @@ ac_expr_immut(ACState* st, Node* n) {
 		return 1;
 	if (n->kind == NdDot && n->a && n->a->kind == NdName && n->a->symbol && ac_char_ranged(n->a->symbol->type) && n->s && strcmp(n->s, "ptr") == 0 && ac_get(st, n->a->symbol) == ACImmut)
 		return 1;
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && strcmp(n->a->s, "ptr") == 0 && !(n->a->symbol) &&
+	    n->children_len == 1 && n->children[0] && n->children[0]->kind == NdName && n->children[0]->symbol &&
+	    ac_char_ranged(n->children[0]->symbol->type) && ac_get(st, n->children[0]->symbol) == ACImmut)
+		return 1;
 	if (n->kind == NdName && n->symbol && ac_get(st, n->symbol) == ACImmut)
 		return 1;
 	return 0;
@@ -1950,9 +1954,10 @@ ac_expr(Compiler* c, Node* n, ACState* st) {
 			ft = ft->base;
 		if ((ft == NULL || !is_func(ft)) && n->a && n->a->symbol && n->a->symbol->type && is_func(n->a->symbol->type))
 			ft = n->a->symbol->type;
-		/* Builtin ranged("…") / len(): not a mutable C pointer sink. */
+		/* Builtin ranged/len/cap/ptr: not mutable C pointer sinks. */
 		if (n->a && n->a->kind == NdName && n->a->s && n->a->symbol == NULL &&
-		    (strcmp(n->a->s, "ranged") == 0 || strcmp(n->a->s, "len") == 0)) {
+		    (strcmp(n->a->s, "ranged") == 0 || strcmp(n->a->s, "len") == 0 ||
+		     strcmp(n->a->s, "cap") == 0 || strcmp(n->a->s, "ptr") == 0)) {
 			for (i = 0; i < n->children_len; i++)
 				ac_expr(c, n->children[i], st);
 			return;

@@ -100,38 +100,47 @@ Importers can manipulate `Window` and `Window *` directly because the memory lay
 
 ## Owning containers
 
-Growable or owning container types can embed a view type anonymously while adding metadata like capacity or reference counts. Combined with promoted fields and value projection, callers can pass containers directly into APIs expecting embedded views by value. See [struct.md](struct.md) for full embedding rules.
+The `arena` package is the allocator; returned values are opaque `char[..]`
+views. Grow by assigning a new view (`s = a.append(s, …)`), not by writing
+header fields. Custom owning types may keep their own `ptr` / `len` / `cap` and
+project views the same way.
 
 ```c
-struct U8 {
-    Arena* arena;
-    char[..];            /* .ptr, .len; U8 → char[..] at call sites */
-};
-
-void (U8* u).begin(Arena* a);
-bool (U8* u).put(char[..] s);
 (bool, char[..]) (Arena* a).copy(char[..] s);
+(bool, char[..]) (Arena* a).append(char[..] cur, char[..] s);
+(bool, char[..]) (Arena* a).append_byte(char[..] cur, char c);
+(bool, char[..]) (Arena* a).join(char[..] sep, char[..]* parts, size_t nparts);
 ```
 
 ```c
 import "arena";
 
 Arena a;
-U8 out;
-U8 chunk;
+char[..] out = {0};
+char[..] chunk = {0};
 
 a.init();
 defer a.free();
-out.begin(&a);
-chunk.begin(&a);
-chunk.put("part");
-out.put(chunk);   /* U8 → char[..] by embed projection */
+{
+    auto (ok, s) = a.append(str_empty(), "part");
+    if (!ok) {
+        return;
+    }
+    chunk = s;
+}
+{
+    auto (ok, s) = a.append(out, chunk);
+    if (!ok) {
+        return;
+    }
+    out = s;
+}
 str_eq(out, "part");
 ```
 
-Mutator operations should be methods on pointer types (`T *`), whereas readers accept values (`str_eq(u, ...)`) or pointers (`str_eq(p, ...)`). The `{ View; extra; }` layout pattern is standard for custom buffers; see `arena/mod.mc` and `test/arena_pkg.mc` for canonical examples.
+Mutator operations should be methods on pointer types (`T *`), whereas readers accept values (`str_eq(s, ...)`). See `arena/mod.mc` and `test/arena_pkg.mc` for canonical examples.
 
-For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. Construct or transform text using `arena` methods (`a.copy`, `a.join`, `a.replace`, `u.put`). Export data to C APIs using `cstr_write(buf, view)` or `a.z(view)` for NUL-terminated copies. Convert foreign C strings (`char *`) via `str_from_cstr` and `str_eq_cstr`. See [quickstart.md](quickstart.md) and [arrays.md](arrays.md).
+For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, view)` or `a.z(view)` for NUL-terminated copies. Convert foreign C strings (`char *`) via `str_from_cstr` and `str_eq_cstr`. See [quickstart.md](quickstart.md) and [arrays.md](arrays.md).
 
 ## How imports resolve
 
