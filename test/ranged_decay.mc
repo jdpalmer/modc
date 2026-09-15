@@ -5,8 +5,8 @@ void take_ranged(char[..] x) {
 }
 
 int strlen_local(void) {
-	char[..] name = {0};
-	int n = {0};
+	char[..] name = { 0 };
+	int n = { 0 };
 	name = "James";
 	n = (int)strlen(name);
 	if (n != 5) {
@@ -20,7 +20,7 @@ int strlen_temp(void) {
 }
 
 int pass_ranged(void) {
-	char[..] name = {0};
+	char[..] name = { 0 };
 	name = "James";
 	take_ranged(name);
 	take_ranged("Isaac");
@@ -28,8 +28,8 @@ int pass_ranged(void) {
 }
 
 int mutable_ok(void) {
-	char buf[8] = {0};
-	char[..] view = {0};
+	char buf[8] = { 0 };
+	char[..] view = { 0 };
 	buf[0] = (char)'a';
 	buf[1] = (char)'b';
 	buf[2] = (char)'c';

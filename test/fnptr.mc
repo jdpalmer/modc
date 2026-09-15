@@ -17,19 +17,19 @@ int callstar(int(*fp)(int, int), int a, int b) {
 }
 
 int via_local(void) {
-	int(*fp)(int, int) = {0};
+	int(*fp)(int, int) = { 0 };
 	fp = add;
 	return fp(20, 22);
 }
 
 int via_addr(void) {
-	int(*fp)(int, int) = {0};
+	int(*fp)(int, int) = { 0 };
 	fp = &add;
 	return (*fp)(10, 32);
 }
 
 int choose(int which, int a, int b) {
-	int(*fp)(int, int) = {0};
+	int(*fp)(int, int) = { 0 };
 	if (which) {
 		fp = add;
 	} else {

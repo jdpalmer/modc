@@ -52,8 +52,8 @@ int on_goto(void) {
 }
 
 int with_ranged(void) {
-	int a[3] = {0};
-	int[..] s = {0};
+	int a[3] = { 0 };
+	int[..] s = { 0 };
 	nlog = 0;
 	a[0] = 1;
 	a[1] = 2;

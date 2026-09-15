@@ -18,7 +18,7 @@ char[..] sub(char[..] s, size_t lo, size_t hi) {
 
 int demo(void) {
 	auto (ok, hit) = find("ab", "a");
-	char[..] * rest;
+	char[..]* rest;
 	char[..] s = *rest;
 	int x;
 	x = (int)ca - (int)cb;

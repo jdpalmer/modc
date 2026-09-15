@@ -7,7 +7,7 @@ char* mid_wrap(void) {
 }
 
 int autoconst_return_transitive_ok(void) {
-	char* p = {0};
+	char* p = { 0 };
 	p = mid_wrap();
 	return p[0] == (char)'x' ? 0: 1;
 }

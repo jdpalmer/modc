@@ -1,8 +1,8 @@
 import "str";
 
 int test_cstr_write(void) {
-	char buf[32] = {0};
-	char[..] a = {0};
+	char buf[32] = { 0 };
+	char[..] a = { 0 };
 	a = "hello";
 	if (cstr_write(buf, a) != 5) {
 		return 1;
@@ -14,8 +14,8 @@ int test_cstr_write(void) {
 }
 
 int test_find(void) {
-	char[..] hay = {0};
-	char[..] needle = {0};
+	char[..] hay = { 0 };
+	char[..] needle = { 0 };
 	hay = "hello world";
 	needle = "world";
 	{
@@ -47,9 +47,9 @@ int test_find(void) {
 }
 
 int test_chomp(void) {
-	char raw[8] = {0};
-	char[..] s = {0};
-	char[..] tok = {0};
+	char raw[8] = { 0 };
+	char[..] s = { 0 };
+	char[..] tok = { 0 };
 	raw[0] = (char)'l';
 	raw[1] = (char)'i';
 	raw[2] = (char)'n';
@@ -65,10 +65,10 @@ int test_chomp(void) {
 }
 
 int test_sep_trim(void) {
-	char line[64] = {0};
-	char[..] rest = {0};
-	char[..] tok = {0};
-	int n = {0};
+	char line[64] = { 0 };
+	char[..] rest = { 0 };
+	char[..] tok = { 0 };
+	int n = { 0 };
 	cstr_write(line, "  foo, bar , baz  ");
 	rest = str_from_cstr(line);
 	{
@@ -116,7 +116,7 @@ int test_sep_trim(void) {
 }
 
 int test_cmp_prefix(void) {
-	char[..] s = {0};
+	char[..] s = { 0 };
 	s = "Hello";
 	if (!str_starts_with(s, "He")) {
 		return 1;
@@ -157,9 +157,9 @@ int test_parse(void) {
 }
 
 int test_subview(void) {
-	char data[16] = {0};
-	char[..] chunk = {0};
-	char[..] word = {0};
+	char data[16] = { 0 };
+	char[..] chunk = { 0 };
+	char[..] word = { 0 };
 	data[0] = (char)'h';
 	data[1] = (char)'i';
 	data[2] = (char)'!';

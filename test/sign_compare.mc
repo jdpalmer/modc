@@ -10,7 +10,7 @@ int both_unsigned(unsigned a, unsigned b) {
 }
 
 int sizeof_cast(int i) {
-	return i < (int) sizeof (char[8]);
+	return i < (int) sizeof(char[8]);
 }
 
 int eq_mixed_ok(int i, unsigned u) {
@@ -21,4 +21,3 @@ int eq_mixed_ok(int i, unsigned u) {
 int lit_vs_unsigned(unsigned r) {
 	return r < 0x7F && r <= 127 && 0x10 < r;
 }
-

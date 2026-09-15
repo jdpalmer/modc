@@ -18,3 +18,27 @@ int mul(int* p, int n) {
 	}
 	return s;
 }
+
+enum { One = 1 };
+enum Color {
+	Red = 1,
+	Green = 2,
+	Blue = 3
+};
+union U { int x; };
+union V {
+	int a;
+	char b;
+};
+static int z = { 0 };
+static int zs[3] = {
+	1, 2, 3 };
+Fs* blob = NULL;
+static Fs* p = NULL;
+Fs** q = NULL;
+char[..]* s = NULL;
+#ifdef X
+int* skip = NULL;
+#else
+FsFd* after_else = NULL;
+#endif

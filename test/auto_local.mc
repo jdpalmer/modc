@@ -16,8 +16,7 @@ void* infer_ptr(void* p) {
 }
 
 int infer_array_decay(void) {
-	int a[4] = {
-		0 };
+	int a[4] = { 0 };
 	auto p = a;
 	a[0] = 10;
 	a[1] = 20;
@@ -25,14 +24,10 @@ int infer_array_decay(void) {
 }
 
 int infer_ranged(void) {
-	int a[3] = {
-		0 };
-	int[..] s = {
-		0 };
-	int sum = {
-		0 };
-	int i = {
-		0 };
+	int a[3] = { 0 };
+	int[..] s = { 0 };
+	int sum = { 0 };
+	int i = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;

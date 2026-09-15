@@ -10,10 +10,8 @@ char[..] (Line* l).view(void) {
 }
 
 int method_ranged_ret_run(void) {
-	Line line = {
-		0 };
-	char[..] v = {
-		0 };
+	Line line = { 0 };
+	char[..] v = { 0 };
 	line.buf[0] = 'a';
 	line.buf[1] = 'b';
 	line.n = 2;

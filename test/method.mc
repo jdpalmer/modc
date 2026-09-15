@@ -20,7 +20,7 @@ int (Widget* w).id(void) {
 }
 
 int test_method(void) {
-	Window win = {0};
+	Window win = { 0 };
 	win.title_len_val = 3;
 	win.id_val = 7;
 	if (win.title_len() != 3) {

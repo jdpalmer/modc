@@ -3,7 +3,6 @@ static struct Hidden {
 };
 
 Hidden leak_hidden(void) {
-	Hidden h = {
-		0 };
+	Hidden h = { 0 };
 	return h;
 }

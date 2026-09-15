@@ -3,9 +3,9 @@
 /* range-for: fixed T[N], ranged T[..], auto / explicit type. */
 
 int sum_array(void) {
-	int a[4] = {0};
-	int i = {0};
-	int t = {0};
+	int a[4] = { 0 };
+	int i = { 0 };
+	int t = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
@@ -21,7 +21,7 @@ int sum_array(void) {
 }
 
 int sum_ranged(int[..] s) {
-	int t = {0};
+	int t = { 0 };
 	t = 0;
 	for (auto v: s) {
 		t = t + v;
@@ -30,8 +30,8 @@ int sum_ranged(int[..] s) {
 }
 
 int sum_ranged_expr(void) {
-	int a[3] = {0};
-	int[..] s = {0};
+	int a[3] = { 0 };
+	int[..] s = { 0 };
 	a[0] = 5;
 	a[1] = 6;
 	a[2] = 7;
@@ -40,8 +40,8 @@ int sum_ranged_expr(void) {
 }
 
 int sum_nested(void) {
-	int m[2][2] = {0};
-	int t = {0};
+	int m[2][2] = { 0 };
+	int t = { 0 };
 	m[0][0] = 1;
 	m[0][1] = 2;
 	m[1][0] = 3;
@@ -56,8 +56,8 @@ int sum_nested(void) {
 }
 
 int explicit_type(void) {
-	int a[2] = {0};
-	int64_t t = {0};
+	int a[2] = { 0 };
+	int64_t t = { 0 };
 	a[0] = 10;
 	a[1] = 20;
 	t = 0;
@@ -68,8 +68,8 @@ int explicit_type(void) {
 }
 
 int with_break(void) {
-	int a[5] = {0};
-	int t = {0};
+	int a[5] = { 0 };
+	int t = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 99;
@@ -87,8 +87,8 @@ int with_break(void) {
 
 /* Pointer binding: mutate through auto *p / T *p. */
 int ptr_bind_array(void) {
-	int a[3] = {0};
-	int t = {0};
+	int a[3] = { 0 };
+	int t = { 0 };
 	a[0] = 0;
 	a[1] = 0;
 	a[2] = 0;
@@ -103,9 +103,9 @@ int ptr_bind_array(void) {
 }
 
 int ptr_bind_ranged(void) {
-	int a[4] = {0};
-	int[..] s = {0};
-	int t = {0};
+	int a[4] = { 0 };
+	int[..] s = { 0 };
+	int t = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
@@ -127,9 +127,9 @@ struct Pt {
 };
 
 int ptr_bind_struct(void) {
-	Pt a[2] = {0};
-	Pt[..] s = {0};
-	int t = {0};
+	Pt a[2] = { 0 };
+	Pt[..] s = { 0 };
+	int t = { 0 };
 	s = a;
 	for (auto* p: s) {
 		p.x = 3;

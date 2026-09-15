@@ -2,7 +2,6 @@
 
 int str_escape_len_run(void) {
 	char esc[4] = "\x1b[K";
-
 	if (len("\x1b[K") != 4) {
 		return 1;
 	}

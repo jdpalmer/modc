@@ -5,13 +5,13 @@ int add(int a, int b) {
 }
 
 int use_local(int a, int b) {
-	int x = {0};
+	int x = { 0 };
 	x = a + b;
 	return x;
 }
 
 int call_add(int a, int b) {
-	int x = {0};
+	int x = { 0 };
 	x = add(a, b);
 	return x;
 }

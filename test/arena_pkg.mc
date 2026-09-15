@@ -1,14 +1,10 @@
 import "arena";
 
 int test_copy_cat(void) {
-	Arena a = {
-		0 };
-	char buf[32] = {
-		0 };
-	char[..] out = {
-		0 };
-	bool ok = {
-		0 };
+	Arena a = { 0 };
+	char buf[32] = { 0 };
+	char[..] out = { 0 };
+	bool ok = { 0 };
 	a.init();
 	defer a.free();
 	{
@@ -29,12 +25,9 @@ int test_copy_cat(void) {
 }
 
 int test_append(void) {
-	Arena a = {
-		0 };
-	char[..] s = {
-		0 };
-	int i = {
-		0 };
+	Arena a = { 0 };
+	char[..] s = { 0 };
+	int i = { 0 };
 	a.init();
 	defer a.free();
 	{
@@ -58,8 +51,7 @@ int test_append(void) {
 		return 4;
 	}
 	{
-		char[..] sub = {
-			0 };
+		char[..] sub = { 0 };
 		sub = s[0 .. 5];
 		if (!str_eq(sub, "hello")) {
 			return 5;
@@ -93,16 +85,11 @@ int test_append(void) {
 }
 
 int test_join(void) {
-	Arena a = {
-		0 };
-	char buf[32] = {
-		0 };
-	char[..] parts[3] = {
-		0 };
-	char[..] out = {
-		0 };
-	bool ok = {
-		0 };
+	Arena a = { 0 };
+	char buf[32] = { 0 };
+	char[..] parts[3] = { 0 };
+	char[..] out = { 0 };
+	bool ok = { 0 };
 	parts[0] = "a";
 	parts[1] = "b";
 	parts[2] = "c";
@@ -166,14 +153,10 @@ int test_join(void) {
 }
 
 int test_replace(void) {
-	Arena a = {
-		0 };
-	char buf[32] = {
-		0 };
-	char[..] out = {
-		0 };
-	bool ok = {
-		0 };
+	Arena a = { 0 };
+	char buf[32] = { 0 };
+	char[..] out = { 0 };
+	bool ok = { 0 };
 	a.init();
 	defer a.free();
 	{
@@ -219,12 +202,9 @@ int test_replace(void) {
 }
 
 int test_reset(void) {
-	Arena a = {
-		0 };
-	char[..] out = {
-		0 };
-	bool ok = {
-		0 };
+	Arena a = { 0 };
+	char[..] out = { 0 };
+	bool ok = { 0 };
 	a.init();
 	defer a.free();
 	{

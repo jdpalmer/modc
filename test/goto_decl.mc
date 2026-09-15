@@ -9,8 +9,8 @@ int forward_ok(int x) {
 }
 
 int back_ok(int n) {
-	int i = {0};
-	int s = {0};
+	int i = { 0 };
+	int s = { 0 };
 	s = 0;
 	i = 0;
 	again: if (i >= n) {
@@ -23,7 +23,7 @@ int back_ok(int n) {
 }
 
 int decl_before_goto(void) {
-	int x = {0};
+	int x = { 0 };
 	x = 3;
 	goto out;
 	out: return x;

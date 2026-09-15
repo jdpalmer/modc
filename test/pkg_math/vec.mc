@@ -5,7 +5,7 @@ typedef struct Vec2 {
 Vec2;
 
 Vec2 vec2(float x, float y) {
-	Vec2 v = {0};
+	Vec2 v = { 0 };
 	v.x = x;
 	v.y = y;
 	return v;

@@ -3,5 +3,5 @@
 #include <net/if.h>
 
 int inc_kw_path_run(void) {
-	return INC_KW_OK == 7 ? 0 : 1;
+	return INC_KW_OK == 7 ? 0: 1;
 }

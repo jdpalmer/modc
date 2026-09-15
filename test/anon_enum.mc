@@ -4,9 +4,7 @@ enum {
 	AnonB = 2
 };
 
-enum {
-	AnonC = 3
-};
+enum { AnonC = 3 };
 
 int anon_enum_run(void) {
 	if (AnonA + AnonB + AnonC != 6) {

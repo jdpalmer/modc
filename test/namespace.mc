@@ -16,7 +16,10 @@ union U {
 };
 
 enum Color {
-	COLOR_RED, COLOR_GREEN, COLOR_BLUE };
+	COLOR_RED,
+	COLOR_GREEN,
+	COLOR_BLUE
+};
 
 int point_sum(Point v) {
 	return v.x + v.y;
@@ -48,7 +51,7 @@ int compat_enum(enum Color c) {
 
 int typedef_ok(void) {
 	typedef struct Point Point;
-	Point p = {0};
+	Point p = { 0 };
 	p.x = 1;
 	p.y = 2;
 	return p.x + p.y;

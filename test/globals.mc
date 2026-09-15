@@ -22,13 +22,13 @@ int bump_s(void) {
 }
 
 int first_char(void) {
-	char* p = {0};
+	char* p = { 0 };
 	p = "hi";
 	return p[0];
 }
 
 int str_len3(void) {
-	char* p = {0};
+	char* p = { 0 };
 	p = "abc";
 	return p[0] + p[1] + p[2];
 }

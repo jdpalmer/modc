@@ -5,8 +5,8 @@ static void sink(char* p) {
 }
 
 int autoconst_ok(void) {
-	char buf[8] = {0};
-	char* p = {0};
+	char buf[8] = { 0 };
+	char* p = { 0 };
 	if (hdr_strlen("hi") != 2) {
 		return 1;
 	}

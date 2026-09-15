@@ -3,7 +3,7 @@
 #include "stdarg.h"
 
 Pair modc_pair(int a, int b) {
-	Pair p = {0};
+	Pair p = { 0 };
 	p.a = a;
 	p.b = b;
 	return p;
@@ -18,7 +18,7 @@ Pair modc_pair_id(Pair p) {
 }
 
 Quad modc_quad(int a, int b, int c, int d) {
-	Quad q = {0};
+	Quad q = { 0 };
 	q.a = a;
 	q.b = b;
 	q.c = c;
@@ -35,11 +35,10 @@ Quad modc_quad_id(Quad q) {
 }
 
 int modc_vsum(int n, ...) {
-	va_list ap = {0};
-	int i = {0};
-	int s = {0};
-	int v = {0};
-
+	va_list ap = { 0 };
+	int i = { 0 };
+	int s = { 0 };
+	int v = { 0 };
 	va_start(ap, n);
 	s = 0;
 	for (i = 0; i < n; i++) {
@@ -51,9 +50,8 @@ int modc_vsum(int n, ...) {
 }
 
 int modc_calls_host(void) {
-	Pair p = {0};
-	Quad q = {0};
-
+	Pair p = { 0 };
+	Quad q = { 0 };
 	p = host_pair(3, 4);
 	if (host_pair_sum(p) != 7) {
 		return 1;

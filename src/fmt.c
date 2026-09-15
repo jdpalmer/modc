@@ -6,7 +6,8 @@
  * Used by `modc format`. Does not run the preprocessor or parser.
  * Source newlines are ignored except as blank-line hints and to end
  * `#` directive lines; the printer inserts breaks after `;` / `{` / `}`
- * (not inside () / []).
+ * (not inside () / []), after `,` in multi-item enum bodies, and keeps
+ * single-item enum/union/`= { … }` bodies on one line with the opening brace.
  */
 #include "ast.h"
 
@@ -20,7 +21,17 @@ typedef struct {
 	int blank;
 	int in_dir;
 	int bol; /* next token starts a line */
+	unsigned char brace_kind[128]; /* Bk* for each open brace, index depth-1 */
 } Out;
+
+enum {
+	BkOther = 0,
+	BkEnum = 1,
+	BkEnumMulti = 2,
+	BkUnion = 3,
+	BkUnionMulti = 4,
+	BkInit = 5
+};
 
 // Grow the output buffer when appending would exceed capacity.
 static void
@@ -149,7 +160,6 @@ kw_space_before_paren(int kw) {
 	case KwFor:
 	case KwWhile:
 	case KwSwitch:
-	case KwSizeof:
 		return 1;
 	default:
 		return 0;
@@ -447,6 +457,56 @@ func_param_lparen(Tok* tokens, int i) {
 	return 0;
 }
 
+// True when * at i sits in a declaration/parameter context (not an expression).
+static int
+decl_star_context(Tok* tokens, int n, int i) {
+	int j;
+
+	for (j = i - 1; j >= 0; j--) {
+		Tok* t = &tokens[j];
+
+		if (t->kind == TkNewline || t->kind == TkComment)
+			continue;
+		if (t->kind == TkPunct) {
+			if (t->punct == PnHash)
+				return 1; /* after #else / #endif / … */
+			if (t->punct == PnLparen) {
+				if (method_recv_lparen(tokens, n, j) || func_param_lparen(tokens, j))
+					return 1;
+				return 0;
+			}
+			if (t->punct == PnSemi || t->punct == PnLbrace || t->punct == PnRbrace || t->punct == PnComma)
+				return 1;
+			if (is_binary_punct(t->punct) || t->punct == PnEq || t->punct == PnLbrack ||
+			    t->punct == PnRbrack || t->punct == PnQuestion || t->punct == PnColon)
+				return 0;
+			continue;
+		}
+		if (t->kind == TkKw) {
+			Tok* before;
+
+			switch (t->kw) {
+			case KwReturn:
+			case KwIf:
+			case KwFor:
+			case KwWhile:
+			case KwSwitch:
+			case KwCase:
+			case KwElse:
+				/* `#else` / `#if` — not a control statement. */
+				before = prev_code(tokens, j);
+				if (before && before->kind == TkPunct && before->punct == PnHash)
+					return 1;
+				return 0;
+			default:
+				break;
+			}
+		}
+	}
+	/* Start of file: treat Type * name as a declarator. */
+	return 1;
+}
+
 // Pointer declarator * (T* name): attach * to the type, not unary/binary *.
 static int
 pointer_decl_star(Tok* tokens, int n, int i) {
@@ -460,56 +520,24 @@ pointer_decl_star(Tok* tokens, int n, int i) {
 		return 0;
 	if (prev->kind == TkKw && is_type_kw(prev->kw))
 		return 1;
+	/* T** p: each * after a declarator * stays a declarator. */
 	if (prev->kind == TkPunct && prev->punct == PnStar)
-		return 1;
+		return pointer_decl_star(tokens, n, (int)(prev - tokens));
 	if (prev->kind == TkPunct && prev->punct == PnRparen && paren_expr_is_cast(tokens, (int)(prev - tokens)))
 		return 1;
-	if (prev->kind == TkIdent && next && next->kind == TkIdent) {
-		int j;
-
-		for (j = i - 1; j >= 0; j--) {
-			Tok* t = &tokens[j];
-
-			if (t->kind == TkNewline || t->kind == TkComment)
-				continue;
-			if (t->kind == TkPunct) {
-				if (t->punct == PnLparen) {
-					if (method_recv_lparen(tokens, n, j) || func_param_lparen(tokens, j))
-						return 1;
-					return 0;
-				}
-				if (t->punct == PnSemi || t->punct == PnLbrace || t->punct == PnComma)
-					return 1;
-				if (is_binary_punct(t->punct) || t->punct == PnEq || t->punct == PnLbrack || t->punct == PnRbrack || t->punct == PnQuestion || t->punct == PnColon)
-					return 0;
-				continue;
-			}
-			if (t->kind == TkKw) {
-				switch (t->kw) {
-				case KwReturn:
-				case KwIf:
-				case KwFor:
-				case KwWhile:
-				case KwSwitch:
-				case KwCase:
-				case KwElse:
-					return 0;
-				default:
-					break;
-				}
-			}
-		}
-		return 0;
+	/* char[..]* s */
+	if (prev->kind == TkPunct && prev->punct == PnRbrack) {
+		before = prev_code(tokens, (int)(prev - tokens));
+		if (before && before->kind == TkPunct && before->punct == PnDotDot)
+			return 1;
 	}
+	/* Type * name / Type ** name / Type (*fp)() */
+	if (prev->kind == TkIdent && next &&
+	    (next->kind == TkIdent ||
+	     (next->kind == TkPunct && (next->punct == PnStar || next->punct == PnLparen))))
+		return decl_star_context(tokens, n, i);
 	if (binary_star(prev, next))
 		return 0;
-	if (prev->kind == TkIdent && next && next->kind == TkPunct && next->punct == PnLparen) {
-		before = prev_code(tokens, (int)(prev - tokens));
-		if (before && before->kind == TkPunct && before->punct == PnStar)
-			return 1;
-		if (before && ((before->kind == TkKw && is_type_kw(before->kw)) || before->kind == TkIdent))
-			return 1;
-	}
 	return 0;
 }
 
@@ -634,6 +662,93 @@ space_between(Tok* tokens, int n, int i) {
 	return 1;
 }
 
+// KwEnum / KwUnion introducing the `{` at i (optional tag ident skipped).
+static int
+tag_kw_before_lbrace(Tok* tokens, int i) {
+	Tok* p;
+
+	p = prev_code(tokens, i);
+	if (p && p->kind == TkIdent)
+		p = prev_code(tokens, (int)(p - tokens));
+	if (p && p->kind == TkKw && (p->kw == KwEnum || p->kw == KwUnion))
+		return p->kw;
+	return 0;
+}
+
+// True when `{` opens a `= { ... }` initializer (not a function/type body).
+static int
+is_init_lbrace(Tok* tokens, int i) {
+	Tok* p;
+
+	p = prev_code(tokens, i);
+	return p && p->kind == TkPunct && p->punct == PnEq;
+}
+
+// Count enumerators (enum_style) or fields (union) in the brace body at lbrace_i.
+static int
+brace_body_items(Tok* tokens, int n, int lbrace_i, int enum_style) {
+	int depth, paren, brack, items, saw, i;
+
+	depth = 0;
+	paren = 0;
+	brack = 0;
+	items = 0;
+	saw = 0;
+	for (i = lbrace_i + 1; i < n; i++) {
+		Tok* t = &tokens[i];
+
+		if (t->kind == TkNewline || t->kind == TkComment || t->kind == TkEof)
+			continue;
+		if (t->kind == TkPunct) {
+			if (t->punct == PnLbrace) {
+				depth++;
+				continue;
+			}
+			if (t->punct == PnRbrace) {
+				if (depth == 0)
+					break;
+				depth--;
+				continue;
+			}
+			if (t->punct == PnLparen) {
+				paren++;
+				continue;
+			}
+			if (t->punct == PnRparen) {
+				if (paren > 0)
+					paren--;
+				continue;
+			}
+			if (t->punct == PnLbrack) {
+				brack++;
+				continue;
+			}
+			if (t->punct == PnRbrack) {
+				if (brack > 0)
+					brack--;
+				continue;
+			}
+			if (depth == 0 && paren == 0 && brack == 0) {
+				if (enum_style && t->punct == PnComma) {
+					items++;
+					saw = 0;
+					continue;
+				}
+				if (!enum_style && t->punct == PnSemi) {
+					items++;
+					saw = 0;
+					continue;
+				}
+			}
+		}
+		if (depth == 0 && paren == 0 && brack == 0)
+			saw = 1;
+	}
+	if (enum_style && saw)
+		items++;
+	return items;
+}
+
 // Write one token's spelling into the output buffer.
 static void
 emit_tok(Out* o, Tok* t) {
@@ -730,8 +845,15 @@ char* fmt_source(Compiler* c) {
 			continue;
 		}
 
-		if (cur->kind == TkPunct && cur->punct == PnRbrace && o.depth > 0)
+		if (cur->kind == TkPunct && cur->punct == PnRbrace && o.depth > 0) {
+			int kind;
+
+			kind = (o.depth <= (int)sizeof(o.brace_kind)) ? o.brace_kind[o.depth - 1] : BkOther;
 			o.depth--;
+			/* Multi-item enum/union: put `}` on its own line. */
+			if ((kind == BkEnumMulti || kind == BkUnionMulti) && !o.bol && o.col > 0)
+				o_nl(&o);
+		}
 
 		{
 			int line_start;
@@ -763,18 +885,47 @@ char* fmt_source(Compiler* c) {
 				o.brack++;
 			else if (cur->punct == PnRbrack && o.brack > 0)
 				o.brack--;
-			else if (cur->punct == PnLbrace)
+			else if (cur->punct == PnLbrace) {
+				int kw, kind, items;
+
+				kw = tag_kw_before_lbrace(tokens, i);
+				kind = BkOther;
+				if (kw == KwEnum || kw == KwUnion) {
+					items = brace_body_items(tokens, n, i, kw == KwEnum);
+					if (kw == KwEnum)
+						kind = items >= 2 ? BkEnumMulti : BkEnum;
+					else
+						kind = items >= 2 ? BkUnionMulti : BkUnion;
+				} else if (is_init_lbrace(tokens, i)) {
+					items = brace_body_items(tokens, n, i, 1);
+					if (items < 2)
+						kind = BkInit;
+				}
 				o.depth++;
+				if (o.depth <= (int)sizeof(o.brace_kind))
+					o.brace_kind[o.depth - 1] = (unsigned char)kind;
+				/* Single-item enum/union/init stay on the `{` line. */
+				if (kind != BkEnum && kind != BkUnion && kind != BkInit)
+					o_nl(&o);
+			}
 		}
 
 		if (o.in_dir)
 			continue;
 
 		if (cur->kind == TkPunct) {
-			if (cur->punct == PnLbrace)
+			if (cur->punct == PnLbrace) {
+				/* newline decided when opening brace was handled */
+			} else if (cur->punct == PnComma && o.paren == 0 && o.brack == 0 && o.depth > 0 &&
+				   o.depth <= (int)sizeof(o.brace_kind) &&
+				   (o.brace_kind[o.depth - 1] == BkEnum || o.brace_kind[o.depth - 1] == BkEnumMulti))
 				o_nl(&o);
-			else if (cur->punct == PnSemi && o.paren == 0 && o.brack == 0)
-				o_nl(&o);
+			else if (cur->punct == PnSemi && o.paren == 0 && o.brack == 0) {
+				/* Single-field union stays `union U { int x; };` on one line. */
+				if (!(o.depth > 0 && o.depth <= (int)sizeof(o.brace_kind) &&
+				      o.brace_kind[o.depth - 1] == BkUnion))
+					o_nl(&o);
+			}
 			else if (cur->punct == PnRbrace) {
 				if (next && next->kind == TkKw && next->kw == KwElse) {
 					/* } else on same line */

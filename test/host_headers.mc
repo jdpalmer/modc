@@ -16,12 +16,12 @@ struct Pair {
 };
 
 int host_headers(void) {
-	size_t off = {0};
-	int32_t a = {0};
-	uint64_t b = {0};
-	void* p = {0};
-	bool ok = {0};
-	char buf[32] = {0};
+	size_t off = { 0 };
+	int32_t a = { 0 };
+	uint64_t b = { 0 };
+	void* p = { 0 };
+	bool ok = { 0 };
+	char buf[32] = { 0 };
 	off = offsetof(struct Pair, y);
 	a = 42;
 	b = (uint64_t)a + (uint64_t)off;
@@ -51,7 +51,7 @@ int host_headers(void) {
 	if (strlen("hi") != 2) {
 		return 8;
 	}
-	if (snprintf(buf, sizeof (buf), "%d", 7) != 1) {
+	if (snprintf(buf, sizeof(buf), "%d", 7) != 1) {
 		return 9;
 	}
 	if (buf[0] != '7') {

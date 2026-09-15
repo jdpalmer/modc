@@ -5,7 +5,7 @@ void mutate(char* p) {
 }
 
 void alias_then_mutate(char* p) {
-	char* q = {0};
+	char* q = { 0 };
 	q = p;
 	mutate(q);
 }

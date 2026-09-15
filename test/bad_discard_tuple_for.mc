@@ -5,6 +5,6 @@
 }
 
 void bad(void) {
-	for (maybe(1); 0; ) {
+	for (maybe(1); 0;) {
 	}
 }

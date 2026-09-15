@@ -6,7 +6,7 @@ int use_param(int x) {
 }
 
 int use_local(void) {
-	int y = {0};
+	int y = { 0 };
 	(void)y;
 	return 1;
 }

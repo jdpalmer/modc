@@ -2,8 +2,7 @@
 #include <string.h>
 
 overload size_t write_cap(char dst[], char[..] src, size_t cap) {
-	size_t n = {
-		0 };
+	size_t n = { 0 };
 	n = len(src);
 	if (cap == 0 || dst == NULL) {
 		return n;
@@ -29,10 +28,8 @@ overload void take_int(int[..] x) {
 }
 
 int test_fixed(void) {
-	char buf[8] = {
-		0 };
-	char[..] s = {
-		0 };
+	char buf[8] = { 0 };
+	char[..] s = { 0 };
 	s = "hi";
 	if (write_buf(buf, s) != 2) {
 		return 1;
@@ -44,8 +41,7 @@ int test_fixed(void) {
 }
 
 int test_literal(void) {
-	char buf[8] = {
-		0 };
+	char buf[8] = { 0 };
 	if (write_buf(buf, "ab") != 2) {
 		return 1;
 	}
@@ -63,8 +59,7 @@ int test_sizing(void) {
 }
 
 int test_int_ranged(void) {
-	int a[4] = {
-		0 };
+	int a[4] = { 0 };
 	take_int(a);
 	return 0;
 }

@@ -1,8 +1,6 @@
 #include "win_ptr64.h"
 
-int
-main(void)
-{
+int main(void) {
 	PHANDLE64 h = 0;
 	rsize_t n = 0;
 	(void)h;

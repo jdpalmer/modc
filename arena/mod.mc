@@ -23,10 +23,8 @@ struct Arena {
 };
 
 static bool arena_ensure(Arena* a, size_t need) {
-	char* p = {
-		0 };
-	size_t newcap = {
-		0 };
+	char* p = { 0 };
+	size_t newcap = { 0 };
 	if (a == NULL) {
 		return false;
 	}
@@ -95,10 +93,8 @@ void (Arena* a).reset(void) {
 
 // Copy a view into the arena.
 (bool, char[..]) (Arena* a).copy(char[..] s) {
-	size_t n = {
-		0 };
-	char* p = {
-		0 };
+	size_t n = { 0 };
+	char* p = { 0 };
 	if (a == NULL) {
 		return (false, str_empty());
 	}
@@ -116,14 +112,10 @@ void (Arena* a).reset(void) {
 
 // Append s onto cur; copies into the arena. Returns a new view (assign it).
 (bool, char[..]) (Arena* a).append(char[..] cur, char[..] s) {
-	size_t cn = {
-		0 };
-	size_t n = {
-		0 };
-	size_t newlen = {
-		0 };
-	char* p = {
-		0 };
+	size_t cn = { 0 };
+	size_t n = { 0 };
+	size_t newlen = { 0 };
+	char* p = { 0 };
 	if (a == NULL) {
 		return (false, str_empty());
 	}
@@ -152,18 +144,15 @@ void (Arena* a).reset(void) {
 
 // Append one byte onto cur.
 (bool, char[..]) (Arena* a).append_byte(char[..] cur, char c) {
-	char one[1] = {
-		0 };
+	char one[1] = { 0 };
 	one[0] = c;
 	return a.append(cur, ranged(one, 1));
 }
 
 // Join parts with sep into the arena.
-(bool, char[..]) (Arena* a).join(char[..] sep, char[..] * parts, size_t nparts) {
-	char[..] out = {
-		0 };
-	size_t i = {
-		0 };
+(bool, char[..]) (Arena* a).join(char[..] sep, char[..]* parts, size_t nparts) {
+	char[..] out = { 0 };
+	size_t i = { 0 };
 	if (a == NULL) {
 		return (false, str_empty());
 	}
@@ -189,10 +178,8 @@ void (Arena* a).reset(void) {
 
 // Replace every occurrence of old with new.
 (bool, char[..]) (Arena* a).replace(char[..] s, char[..] old, char[..] new) {
-	char[..] out = {
-		0 };
-	size_t i = {
-		0 };
+	char[..] out = { 0 };
+	size_t i = { 0 };
 	if (a == NULL) {
 		return (false, str_empty());
 	}
@@ -204,8 +191,7 @@ void (Arena* a).reset(void) {
 	while (i < len(s)) {
 		char[..] tail = s[i ..];
 		auto (ok, hit) = str_find(tail, old);
-		size_t off = {
-			0 };
+		size_t off = { 0 };
 		if (!ok) {
 			auto (put_ok, next) = a.append(out, tail);
 			if (!put_ok) {
@@ -235,10 +221,8 @@ void (Arena* a).reset(void) {
 
 // NUL-terminated copy of s in the arena (C boundary).
 char* (Arena* a).z(char[..] s) {
-	size_t n = {
-		0 };
-	char* p = {
-		0 };
+	size_t n = { 0 };
+	char* p = { 0 };
 	if (a == NULL) {
 		return NULL;
 	}

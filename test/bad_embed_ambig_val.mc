@@ -12,7 +12,7 @@ int take(Transform t) {
 }
 
 int bad(void) {
-	Amb a = {0};
+	Amb a = { 0 };
 	a.x = 1;
 	return take(a);
 }

@@ -38,7 +38,7 @@ overload int range_at(Triple t, size_t i) {
 }
 
 int sum_buf(MyBuf b) {
-	int s = {0};
+	int s = { 0 };
 	s = 0;
 	for (auto x: b) {
 		s = s + x;
@@ -47,8 +47,8 @@ int sum_buf(MyBuf b) {
 }
 
 int sum_buf_local(void) {
-	int a[4] = {0};
-	MyBuf b = {0};
+	int a[4] = { 0 };
+	MyBuf b = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
@@ -59,8 +59,8 @@ int sum_buf_local(void) {
 }
 
 int sum_triple(void) {
-	Triple t = {0};
-	int s = {0};
+	Triple t = { 0 };
+	int s = { 0 };
 	t.a = 10;
 	t.b = 20;
 	t.c = 30;

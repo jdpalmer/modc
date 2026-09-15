@@ -33,7 +33,7 @@ int xform_sum_val(Transform t) {
 }
 
 int via_call(void) {
-	Entity e = {0};
+	Entity e = { 0 };
 	e.id = 7;
 	e.x = 3;
 	e.y = 4;
@@ -41,8 +41,8 @@ int via_call(void) {
 }
 
 int via_assign(void) {
-	Entity e = {0};
-	Transform* p = {0};
+	Entity e = { 0 };
+	Transform* p = { 0 };
 	e.id = 1;
 	e.x = 10;
 	e.y = 20;
@@ -51,7 +51,7 @@ int via_assign(void) {
 }
 
 int via_nested(void) {
-	Outer o = {0};
+	Outer o = { 0 };
 	o.tag = 9;
 	o.x = 2;
 	o.y = 5;
@@ -59,7 +59,7 @@ int via_nested(void) {
 }
 
 int named_no_upcast_compiles_field(void) {
-	Named n = {0};
+	Named n = { 0 };
 	n.id = 1;
 	n.t.x = 2;
 	n.t.y = 3;
@@ -67,7 +67,7 @@ int named_no_upcast_compiles_field(void) {
 }
 
 int via_value_call(void) {
-	Entity e = {0};
+	Entity e = { 0 };
 	e.id = 7;
 	e.x = 3;
 	e.y = 4;
@@ -75,8 +75,8 @@ int via_value_call(void) {
 }
 
 int via_value_assign(void) {
-	Entity e = {0};
-	Transform t = {0};
+	Entity e = { 0 };
+	Transform t = { 0 };
 	e.id = 1;
 	e.x = 10;
 	e.y = 20;
@@ -85,7 +85,7 @@ int via_value_assign(void) {
 }
 
 int via_value_nested(void) {
-	Outer o = {0};
+	Outer o = { 0 };
 	o.tag = 9;
 	o.x = 2;
 	o.y = 5;
@@ -93,8 +93,8 @@ int via_value_nested(void) {
 }
 
 int via_ptr_value(void) {
-	Entity e = {0};
-	Entity* p = {0};
+	Entity e = { 0 };
+	Entity* p = { 0 };
 	e.id = 1;
 	e.x = 10;
 	e.y = 20;

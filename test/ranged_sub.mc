@@ -1,10 +1,8 @@
 /* Subrange: s[lo..hi], open ends; exclusive end. */
 
 int sum_elems(int[..] s) {
-	int i = {
-		0 };
-	int t = {
-		0 };
+	int i = { 0 };
+	int t = { 0 };
 	t = 0;
 	for (i = 0; i < (int)len(s); i++) {
 		t = t + s[i];
@@ -13,10 +11,8 @@ int sum_elems(int[..] s) {
 }
 
 int from_array_range(void) {
-	int a[5] = {
-		0 };
-	int[..] s = {
-		0 };
+	int a[5] = { 0 };
+	int[..] s = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
@@ -36,12 +32,9 @@ int from_array_range(void) {
 }
 
 int open_ends(void) {
-	int a[4] = {
-		0 };
-	int[..] s = {
-		0 };
-	int[..] t = {
-		0 };
+	int a[4] = { 0 };
+	int[..] s = { 0 };
+	int[..] t = { 0 };
 	a[0] = 10;
 	a[1] = 20;
 	a[2] = 30;

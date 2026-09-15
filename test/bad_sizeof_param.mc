@@ -1,3 +1,3 @@
 int bad(int a[]) {
-	return (int) sizeof (a);
+	return (int) sizeof(a);
 }

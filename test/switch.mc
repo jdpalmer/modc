@@ -10,7 +10,7 @@ int classify(int x) {
 }
 
 int case_fall(int x) {
-	int s = {0};
+	int s = { 0 };
 	s = 0;
 	switch (x) {
 		case 1: s = s + 1;
@@ -33,8 +33,8 @@ int case_range(int x) {
 }
 
 int withbreak(int x) {
-	int i = {0};
-	int s = {0};
+	int i = { 0 };
+	int s = { 0 };
 	s = 0;
 	for (i = 0; i < 10; i++) {
 		switch (i) {
@@ -60,8 +60,8 @@ int skipto(int x) {
 }
 
 int loop_goto(int n) {
-	int i = {0};
-	int s = {0};
+	int i = { 0 };
+	int s = { 0 };
 	s = 0;
 	i = 0;
 	again: if (i >= n) {

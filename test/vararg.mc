@@ -1,10 +1,10 @@
 #include "stdarg.h"
 
 int sum(int n, ...) {
-	va_list ap = {0};
-	int s = {0};
-	int i = {0};
-	int v = {0};
+	va_list ap = { 0 };
+	int s = { 0 };
+	int i = { 0 };
+	int v = { 0 };
 	va_start(ap, n);
 	s = 0;
 	for (i = 0; i < n; i++) {
@@ -16,11 +16,11 @@ int sum(int n, ...) {
 }
 
 int sum_copy(int n, ...) {
-	va_list ap = {0};
-	va_list aq = {0};
-	int s = {0};
-	int i = {0};
-	int v = {0};
+	va_list ap = { 0 };
+	va_list aq = { 0 };
+	int s = { 0 };
+	int i = { 0 };
+	int v = { 0 };
 	va_start(ap, n);
 	va_copy(aq, ap);
 	s = 0;
@@ -42,10 +42,10 @@ int add3(int a, int b, int c) {
 }
 
 int forward(int n, ...) {
-	va_list ap = {0};
-	int a = {0};
-	int b = {0};
-	int c = {0};
+	va_list ap = { 0 };
+	int a = { 0 };
+	int b = { 0 };
+	int c = { 0 };
 	va_start(ap, n);
 	a = va_arg(ap, int);
 	b = va_arg(ap, int);

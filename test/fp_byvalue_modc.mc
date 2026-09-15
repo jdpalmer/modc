@@ -2,7 +2,7 @@
 #include "fp_byvalue.h"
 
 Vec2 modc_make(double x, double y) {
-	Vec2 v = {0};
+	Vec2 v = { 0 };
 	v.x = x;
 	v.y = y;
 	return v;
@@ -17,7 +17,7 @@ Vec2 modc_id(Vec2 v) {
 }
 
 Mixed modc_mixed(int tag, double val) {
-	Mixed m = {0};
+	Mixed m = { 0 };
 	m.tag = tag;
 	m.val = val;
 	return m;
@@ -32,9 +32,9 @@ double modc_mixed_val(Mixed m) {
 }
 
 int modc_calls_host(void) {
-	Vec2 v = {0};
-	Vec2 w = {0};
-	Mixed m = {0};
+	Vec2 v = { 0 };
+	Vec2 w = { 0 };
+	Mixed m = { 0 };
 	v = host_make(1.0, 2.0);
 	if (host_sum(v) != 3.0) {
 		return 1;

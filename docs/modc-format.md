@@ -22,10 +22,10 @@ Lexing failures leave target files completely unmodified and cause the command t
 
 ## Formatting rules
 
-Layout follows fixed K&R conventions. Indentation uses hard tabs driven by brace nesting depth. Opening braces stay on the same line as the construct that introduces them (`if (cond) {`, `int main() {`), and control keywords take a single space before the parenthesis (`if (`, `for (`, `while (`, `switch (`, `sizeof (`).
+Layout follows fixed K&R conventions. Indentation uses hard tabs driven by brace nesting depth. Opening braces stay on the same line as the construct that introduces them (`if (cond) {`, `int main() {`), and control keywords take a single space before the parenthesis (`if (`, `for (`, `while (`, `switch (`). `sizeof` is written like a function call: `sizeof(x)`, with no space before `(`.
 
 Pointer declarators attach the asterisk to the type: write `int* p` and `char[..]* s`, never `int *p`.
 
-The printer inserts line breaks after `;`, `{`, and `}` when those tokens sit outside parentheses or brackets. Author-chosen line breaks are mostly ignored, but source newlines still matter as blank-line hints and to end `#` directive lines. Consecutive empty lines at top level collapse to at most one blank line. Both `//` and `/* … */` comments are preserved in place. Preprocessor directives are not reflowed: each `#include` or `#define` line ends at its original newline.
+The printer inserts line breaks after `;`, `{`, and `}` when those tokens sit outside parentheses or brackets. Inside `enum` and `union` bodies, a single enumerator or field stays on the same line as the braces (`enum { A = 1 };`); two or more items put each entry on its own line, with a break after every enumerator comma. The same single-item rule applies to `= { … }` initializers (`static int n = { 0 };`); multi-item initializers still break after `{`. Author-chosen line breaks are mostly ignored, but source newlines still matter as blank-line hints and to end `#` directive lines. Consecutive empty lines at top level collapse to at most one blank line. Both `//` and `/* … */` comments are preserved in place. Preprocessor directives are not reflowed: each `#include` or `#define` line ends at its original newline.
 
 Project-level formatting files, column alignment options, and `clang-format` compatibility layers are deliberately unsupported. Compiler source files (`src/*.c`) use a separate `.clang-format` file and are not processed by this tool.

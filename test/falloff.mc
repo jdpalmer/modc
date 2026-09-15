@@ -1,7 +1,10 @@
 /* Non-void functions must return on every path. */
 
 enum FallColor {
-	FALL_RED, FALL_GREEN, FALL_BLUE };
+	FALL_RED,
+	FALL_GREEN,
+	FALL_BLUE
+};
 
 int simple(void) {
 	return 42;
@@ -32,8 +35,8 @@ int via_enum(FallColor c) {
 }
 
 int after_loop(void) {
-	int i = {0};
-	int s = {0};
+	int i = { 0 };
+	int s = { 0 };
 	s = 0;
 	for (i = 0; i < 3; i++) {
 		s = s + i;

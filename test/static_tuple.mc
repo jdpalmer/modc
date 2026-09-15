@@ -1,5 +1,5 @@
 /* static multi-return is allowed: storage class before (T, U). */
-static (int, int) pair(void) {
+static(int, int) pair(void) {
 	return (1, 2);
 }
 

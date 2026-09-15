@@ -3,7 +3,7 @@ int sum8(int a[8]) {
 }
 
 int bad(void) {
-	int b[5] = {0};
+	int b[5] = { 0 };
 	b[0] = 1;
 	b[1] = 2;
 	b[2] = 3;

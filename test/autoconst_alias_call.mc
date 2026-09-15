@@ -6,7 +6,7 @@ void read_only(char* p) {
 }
 
 void via_alias(char* p) {
-	char* q = {0};
+	char* q = { 0 };
 	q = p;
 	read_only(q);
 }

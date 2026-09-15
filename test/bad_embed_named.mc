@@ -12,7 +12,7 @@ int take(Transform* t) {
 }
 
 int bad(void) {
-	Named n = {0};
+	Named n = { 0 };
 	n.id = 1;
 	n.t.x = 2;
 	return take(&n);

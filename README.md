@@ -98,7 +98,7 @@ double dist2(Point * p) {
 }
 
 int main(void) {
-    Particle * particles = malloc(100 * sizeof (Particle));
+    Particle * particles = malloc(100 * sizeof(Particle));
     defer free(particles);
     double system_mass = 0;
     auto cloud = ranged(particles, 100);

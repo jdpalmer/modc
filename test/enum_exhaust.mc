@@ -1,7 +1,10 @@
 /* Exhaustive enum switch without default; case ranges cover members. */
 
 enum Color {
-	COLOR_RED, COLOR_GREEN, COLOR_BLUE };
+	COLOR_RED,
+	COLOR_GREEN,
+	COLOR_BLUE
+};
 
 int name(Color c) {
 	switch (c) {

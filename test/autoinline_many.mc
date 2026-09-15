@@ -321,7 +321,7 @@ static int h79(int a, int b) {
 }
 
 int autoinline_many_run(void) {
-	int x = {0};
+	int x = { 0 };
 	x = 0;
 	x = h0(x, 1);
 	x = h1(x, 1);
@@ -403,5 +403,5 @@ int autoinline_many_run(void) {
 	x = h77(x, 1);
 	x = h78(x, 1);
 	x = h79(x, 1);
-	return x == 3240 ? 0 : 1;
+	return x == 3240 ? 0: 1;
 }

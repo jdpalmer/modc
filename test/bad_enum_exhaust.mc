@@ -1,5 +1,8 @@
 enum Color {
-	COLOR_RED, COLOR_GREEN, COLOR_BLUE };
+	COLOR_RED,
+	COLOR_GREEN,
+	COLOR_BLUE
+};
 
 int bad(Color c) {
 	switch (c) {
