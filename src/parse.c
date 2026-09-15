@@ -305,8 +305,9 @@ dummy_type(Compiler* c) {
 /* ---- types / declarators ---- */
 
 // Parse a struct or union definition and lay out its fields.
+// outer_storage StStatic marks a package-private type (and its tag).
 static Type*
-parse_struct(Compiler* c, int kind) {
+parse_struct(Compiler* c, int kind, int outer_storage) {
 	char* tag;
 	Type* t;
 	Field *f, **tail;
@@ -324,7 +325,7 @@ parse_struct(Compiler* c, int kind) {
 	}
 	while (eat_vendor_attr(c))
 		;
-	t = type_struct(c, kind, tag, sp);
+	t = type_struct(c, kind, tag, sp, outer_storage == StStatic ? StStatic : StNone);
 	if (!eat(c, PnLbrace))
 		return t;
 	if (t->complete && t->fields) {
@@ -421,8 +422,9 @@ parse_struct(Compiler* c, int kind) {
 }
 
 // Parse an enum tag and its enumerator list.
+// outer_storage StStatic marks package-private enumerators (and tag, if any).
 static Type*
-parse_enum(Compiler* c) {
+parse_enum(Compiler* c, int outer_storage) {
 	char* tag;
 	char* enm;
 	Type* et;
@@ -430,14 +432,16 @@ parse_enum(Compiler* c) {
 	Symbol* s;
 	Node* n;
 	Span sp;
+	int estorage;
 
 	sp = peek(c)->span;
 	tag = NULL;
 	et = c->type_int;
+	estorage = outer_storage == StStatic ? StStatic : StNone;
 	if (peek(c)->kind == TkIdent)
 		tag = take(c)->s;
 	if (tag)
-		et = type_struct(c, TyEnum, tag, sp);
+		et = type_struct(c, TyEnum, tag, sp, estorage);
 	if (!eat(c, PnLbrace))
 		return et;
 	val = 0;
@@ -453,7 +457,7 @@ parse_enum(Compiler* c) {
 			if (!eval_const(c, n, &val))
 				error_tok(c, peek(c), "enumerator is not a constant");
 		}
-		s = symbol_define(c, enm, SkEnumCon, et, StNone, peek(c)->span);
+		s = symbol_define(c, enm, SkEnumCon, et, estorage, peek(c)->span);
 		s->int_val = val;
 		val++;
 		if (!eat(c, PnComma))
@@ -465,8 +469,11 @@ parse_enum(Compiler* c) {
 		et->size = 4;
 		et->align = 4;
 		et->laid_out = 1;
+		if (estorage == StStatic)
+			et->pkg_private = 1;
 		return et;
 	}
+	/* Anonymous enum: enumerators carry StStatic; do not mark type_int. */
 	return c->type_int;
 }
 
@@ -680,17 +687,17 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 			continue;
 		}
 		if (eatkw(c, KwStruct)) {
-			t = parse_struct(c, TyStruct);
+			t = parse_struct(c, TyStruct, *storage);
 			*saw_type = 1;
 			continue;
 		}
 		if (eatkw(c, KwUnion)) {
-			t = parse_struct(c, TyUnion);
+			t = parse_struct(c, TyUnion, *storage);
 			*saw_type = 1;
 			continue;
 		}
 		if (eatkw(c, KwEnum)) {
-			t = parse_enum(c);
+			t = parse_enum(c, *storage);
 			*saw_type = 1;
 			continue;
 		}
@@ -3596,6 +3603,8 @@ prescan_unit_type_names(Compiler* c) {
 	n = c->tokens_len;
 	depth = 0;
 	for (i = 0; i < n; i++) {
+		int tag_storage;
+
 		t = &c->tokens[i];
 		if (t->kind == TkPunct) {
 			if (t->punct == PnLbrace)
@@ -3608,11 +3617,22 @@ prescan_unit_type_names(Compiler* c) {
 			continue;
 		if (!user_source(c, t->span))
 			continue;
+		tag_storage = StNone;
+		if (t->kind == TkKw && t->kw == KwStatic) {
+			n1 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
+			if (n1 && n1->kind == TkKw &&
+			    (n1->kw == KwStruct || n1->kw == KwUnion || n1->kw == KwEnum)) {
+				tag_storage = StStatic;
+				t = n1;
+				i++;
+			} else
+				continue;
+		}
 		if (t->kind == TkKw && (t->kw == KwStruct || t->kw == KwUnion || t->kw == KwEnum)) {
 			n1 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
 			if (n1 && n1->kind == TkIdent && n1->s)
 				(void)type_struct(c, t->kw == KwUnion ? TyUnion : (t->kw == KwEnum ? TyEnum : TyStruct),
-						  n1->s, n1->span);
+						  n1->s, n1->span, tag_storage);
 			continue;
 		}
 		if (t->kind != TkKw || t->kw != KwTypedef)
@@ -3640,7 +3660,7 @@ prescan_unit_type_names(Compiler* c) {
 					Tok* n2 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
 					if (n2 && n2->kind == TkIdent && n2->s) {
 						int k = n1->kw == KwUnion ? TyUnion : (n1->kw == KwEnum ? TyEnum : TyStruct);
-						tagged = type_struct(c, k, n2->s, n2->span);
+						tagged = type_struct(c, k, n2->s, n2->span, StNone);
 					}
 				}
 			}
@@ -3693,6 +3713,19 @@ prescan_unit_type_bodies(Compiler* c) {
 			if (c->error_count && peek(c)->kind != TkEof)
 				skip_to_balance(c);
 			continue;
+		}
+		if (atkw(c, KwStatic) || atkw(c, KwExtern)) {
+			int pos0 = c->pos;
+
+			take(c);
+			if (atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
+				c->pos = pos0;
+				parse_decl_or_def(c, 0);
+				if (c->error_count && peek(c)->kind != TkEof)
+					skip_to_balance(c);
+				continue;
+			}
+			c->pos = pos0;
 		}
 		skip_toplevel_semi(c);
 	}
@@ -3783,42 +3816,52 @@ skip_parsed_type_decl(Compiler* c) {
 	Tok* t;
 	Symbol* s;
 	int pos0;
+	int is_enum;
 
-	if (atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
-		int is_enum;
-
-		pos0 = c->pos;
-		is_enum = atkw(c, KwEnum);
-		take(c); /* struct / union / enum */
-		/* SDK: struct __declspec(deprecated(...)) Tag { ... }; */
-		while (eat_vendor_attr(c))
-			;
-		t = peek(c);
-		if (t->kind == TkIdent && t->s) {
-			s = symbol_lookup_tag(c, t->s);
-			if (s && s->type && s->type->complete) {
+	if (!(atkw(c, KwStatic) || atkw(c, KwExtern) || atkw(c, KwStruct) || atkw(c, KwUnion) ||
+	      atkw(c, KwEnum))) {
+		if (atkw(c, KwTypedef) && typedef_decl_names_known(c))
+			return 1;
+		return 0;
+	}
+	pos0 = c->pos;
+	if (atkw(c, KwStatic) || atkw(c, KwExtern)) {
+		take(c);
+		if (!(atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum))) {
+			c->pos = pos0;
+			return 0;
+		}
+	}
+	is_enum = atkw(c, KwEnum);
+	take(c); /* struct / union / enum */
+	/* SDK: struct __declspec(deprecated(...)) Tag { ... }; */
+	while (eat_vendor_attr(c))
+		;
+	t = peek(c);
+	if (t->kind == TkIdent && t->s) {
+		s = symbol_lookup_tag(c, t->s);
+		if (s && s->type && s->type->complete) {
+			c->pos = pos0;
+			skip_toplevel_semi(c);
+			return 1;
+		}
+	} else if (is_enum && at(c, PnLbrace)) {
+		/*
+		 * Anonymous enum { A, ... }: no tag to look up. Prescan already
+		 * defined the enumerators - skip so main parse does not
+		 * report "redefinition of A".
+		 */
+		t = peekn(c, 1);
+		if (t && t->kind == TkIdent && t->s) {
+			s = symbol_lookup(c, t->s);
+			if (s && s->kind == SkEnumCon && s->block == c->block) {
 				c->pos = pos0;
 				skip_toplevel_semi(c);
 				return 1;
 			}
-		} else if (is_enum && at(c, PnLbrace)) {
-			/*
-			 * Anonymous enum { A, ... }: no tag to look up. Prescan already
-			 * defined the enumerators - skip so main parse does not
-			 * report "redefinition of A".
-			 */
-			t = peekn(c, 1);
-			if (t && t->kind == TkIdent && t->s) {
-				s = symbol_lookup(c, t->s);
-				if (s && s->kind == SkEnumCon && s->block == c->block) {
-					c->pos = pos0;
-					skip_toplevel_semi(c);
-					return 1;
-				}
-			}
 		}
-		c->pos = pos0;
 	}
+	c->pos = pos0;
 	if (atkw(c, KwTypedef) && typedef_decl_names_known(c))
 		return 1;
 	return 0;
@@ -3864,6 +3907,17 @@ prescan_toplevel(Compiler* c) {
 	if (atkw(c, KwTypedef) || atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
 		skip_toplevel_semi(c);
 		return;
+	}
+	if (atkw(c, KwStatic) || atkw(c, KwExtern)) {
+		int p0 = c->pos;
+
+		take(c);
+		if (atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
+			c->pos = p0;
+			skip_toplevel_semi(c);
+			return;
+		}
+		c->pos = p0;
 	}
 	storage = StNone;
 	saw = 0;

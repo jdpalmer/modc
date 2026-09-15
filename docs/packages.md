@@ -30,7 +30,7 @@ int clamp(int x, int lo, int hi) {
 }
 ```
 
-Use `import` to bring a package into scope. Unlike C, no header file (`util.h`) is required: every non-`static` declaration in the package is part of its public API, while `static` declarations remain file-local.
+Use `import` to bring a package into scope. Unlike C, no header file (`util.h`) is required: every non-`static` declaration in the package is part of its public API, while `static` declarations are **package-private** (visible to all `.mc` files in that package, hidden from importers).
 
 ```c
 /* main.mc */
@@ -45,12 +45,35 @@ int main() {
 modc build
 ```
 
-Every `.mc` file acts as its own translation unit. Importers see the union of all
+Every `.mc` file acts as its own translation unit for parsing, but the package
+shares one symbol space and one cached `pkg.o`. Importers see the union of all
 non-`static` declarations across all files in a package. The compiler type-prescans
 the whole package (names, then bodies, then layouts) before function/method
 signatures, so types, methods, and by-value embeds work across files regardless of
 basename order — like a Go package. Only immediate `*.mc` files in a directory
 belong to that package; subdirectories are treated as distinct packages.
+
+## Package-private `static`
+
+At file scope, `static` means package-private (not C file-local):
+
+```c
+static int helper(void);           /* callable from sibling .mc in this package */
+static struct Node { … };          /* type name hidden from importers */
+static enum { Cap = 16 };          /* enumerators package-private */
+static int g;                      /* package-private global */
+```
+
+Function-local `static` keeps ordinary C rules (static storage duration). There is
+no separate file-private spelling.
+
+`static` on a pointer field inside a struct remains package-private field access
+(see below). Public functions, variables, typedefs, and types must not mention
+package-private types in their signatures or fields.
+
+Single-file packages (`import "foo"` → `foo.mc`) use the `.mc` path as their
+package identity when they sit beside other packages in a mixed directory, so
+`static` in `foo.mc` is not visible to sibling `bar.mc` files.
 
 ## Methods and linker names
 
@@ -60,7 +83,7 @@ Linker symbols are mangled as `{package}_{type}_{method}`. The type tag is conve
 
 ## Package-private fields
 
-While file-scope `static` indicates file-local visibility, placing `static` before a pointer field inside a struct or union body designates it as package-private. Inside the defining package, the field retains its full type and can be accessed normally. Outside importers can see the memory layout slot, but cannot read or write to the field directly.
+While file-scope `static` marks package-private APIs and types, placing `static` before a pointer field inside a struct or union body designates that field as package-private. Inside the defining package, the field retains its full type and can be accessed normally. Outside importers can see the memory layout slot, but cannot read or write to the field directly.
 
 Use this mechanism to encapsulate backend native handles (`GtkWidget *`, `HWND`, etc.) without exposing third-party SDK types in your public API. Non-pointer `static` fields are invalid and rejected by the compiler.
 

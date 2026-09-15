@@ -2117,6 +2117,62 @@ check_autoconst_globals(Compiler* c) {
 
 /* ---- type_check_unit ---- */
 
+// True if t (or any nested component) is a package-private type.
+static int
+type_mentions_pkg_private(Type* t) {
+	int i;
+
+	if (t == NULL)
+		return 0;
+	if (t->pkg_private)
+		return 1;
+	if (t->base && type_mentions_pkg_private(t->base))
+		return 1;
+	if (t->kind == TyFunc) {
+		if (type_mentions_pkg_private(t->base))
+			return 1;
+		for (i = 0; i < t->params_len; i++) {
+			if (type_mentions_pkg_private(t->params[i]))
+				return 1;
+		}
+	}
+	if ((t->kind == TyStruct || t->kind == TyUnion) && t->fields) {
+		Field* f;
+
+		for (f = t->fields; f; f = f->next) {
+			if (type_mentions_pkg_private(f->type))
+				return 1;
+		}
+	}
+	return 0;
+}
+
+// Public API must not mention package-private types.
+static void
+check_pkg_private_leaks(Compiler* c) {
+	Symbol* s;
+
+	for (s = c->symbols; s; s = s->next) {
+		if (s->dead || s->hidden || s->header || s->block != 0)
+			continue;
+		if (s->storage == StStatic || s->storage == StLocal || s->storage == StParam)
+			continue;
+		if (!user_source(c, s->span))
+			continue;
+		if (s->kind != SkFunc && s->kind != SkVar && s->kind != SkTypedef && s->kind != SkTag)
+			continue;
+		if (!type_mentions_pkg_private(s->type))
+			continue;
+		error_at(c, s->span,
+			 "public %s '%s' must not use a static (package-private) type",
+			 s->kind == SkFunc	 ? "function"
+			 : s->kind == SkVar	 ? "variable"
+			 : s->kind == SkTypedef ? "typedef"
+						 : "type",
+			 s->name ? s->name : "");
+	}
+}
+
 // Whole-unit diagnostics after parse+type_expr. Each check walks function
 // bodies independently; order is “safety first, then hygiene.”
 void type_check_unit(Compiler* c) {
@@ -2124,6 +2180,7 @@ void type_check_unit(Compiler* c) {
 
 	infer_readonly_summaries(c);
 	check_autoconst_globals(c);
+	check_pkg_private_leaks(c);
 	for (i = 0; i < c->funcs_len; i++) {
 		check_uninit_func(c, c->funcs[i]);
 		check_falloff_func(c, c->funcs[i]);

@@ -115,20 +115,28 @@ Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va) {
 }
 
 // Named or anonymous struct/union/enum; registers a non-empty tag in the symbol table.
-Type* type_struct(Compiler* c, int kind, char* tag, Span sp) {
+// storage StStatic marks the tag (and type) package-private.
+Type* type_struct(Compiler* c, int kind, char* tag, Span sp, int storage) {
 	Type* t;
 	Symbol* s;
 
 	if (tag && tag[0]) {
 		s = symbol_lookup_tag(c, tag);
-		if (s && s->type && (s->type->kind == TyStruct || s->type->kind == TyUnion || s->type->kind == TyEnum))
+		if (s && s->type && (s->type->kind == TyStruct || s->type->kind == TyUnion || s->type->kind == TyEnum)) {
+			if (storage == StStatic) {
+				s->storage = StStatic;
+				s->type->pkg_private = 1;
+			}
 			return s->type;
+		}
 	}
 	t = type_new(c, kind);
 	t->tag = tag ? xstrdup(tag) : NULL;
 	t->align = 1;
+	if (storage == StStatic)
+		t->pkg_private = 1;
 	if (tag && tag[0])
-		symbol_define(c, tag, SkTag, t, StNone, sp);
+		symbol_define(c, tag, SkTag, t, storage == StStatic ? StStatic : StNone, sp);
 	return t;
 }
 
@@ -190,7 +198,7 @@ Type* type_tuple(Compiler* c, Type** elts, int n) {
 	static int nextid;
 
 	if (n <= 0)
-		return type_struct(c, TyStruct, NULL, (Span){0});
+		return type_struct(c, TyStruct, NULL, (Span){0}, StNone);
 	for (t = c->type_list; t; t = t->next) {
 		if (tuple_matches(t, elts, n))
 			return t;

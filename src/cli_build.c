@@ -200,7 +200,6 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 			r = 1;
 			break;
 		}
-		symbol_hide_file_statics(c);
 	}
 	if (r) {
 		if (profile)

@@ -86,6 +86,7 @@ test/wrap.mc
 test/ltr.mc
 test/pkg_app.mc
 test/pkg_math_app.mc
+test/pkg_priv_app.mc
 test/sys_include.mc
 test/fp_byvalue_modc.mc
 test/win_abi_modc.mc

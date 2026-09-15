@@ -18,7 +18,7 @@ int add(int a, int b) {
 	return a + b;
 }
 
-// not exported: static APIs never appear in modc doc
+// not exported: static (package-private) APIs never appear in modc doc
 static int hide(void) {
 	return 0;
 }

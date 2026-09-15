@@ -152,9 +152,96 @@ int pkg_is_test_src(const char* path) {
 	return n >= 9 && strcmp(base + n - 8, "_test.mc") == 0;
 }
 
-// Directory containing a .mc file (the package root for that file).
+// True if dir has an immediate subdirectory that itself contains .mc sources
+// (a nested package). Mixed trees like test/ use this to avoid treating the
+// parent as one giant package.
+static int
+dir_has_pkg_subdir(const char* dir) {
+	HostDir* d;
+	const char* name;
+	char path[HOST_PATH_MAX], child[HOST_PATH_MAX];
+	HostDir* sub;
+	const char* sn;
+	size_t n;
+
+	d = host_opendir(dir);
+	if (d == NULL)
+		return 0;
+	while ((name = host_readdir(d)) != NULL) {
+		if (name[0] == '.')
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, name);
+		if (!host_is_dir(path))
+			continue;
+		sub = host_opendir(path);
+		if (sub == NULL)
+			continue;
+		while ((sn = host_readdir(sub)) != NULL) {
+			if (sn[0] == '.')
+				continue;
+			n = strlen(sn);
+			if (n >= 3 && strcmp(sn + n - 3, ".mc") == 0) {
+				snprintf(child, sizeof(child), "%s/%s", path, sn);
+				if (host_is_file(child)) {
+					host_closedir(sub);
+					host_closedir(d);
+					return 1;
+				}
+			}
+		}
+		host_closedir(sub);
+	}
+	host_closedir(d);
+	return 0;
+}
+
+// Package root for a .mc file.
+// Directory packages (mod.mc present, or multi-file dir without nested pkg
+// subdirs) use the directory. Single-file packages living beside other packages
+// (e.g. test/pkg_log.mc next to test/pkg_math/) use the file path itself so
+// package-private static does not leak across unrelated .mc files.
 void pkg_file_root(const char* mcfile, char* out, size_t out_len) {
-	dirname_copy(mcfile, out, out_len);
+	char dir[HOST_PATH_MAX], mod[HOST_PATH_MAX];
+	HostDir* d;
+	const char* name;
+	int nmc;
+	size_t n;
+
+	if (out_len == 0)
+		return;
+	out[0] = 0;
+	if (mcfile == NULL || mcfile[0] == 0)
+		return;
+	dirname_copy(mcfile, dir, sizeof(dir));
+	snprintf(mod, sizeof(mod), "%s/mod.mc", dir);
+	if (host_is_file(mod)) {
+		snprintf(out, out_len, "%s", dir);
+		return;
+	}
+	nmc = 0;
+	d = host_opendir(dir);
+	if (d) {
+		while ((name = host_readdir(d)) != NULL) {
+			if (name[0] == '.')
+				continue;
+			n = strlen(name);
+			if (n < 3 || strcmp(name + n - 3, ".mc") != 0)
+				continue;
+			nmc++;
+			if (nmc > 1)
+				break;
+		}
+		host_closedir(d);
+	}
+	if (nmc > 1 && dir_has_pkg_subdir(dir)) {
+		snprintf(out, out_len, "%s", mcfile);
+		return;
+	}
+	if (nmc == 1 && dir_has_pkg_subdir(dir)) {
+		snprintf(out, out_len, "%s", mcfile);
+		return;
+	}
+	snprintf(out, out_len, "%s", dir);
 }
 
 // Package prefix for method linker names (basename of pkg dir, lowercased).
@@ -172,9 +259,11 @@ void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
 	if (base[0] == 0 || strcmp(base, ".") == 0) {
 		base = strrchr(mcfile, '/');
 		base = base ? base + 1 : mcfile;
-		dot = strrchr(base, '.');
-		n = dot ? (size_t)(dot - base) : strlen(base);
-	} else
+	}
+	dot = strrchr(base, '.');
+	if (dot && strcmp(dot, ".mc") == 0)
+		n = (size_t)(dot - base);
+	else
 		n = strlen(base);
 	if (n >= out_len)
 		n = out_len - 1;

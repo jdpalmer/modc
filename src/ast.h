@@ -209,6 +209,7 @@ struct Type {
 	char* tag;
 	Field* fields;
 	char* pkg_root; /* owning package dir for user struct/union */
+	int pkg_private; /* static struct/union/enum: package-private type */
 	int complete;
 	int laid_out;
 	int is_ranged;	 /* ranged array T[..]; base is element type */
@@ -254,7 +255,7 @@ struct Symbol {
 	char* recv_tag;	 /* struct tag for method lookup */
 	int array_param;	 /* parameter written as array; type already a pointer */
 	int64_t param_fixed_len; /* fixed array param element count, else -1 */
-	int hidden;		 /* file-static after TU ends (package visibility) */
+	int hidden;		 /* reserved; package-private uses storage==StStatic */
 	int dead;		 /* left scope; lookup skips; kept for unused analysis */
 	int used;		 /* name referenced (unused local/param diagnostics) */
 	Span span;
@@ -538,7 +539,7 @@ Type* type_new(Compiler* c, int kind);
 Type* type_ptr(Compiler* c, Type* base); /* fresh T*; e.g. type_ptr(c, c->type_int) */
 Type* type_array(Compiler* c, Type* base, int64_t len);
 Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va);
-Type* type_struct(Compiler* c, int kind, char* tag, Span sp);
+Type* type_struct(Compiler* c, int kind, char* tag, Span sp, int storage);
 Type* type_ranged(Compiler* c, Type* elem); /* interned ranged array T[..] */
 Type* type_tuple(Compiler* c, Type** elts, int n);
 void type_layout(Compiler* c, Type* t);
@@ -647,7 +648,7 @@ Symbol* symbol_resolve_range_count(Compiler* c, Type* range_ty, Type** elem_out,
 Symbol* symbol_resolve_range_at(Compiler* c, Type* range_ty, Type* elem, Span sp);
 void symbol_push_block(Compiler* c);
 void symbol_pop_block(Compiler* c);
-void symbol_hide_file_statics(Compiler* c);
+int symbol_same_package(const char* file_a, const char* file_b);
 
 // Allocate a fresh AST node with kind and source span; children are added via node_add.
 Node* node(int kind, Span sp);

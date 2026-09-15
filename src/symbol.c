@@ -5,7 +5,10 @@
  * (symbols are defined during parse; resolved again in type_expr.)
  */
 #include "ast.h"
+#include "host_os.h"
 #include <ctype.h>
+#include <stdio.h>
+#include <string.h>
 
 // Rebuild the symbol hash table at capacity cap from the linked symbol list.
 static void
@@ -38,7 +41,25 @@ symbol_tab_add(Compiler* c, Symbol* s) {
 	c->symbol_tab[i] = s;
 }
 
+// True if two .mc paths belong to the same package directory.
+int symbol_same_package(const char* file_a, const char* file_b) {
+	char ra[HOST_PATH_MAX], rb[HOST_PATH_MAX], aa[HOST_PATH_MAX], ab[HOST_PATH_MAX];
+
+	if (file_a == NULL || file_b == NULL || file_a[0] == 0 || file_b[0] == 0)
+		return 0;
+	pkg_file_root(file_a, ra, sizeof(ra));
+	pkg_file_root(file_b, rb, sizeof(rb));
+	if (host_abspath(ra, aa, sizeof(aa)) != 0)
+		snprintf(aa, sizeof(aa), "%s", ra);
+	if (host_abspath(rb, ab, sizeof(ab)) != 0)
+		snprintf(ab, sizeof(ab), "%s", rb);
+	return strcmp(aa, ab) == 0;
+}
+
 // True if s is visible in the current block / including file.
+// File-scope static is package-private: visible to .mc files in the same
+// package directory, hidden from importers. Function-local static (block!=0)
+// follows normal C visibility (block scope).
 static int
 symbol_visible(Compiler* c, Symbol* s) {
 	if (s->block != 0) {
@@ -50,6 +71,10 @@ symbol_visible(Compiler* c, Symbol* s) {
 		if (c->infile == NULL || s->home == NULL)
 			return 0;
 		return strcmp(c->infile, s->home) == 0;
+	}
+	if (s->storage == StStatic && c->infile != NULL && s->home != NULL) {
+		if (!symbol_same_package(c->infile, s->home))
+			return 0;
 	}
 	return 1;
 }
@@ -598,6 +623,8 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 		return NULL;
 	}
 	rt = recv->base;
+	if (rt->pkg_private)
+		storage = StStatic;
 	if (rt->pkg_root && c->infile) {
 		char root[1024];
 
@@ -878,17 +905,5 @@ void symbol_pop_block(Compiler* c) {
 			s->dead = 1;
 	}
 	c->block--;
-}
-
-// Hide file-scope static symbols when compiling another translation unit.
-void symbol_hide_file_statics(Compiler* c) {
-	Symbol* s;
-
-	for (s = c->symbols; s; s = s->next) {
-		if (s->block != 0)
-			continue;
-		if (s->storage == StStatic)
-			s->hidden = 1;
-	}
 }
 

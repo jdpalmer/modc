@@ -371,7 +371,7 @@ emitsutype(Compiler* c, Type* t) {
 	fputs(" }\n\n", outf);
 }
 
-// File-scope static locals get synthetic linker names (__stN).
+// Function-local statics (block scope, int_val seq) use synthetic linker names.
 static int
 is_static_local(Symbol* s) {
 	return s && s->kind == SkVar && s->storage == StStatic && s->int_val > 0;
