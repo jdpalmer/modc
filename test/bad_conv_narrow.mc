@@ -5,5 +5,5 @@ int bad(void) {
 	char z = { 0 };
 	y = 7;
 	z = y;
-	return (int)z;
+	return z;
 }

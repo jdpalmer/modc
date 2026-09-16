@@ -30,12 +30,12 @@ int pass_ranged(void) {
 int mutable_ok(void) {
 	char buf[8] = { 0 };
 	char[..] view = { 0 };
-	buf[0] = (char)'a';
-	buf[1] = (char)'b';
-	buf[2] = (char)'c';
-	buf[3] = (char)0;
+	buf[0] = 'a';
+	buf[1] = 'b';
+	buf[2] = 'c';
+	buf[3] = 0;
 	view = buf;
-	view[0] = (char)'x';
+	view[0] = 'x';
 	if (buf[0] != 'x') {
 		return 0;
 	}

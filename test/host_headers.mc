@@ -24,7 +24,7 @@ int host_headers(void) {
 	char buf[32] = { 0 };
 	off = offsetof(struct Pair, y);
 	a = 42;
-	b = (uint64_t)a + (uint64_t)off;
+	b = (uint64_t)a + off;
 	p = NULL;
 	ok = true;
 	if (p != 0) {

@@ -34,7 +34,7 @@ int union_i(union U u) {
 }
 
 int color_val(Color c) {
-	return (int)c;
+	return c;
 }
 
 int compat_struct(struct Point sp) {
@@ -46,7 +46,7 @@ int compat_union(union U u) {
 }
 
 int compat_enum(enum Color c) {
-	return (int)c;
+	return c;
 }
 
 int typedef_ok(void) {

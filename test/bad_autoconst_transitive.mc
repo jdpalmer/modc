@@ -1,7 +1,7 @@
 /* Mutating leaf taints mid and top across fixpoint passes. */
 void leaf_write(char* p) {
 	if (p) {
-		p[0] = (char)'x';
+		p[0] = 'x';
 	}
 }
 

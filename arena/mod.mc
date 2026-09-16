@@ -199,7 +199,7 @@ void (Arena* a).reset(void) {
 			}
 			return (true, next);
 		}
-		off = (size_t)(ptr(hit) - ptr(tail));
+		off = ptr(hit) - ptr(tail);
 		{
 			auto (put_ok, next) = a.append(out, tail[0 .. off]);
 			if (!put_ok) {

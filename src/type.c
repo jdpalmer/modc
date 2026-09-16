@@ -792,6 +792,60 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 	return 0;
 }
 
+// True when converting src to dst preserves every value represented by src.
+static int
+cast_value_preserving(Type* dst, Type* src, Node* expr) {
+	if (dst == NULL || src == NULL)
+		return 0;
+	if (type_eq(dst, src))
+		return 1;
+	if (is_int(dst) && is_int(src)) {
+		if (dst->kind == TyEnum)
+			return 0;
+		if (expr && expr->kind == NdLit && int_lit_fits_type(dst, expr->int_val))
+			return 1;
+		if (dst->kind == TyBool)
+			return 0;
+		if (is_signed_int(dst) == is_signed_int(src))
+			return dst->size >= src->size;
+		if (is_signed_int(dst) && !is_signed_int(src))
+			return dst->size > src->size;
+		return 0;
+	}
+	return dst->kind == TyDouble && src->kind == TyFloat;
+}
+
+// Diagnose a user cast that a typed boundary would perform identically.
+static void
+check_unnecessary_cast(Compiler* c, Type* expected, Node* n) {
+	Type *from, *to;
+
+	if (c == NULL || n == NULL || n->kind != NdCast || n->cast_checked ||
+	    n->is_synth || !user_source(c, n->span) || n->a == NULL)
+		return;
+	to = n->type;
+	from = n->a->type ? decay(c, n->a->type) : NULL;
+	if (to == NULL || from == NULL || to->kind == TyVoid)
+		return;
+	/* Pointer/aggregate casts can alter provenance or perform projections. */
+	if (!is_arith(to) || !is_arith(from))
+		return;
+	if (expected == NULL) {
+		if (!type_eq(to, from))
+			return;
+	} else {
+		if (!is_arith(expected) ||
+		    !conv_implicit_ok(c, expected, from, n->a))
+			return;
+		if (!type_eq(to, expected) &&
+		    !cast_value_preserving(to, from, n->a))
+			return;
+	}
+	n->cast_checked = 1;
+	error_at(c, n->span, "unnecessary cast from %s to %s; remove the cast",
+		 type_name(from), type_name(to));
+}
+
 // Deref a pointer and project through anonymous embed to reach dst aggregate.
 Node* maybe_embed_deref_project(Compiler* c, Type* dst, Node* src) {
 	Type* from;
@@ -937,15 +991,22 @@ Node* maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 }
 
 // Run embed and ranged rewrite passes before assignment or argument checking.
-Node* apply_implicit_conversions(Compiler* c, Type* dst, Node* src) {
+static Node*
+apply_implicit_conversions_impl(Compiler* c, Type* dst, Node* src, int check_cast) {
 	if (dst == NULL || src == NULL)
 		return src;
+	if (check_cast)
+		check_unnecessary_cast(c, dst, src);
 	src = maybe_embed_deref_project(c, dst, src);
 	src = maybe_embed_project(c, dst, src);
 	src = maybe_embed_upcast(c, dst, src);
 	src = maybe_ranged_conv(c, dst, src);
 	src = maybe_ranged_decay(c, dst, src);
 	return src;
+}
+
+Node* apply_implicit_conversions(Compiler* c, Type* dst, Node* src) {
+	return apply_implicit_conversions_impl(c, dst, src, 1);
 }
 
 // Enforce fixed array length at call sites that take T[n] parameters.
@@ -1091,7 +1152,8 @@ expr_is_immutable(Node* n) {
 }
 
 // Apply implicit conversions and arity checks for a direct function call.
-void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len) {
+void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len,
+		     int overload_call) {
 	int i, need;
 
 	if (fn == NULL || !is_func(fn))
@@ -1115,7 +1177,8 @@ void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len) 
 	}
 	for (i = 0; i < need; i++) {
 		if (args[i] && fn->params[i]) {
-			args[i] = apply_implicit_conversions(c, fn->params[i], args[i]);
+			args[i] = apply_implicit_conversions_impl(c, fn->params[i], args[i],
+								 !overload_call);
 			if (fn->param_array && fn->param_array[i])
 				check_fixed_array_arg(c, sp, fn->params[i], args[i],
 						      fn->param_fixed_len ? fn->param_fixed_len[i] : -1);
@@ -1765,7 +1828,8 @@ type_expr_call(Compiler* c, Node* n) {
 			for (i = 0; i < n->children_len; i++)
 				if (n->children[i] && n->children[i]->type == NULL)
 					n->children[i] = type_expr(c, n->children[i]);
-			check_call_args(c, n->span, ft, n->children, n->children_len);
+			check_call_args(c, n->span, ft, n->children, n->children_len,
+					n->a && n->a->symbol && n->a->symbol->is_overload);
 		}
 		n->type = ft->base;
 	} else if (ft && is_ptr(ft) && is_func(ft->base)) {
@@ -1773,7 +1837,8 @@ type_expr_call(Compiler* c, Node* n) {
 			for (i = 0; i < n->children_len; i++)
 				if (n->children[i] && n->children[i]->type == NULL)
 					n->children[i] = type_expr(c, n->children[i]);
-			check_call_args(c, n->span, ft->base, n->children, n->children_len);
+			check_call_args(c, n->span, ft->base, n->children, n->children_len,
+					n->a && n->a->symbol && n->a->symbol->is_overload);
 		}
 		n->type = ft->base->base;
 	} else
@@ -1975,6 +2040,7 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	case NdCast:
 		n->a = type_expr(c, n->a);
+		check_unnecessary_cast(c, NULL, n);
 		if (n->type && is_ranged(n->type))
 			n->a = apply_implicit_conversions(c, n->type, n->a);
 		if (n->type && n->type->kind == TyVoid)

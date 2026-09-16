@@ -2,13 +2,13 @@
 
 int sizeof_local(void) {
 	int a[4] = { 0 };
-	return (int) sizeof(a);
+	return sizeof(a);
 }
 
 int sizeof_ptr(int* p) {
-	return (int) sizeof(p);
+	return sizeof(p);
 }
 
 int sizeof_elem(int a[8]) {
-	return (int) sizeof(a[0]);
+	return sizeof(a[0]);
 }

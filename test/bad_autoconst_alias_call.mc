@@ -1,6 +1,6 @@
 void mutate(char* p) {
 	if (p) {
-		p[0] = (char)'x';
+		p[0] = 'x';
 	}
 }
 

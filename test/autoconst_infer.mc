@@ -6,7 +6,7 @@ void reads_msg(char* msg) {
 /* Callee stores — must stay mutable; caller cannot pass a literal. */
 void writes_msg(char* msg) {
 	if (msg) {
-		msg[0] = (char)'x';
+		msg[0] = 'x';
 	}
 }
 

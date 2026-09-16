@@ -50,12 +50,12 @@ int test_chomp(void) {
 	char raw[8] = { 0 };
 	char[..] s = { 0 };
 	char[..] tok = { 0 };
-	raw[0] = (char)'l';
-	raw[1] = (char)'i';
-	raw[2] = (char)'n';
-	raw[3] = (char)'e';
-	raw[4] = (char)'\n';
-	raw[5] = (char)0;
+	raw[0] = 'l';
+	raw[1] = 'i';
+	raw[2] = 'n';
+	raw[3] = 'e';
+	raw[4] = '\n';
+	raw[5] = 0;
 	s = ranged(raw, 5);
 	tok = str_chomp(s);
 	if (!str_eq(tok, "line")) {
@@ -160,9 +160,9 @@ int test_subview(void) {
 	char data[16] = { 0 };
 	char[..] chunk = { 0 };
 	char[..] word = { 0 };
-	data[0] = (char)'h';
-	data[1] = (char)'i';
-	data[2] = (char)'!';
+	data[0] = 'h';
+	data[1] = 'i';
+	data[2] = '!';
 	chunk = ranged(data, 3);
 	word = chunk[0 .. 2];
 	if (!str_eq(word, "hi")) {

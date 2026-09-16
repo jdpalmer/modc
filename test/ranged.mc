@@ -83,7 +83,7 @@ int roundtrip(void) {
 }
 
 int ranged_size(void) {
-	return (int) sizeof(int[..]);
+	return sizeof(int[..]);
 }
 
 int from_string(void) {

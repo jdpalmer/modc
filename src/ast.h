@@ -372,6 +372,7 @@ struct Node {
 	int is_immutable; /* Auto-const: string literal provenance */
 	int is_char_lit;  /* NdLit from '…' character constant */
 	int is_synth;	  /* compiler-built node (e.g. ranged→pointer decay) */
+	int cast_checked; /* unnecessary-cast diagnostic already emitted */
 };
 
 struct MArg {
@@ -575,7 +576,8 @@ Node* maybe_embed_upcast(Compiler* c, Type* dst, Node* src);
 void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src);
 void check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count);
 void check_sign_compare(Compiler* c, Span sp, Node* a, Node* b);
-void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len);
+void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len,
+		     int overload_call);
 const char* type_name(Type* t);
 Type* promote(Compiler* c, Type* t);
 char qbe_class(Type* t); /* 'w'/'l'/'s'/'d' or '@' aggregate */

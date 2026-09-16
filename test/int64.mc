@@ -7,5 +7,5 @@ int64_t add64(int64_t a, int64_t b) {
 }
 
 int int64_size(void) {
-	return (int) sizeof(int64_t);
+	return sizeof(int64_t);
 }

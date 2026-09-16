@@ -22,6 +22,10 @@ int64_t test_long(void) {
 	return max(1L, 2L);
 }
 
+int64_t test_cast_select(int n) {
+	return max((int64_t)n, (int64_t)n);
+}
+
 float test_float(void) {
 	return max(1.0f, 2.0f);
 }

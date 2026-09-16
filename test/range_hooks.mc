@@ -18,7 +18,7 @@ struct Triple {
 
 overload size_t range_count(MyBuf b, int** out_ptr) {
 	*out_ptr = b.data;
-	return (size_t)b.n;
+	return b.n;
 }
 
 overload size_t range_count(Triple t, int** out_ptr) {

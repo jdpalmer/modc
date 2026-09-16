@@ -1,6 +1,6 @@
 static void write_byte(char* p) {
 	if (p) {
-		p[0] = (char)'y';
+		p[0] = 'y';
 	}
 }
 

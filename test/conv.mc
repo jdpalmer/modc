@@ -5,7 +5,7 @@
 int narrow_ok(int64_t y) {
 	char z = { 0 };
 	z = (char)y;
-	return (int)z;
+	return z;
 }
 
 void* void_ptr_ok(void* p) {

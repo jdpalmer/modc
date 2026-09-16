@@ -1,3 +1,3 @@
 int bad(void) {
-	return (int)1ll;
+	return 1ll;
 }

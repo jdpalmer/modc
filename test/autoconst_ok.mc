@@ -11,10 +11,10 @@ int autoconst_ok(void) {
 		return 1;
 	}
 	sink("hi");
-	buf[0] = (char)'x';
-	buf[1] = (char)0;
+	buf[0] = 'x';
+	buf[1] = 0;
 	p = buf;
-	p[0] = (char)'y';
+	p[0] = 'y';
 	(void)hdr_sink;
 	return 0;
 }

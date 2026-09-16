@@ -3,5 +3,5 @@
 #include <modc_system_probe.h>
 
 int sys_include_smoke(void) {
-	return (int)getpid() > 0 ? 0: 1;
+	return getpid() > 0 ? 0: 1;
 }

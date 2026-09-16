@@ -7,5 +7,5 @@ int bad(void) {
 	Shape s = { 0 };
 	c = COLOR_RED;
 	s = c;
-	return (int)s;
+	return s;
 }

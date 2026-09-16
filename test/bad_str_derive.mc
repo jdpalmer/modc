@@ -2,7 +2,7 @@
 static void write_offset(char* p) {
 	char* q = { 0 };
 	q = p + 1;
-	q[0] = (char)'x';
+	q[0] = 'x';
 }
 
 int main(void) {

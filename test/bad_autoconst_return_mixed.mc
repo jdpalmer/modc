@@ -1,7 +1,7 @@
 char* leak_mixed(int pick) {
 	char buf[8] = { 0 };
-	buf[0] = (char)'a';
-	buf[1] = (char)0;
+	buf[0] = 'a';
+	buf[1] = 0;
 	if (pick) {
 		return "literal";
 	}

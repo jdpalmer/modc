@@ -1,5 +1,5 @@
 int sum8(int a[8]) {
-	return (int)a[0];
+	return a[0];
 }
 
 int bad(void) {

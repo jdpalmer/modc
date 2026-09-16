@@ -1,6 +1,6 @@
 void writes_msg(char* msg) {
 	if (msg) {
-		msg[0] = (char)'x';
+		msg[0] = 'x';
 	}
 }
 
