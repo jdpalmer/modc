@@ -8,7 +8,7 @@ int sum(int[..] s) {
 	return t;
 }
 
-int conv_array(void) {
+int conv_array() {
 	int a[4] = { 0 };
 	a[0] = 1;
 	a[1] = 2;
@@ -17,7 +17,7 @@ int conv_array(void) {
 	return sum(a);
 }
 
-int conv_string(void) {
+int conv_string() {
 	char[..] s = { 0 };
 	s = "ab";
 	return (int)len(s);

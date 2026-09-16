@@ -7,7 +7,7 @@ static void read_offset(char* p) {
 	(void)c;
 }
 
-int autoconst_derive_ok(void) {
+int autoconst_derive_ok() {
 	read_offset("ab");
 	return 0;
 }

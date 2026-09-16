@@ -19,7 +19,7 @@ int add(int a, int b) {
 }
 
 // not exported: static (package-private) APIs never appear in modc doc
-static int hide(void) {
+static int hide() {
 	return 0;
 }
 ```

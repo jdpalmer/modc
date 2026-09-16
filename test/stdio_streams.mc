@@ -1,7 +1,7 @@
 /* Darwin: stderr/stdout/stdin are dylib symbols; emit must use QBE extern (GOT). */
 #include <stdio.h>
 
-int stdio_streams_run(void) {
+int stdio_streams_run() {
 	if (stderr == NULL) {
 		return 1;
 	}

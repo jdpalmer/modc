@@ -1,5 +1,5 @@
 #pragma modc frameworks( Cocoa)
 
-int main(void) {
+int main() {
 	return 0;
 }

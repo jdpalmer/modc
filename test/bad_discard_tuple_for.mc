@@ -4,7 +4,7 @@
 	return (x, true);
 }
 
-void bad(void) {
+void bad() {
 	for (maybe(1); 0;) {
 	}
 }

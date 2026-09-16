@@ -14,7 +14,7 @@ void* void_ptr_ok(void* p) {
 	return q;
 }
 
-int widen_ok(void) {
+int widen_ok() {
 	int64_t x = { 0 };
 	int n = { 0 };
 	n = 3;
@@ -22,13 +22,13 @@ int widen_ok(void) {
 	return (int)x;
 }
 
-int malloc_style(void) {
+int malloc_style() {
 	int* p = { 0 };
 	p = 0;
 	return p != 0;
 }
 
-int char_lit_ok(void) {
+int char_lit_ok() {
 	char a = { 0 };
 	char z = { 0 };
 	char buf[4] = { 0 };
@@ -38,7 +38,7 @@ int char_lit_ok(void) {
 	return (int)a + (int)z + (int)buf[0];
 }
 
-int int_lit_fit(void) {
+int int_lit_fit() {
 	short s = { 0 };
 	unsigned short us = { 0 };
 	char b = { 0 };

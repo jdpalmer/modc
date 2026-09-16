@@ -1,6 +1,6 @@
 #include "win_hdr_soup.h"
 
-int main(void) {
+int main() {
 	PFLOAT f = 0;
 	PBYTE b = 0;
 	PINT8 i = 0;

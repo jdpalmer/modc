@@ -11,7 +11,7 @@ void via_alias(char* p) {
 	read_only(q);
 }
 
-int autoconst_alias_call_ok(void) {
+int autoconst_alias_call_ok() {
 	via_alias("alias");
 	return 0;
 }

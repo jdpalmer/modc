@@ -9,7 +9,7 @@ overload void g(int64_t a, int b) {
 	(void)b;
 }
 
-int main(void) {
+int main() {
 	g(1, 1);
 	return 0;
 }

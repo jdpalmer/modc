@@ -5,7 +5,7 @@ union Ptrs {
 	char* s;
 };
 
-int ptr_union_ok(void) {
+int ptr_union_ok() {
 	union Ptrs u = { 0 };
 	char* p = { 0 };
 	char buf[4] = { 0 };

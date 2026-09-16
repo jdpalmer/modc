@@ -1,12 +1,12 @@
 /* Signed overflow wraps (two's complement). */
 
-int wrap_add_max(void) {
+int wrap_add_max() {
 	int x = { 0 };
 	x = 2147483647;
 	return x + 1;
 }
 
-int wrap_mul(void) {
+int wrap_mul() {
 	int x = { 0 };
 	x = 1073741824;
 	/* 2^30 */

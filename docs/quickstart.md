@@ -11,7 +11,7 @@ For the examples below, create a folder called `helloworld` and save the followi
 ```c
 #include <stdio.h>
 
-int main(void) {
+int main() {
     printf("hello, world\n");
     return 0;
 }
@@ -56,7 +56,7 @@ Resource management in %C relies on the `defer` statement to guarantee block-sco
 When a function executes a `return` statement, the return expressions are evaluated first, capturing their values before any deferred code runs.
 
 ```c
-void work(void) {
+void work() {
     char *p = malloc(64);
     defer free(p);
     // more code..
@@ -157,7 +157,7 @@ struct Window {
     char *title;
 };
 
-void (Window *w).show(void) {
+void (Window *w).show() {
     /* … */
 }
 
@@ -181,13 +181,13 @@ Packages are imported by path or module name using the `import` directive:
 ```c
 // log.mc
 void log_info(char *msg) { /* … */ }
-static int helper(void) { return 1; }
+static int helper() { return 1; }
 
 // app.mc
 import "log";
 
 int
-main(void)
+main()
 {
     log_info("hi");
     return 0;
@@ -256,7 +256,7 @@ Test files import their parent package and assert expectations using standard as
 ```c
 #include <assert.h>
 
-int main(void) {
+int main() {
     assert(add(2, 3) == 5);
     assert_eq(add(1, 1), 2);
     return 0;
@@ -281,6 +281,8 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 - **Unified Field Access**: The dot operator (`.`) accesses members through both direct values and pointers (`p.x`). The arrow operator (`->`) is reserved for foreign C headers.
 
 - **First-Class Struct Tags**: Struct, union, and enum tags act directly as type names in user code (`Point p = {0};`), eliminating the need for `struct` prefixes.
+
+- **Empty Parameter Lists**: Write `foo()` for a function or method with no parameters. The legacy C spelling `foo(void)` is rejected in user source, while imported C headers retain standard C semantics.
 
 - **Distinct Tagged Enums**: Integers and other enum types do not implicitly convert to a tagged enum. Comparisons and conditional-expression arms require the same enum type; arithmetic, bitwise, increment, and compound-assignment operators require an explicit integer cast. Enum values widen to integers for C interoperability, and an explicit cast converts an integer back. Anonymous enum constants remain ordinary integers and are the preferred form for flags and numeric constants.
 

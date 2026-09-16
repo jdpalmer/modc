@@ -1,6 +1,6 @@
 /* Operand evaluation is left-to-right. */
 
-int ltr_assign_add(void) {
+int ltr_assign_add() {
 	int a = { 0 };
 	int b = { 0 };
 	a = 0;

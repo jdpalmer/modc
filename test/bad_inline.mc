@@ -1,3 +1,3 @@
-inline int bad(void) {
+inline int bad() {
 	return 1;
 }

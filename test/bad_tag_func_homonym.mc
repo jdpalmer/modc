@@ -3,6 +3,6 @@ struct clash {
 	int x;
 };
 
-int clash(void) {
+int clash() {
 	return 0;
 }

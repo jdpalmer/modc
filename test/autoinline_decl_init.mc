@@ -27,7 +27,7 @@ void put_cell(Screen* s, int row, int col, int ch) {
 	c.ch = ch;
 }
 
-int autoinline_decl_init_run(void) {
+int autoinline_decl_init_run() {
 	Screen scr = { 0 };
 	Cell cells[4] = { 0 };
 	int col = { 0 };

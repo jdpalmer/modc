@@ -12,7 +12,7 @@ static int with_defer(int x) {
 	return x;
 }
 
-int autoinline_skip_run(void) {
+int autoinline_skip_run() {
 	if (with_goto(3) != 3) {
 		return 1;
 	}

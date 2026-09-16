@@ -5,7 +5,7 @@ static void write_offset(char* p) {
 	q[0] = 'x';
 }
 
-int main(void) {
+int main() {
 	write_offset("ab");
 	return 0;
 }

@@ -2,7 +2,7 @@ struct NoHooks {
 	int x;
 };
 
-int bad(void) {
+int bad() {
 	NoHooks n = { 0 };
 	int t = { 0 };
 	n.x = 1;

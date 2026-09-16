@@ -11,7 +11,7 @@ bool ok(bool a, int b) {
 	return a;
 }
 
-int typedef_fnptr_run(void) {
+int typedef_fnptr_run() {
 	BinOp op = { 0 };
 	Handler h = { 0 };
 	op = add;

@@ -33,7 +33,7 @@ int sum_copy(int n, ...) {
 	return s;
 }
 
-int call_sum(void) {
+int call_sum() {
 	return sum(3, 10, 20, 12);
 }
 

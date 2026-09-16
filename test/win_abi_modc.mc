@@ -49,7 +49,7 @@ int modc_vsum(int n, ...) {
 	return s;
 }
 
-int modc_calls_host(void) {
+int modc_calls_host() {
 	Pair p = { 0 };
 	Quad q = { 0 };
 	p = host_pair(3, 4);

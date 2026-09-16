@@ -4,7 +4,7 @@ struct Outer {
 	Point p;
 };
 
-int (Point* p).sum(void) {
+int (Point* p).sum() {
 	return p.x + p.y;
 }
 

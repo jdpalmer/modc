@@ -14,11 +14,11 @@ overload float max(float a, float b) {
 	return a > b ? a: b;
 }
 
-int test_int(void) {
+int test_int() {
 	return max(1, 2);
 }
 
-int64_t test_long(void) {
+int64_t test_long() {
 	return max(1L, 2L);
 }
 
@@ -26,6 +26,6 @@ int64_t test_cast_select(int n) {
 	return max((int64_t)n, (int64_t)n);
 }
 
-float test_float(void) {
+float test_float() {
 	return max(1.0f, 2.0f);
 }

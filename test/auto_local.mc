@@ -1,11 +1,11 @@
 /* auto for initialized locals: type inferred from initializer (with decay). */
 
-int infer_int(void) {
+int infer_int() {
 	auto n = 3;
 	return n;
 }
 
-double infer_double(void) {
+double infer_double() {
 	auto q = 1.0;
 	return q;
 }
@@ -15,7 +15,7 @@ void* infer_ptr(void* p) {
 	return r;
 }
 
-int infer_array_decay(void) {
+int infer_array_decay() {
 	int a[4] = { 0 };
 	auto p = a;
 	a[0] = 10;
@@ -23,7 +23,7 @@ int infer_array_decay(void) {
 	return p[0] + p[1];
 }
 
-int infer_ranged(void) {
+int infer_ranged() {
 	int a[3] = { 0 };
 	int[..] s = { 0 };
 	int sum = { 0 };
@@ -39,7 +39,7 @@ int infer_ranged(void) {
 	return sum;
 }
 
-int infer_char_ptr(void) {
+int infer_char_ptr() {
 	auto msg = "hi";
 	return (int)msg[0] + (int)msg[1];
 }

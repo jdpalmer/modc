@@ -1,3 +1,3 @@
-int bad(void) {
+int bad() {
 	return 1 << -1;
 }

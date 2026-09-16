@@ -1,5 +1,5 @@
 auto x = 1;
 
-int bad(void) {
+int bad() {
 	return x;
 }

@@ -8,7 +8,7 @@ char* leak_mixed(int pick) {
 	return buf;
 }
 
-int main(void) {
+int main() {
 	(void)leak_mixed(0);
 	return 0;
 }

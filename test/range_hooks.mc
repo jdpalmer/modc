@@ -46,7 +46,7 @@ int sum_buf(MyBuf b) {
 	return s;
 }
 
-int sum_buf_local(void) {
+int sum_buf_local() {
 	int a[4] = { 0 };
 	MyBuf b = { 0 };
 	a[0] = 1;
@@ -58,7 +58,7 @@ int sum_buf_local(void) {
 	return sum_buf(b);
 }
 
-int sum_triple(void) {
+int sum_triple() {
 	Triple t = { 0 };
 	int s = { 0 };
 	t.a = 10;

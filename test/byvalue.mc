@@ -33,7 +33,7 @@ Rect idr(Rect r) {
 	return r;
 }
 
-int local_copy(void) {
+int local_copy() {
 	Point a = { 0 };
 	Point b = { 0 };
 	a.x = 1;
@@ -42,7 +42,7 @@ int local_copy(void) {
 	return b.x + b.y;
 }
 
-int nested(void) {
+int nested() {
 	Rect r = { 0 };
 	Rect s = { 0 };
 	r.min.x = 1;

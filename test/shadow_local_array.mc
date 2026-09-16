@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-bool cond(void) {
+bool cond() {
 	return true;
 }
 
@@ -16,11 +16,11 @@ struct Line {
 
 struct Line g_line;
 
-struct Line* get_line(void) {
+struct Line* get_line() {
 	return &g_line;
 }
 
-int shadow_local_array_run(void) {
+int shadow_local_array_run() {
 	int keep = 1;
 	if (cond()) {
 		char line[1024] = { 0 };

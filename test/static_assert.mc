@@ -15,11 +15,11 @@ static_assert(sizeof(Point) == 8, "Point layout");
 static_assert((int)COLOR_BLUE == 2);
 _Static_assert(1 + 1 == 2, "arith");
 
-int in_block(void) {
+int in_block() {
 	static_assert(sizeof(int) == 4);
 	return 0;
 }
 
-int ok(void) {
+int ok() {
 	return in_block() == 0 && sizeof(Point) == 8;
 }

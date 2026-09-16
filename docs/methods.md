@@ -21,7 +21,7 @@ This mechanism keeps C semantics rather than C++ complexity. There are no templa
 Method definitions use explicit receiver parameters rather than an implicit `this` pointer, while call sites use standard dot notation (`w.show()`).
 
 ```c
-void (Window *w).show(void) {
+void (Window *w).show() {
     ui_backend().window_show(w);
 }
 
@@ -44,7 +44,7 @@ Methods generate linker symbols using the `package_type_method` pattern. Package
 
 | **Source Method Declaration**        | **Generated Linker Symbol** |
 | ------------------------------------ | --------------------------- |
-| `void (Window *w).show(void)`        | `ui_window_show`            |
+| `void (Window *w).show()`            | `ui_window_show`            |
 | `void (Window *w).set_title(char *)` | `ui_window_set_title`       |
 
 As a design convention, use methods for operations on existing object handles and plain free functions for constructors or package initialization entry points (`window_open()`, `ui_init()`).

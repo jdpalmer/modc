@@ -6,6 +6,6 @@ int64_t add64(int64_t a, int64_t b) {
 	return a + b;
 }
 
-int int64_size(void) {
+int int64_size() {
 	return sizeof(int64_t);
 }

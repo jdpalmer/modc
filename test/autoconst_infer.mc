@@ -10,7 +10,7 @@ void writes_msg(char* msg) {
 	}
 }
 
-int infer_ok(void) {
+int infer_ok() {
 	reads_msg("hi");
 	writes_msg((char*)"z");
 	return 0;

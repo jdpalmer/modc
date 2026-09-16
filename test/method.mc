@@ -7,7 +7,7 @@ struct Window {
 	int title_len_val;
 };
 
-int (Window* w).title_len(void) {
+int (Window* w).title_len() {
 	return w.title_len_val;
 }
 
@@ -15,11 +15,11 @@ void (Window* w).set_title_len(int n) {
 	w.title_len_val = n;
 }
 
-int (Widget* w).id(void) {
+int (Widget* w).id() {
 	return w.id_val;
 }
 
-int test_method(void) {
+int test_method() {
 	Window win = { 0 };
 	win.title_len_val = 3;
 	win.id_val = 7;

@@ -1,3 +1,3 @@
-char bad(void) {
+char bad() {
 	return (char)1;
 }

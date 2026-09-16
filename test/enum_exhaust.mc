@@ -27,7 +27,7 @@ int with_default(Color c) {
 	}
 }
 
-int enum_exhaust_run(void) {
+int enum_exhaust_run() {
 	if (name(COLOR_GREEN) != 2) {
 		return 1;
 	}

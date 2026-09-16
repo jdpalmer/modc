@@ -1,6 +1,6 @@
 /* Multi-return: (T1, T2) functions, return (a, b), destructuring. */
 
-(int, int) pair(void) {
+(int, int) pair() {
 	return (1, 2);
 }
 
@@ -11,17 +11,17 @@
 	return (x, true);
 }
 
-int use_auto(void) {
+int use_auto() {
 	auto (a, b) = pair();
 	return a + b;
 }
 
-int use_explicit(void) {
+int use_explicit() {
 	(int a, int b) = pair();
 	return a + b;
 }
 
-int use_maybe_ok(void) {
+int use_maybe_ok() {
 	auto (v, ok) = maybe(5);
 	if (!ok) {
 		return -1;
@@ -29,7 +29,7 @@ int use_maybe_ok(void) {
 	return v;
 }
 
-int use_maybe_fail(void) {
+int use_maybe_fail() {
 	auto (v, ok) = maybe(-1);
 	if (!ok) {
 		return 0;

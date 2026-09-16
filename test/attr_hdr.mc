@@ -1,6 +1,6 @@
 #include "attr_hdr.h"
 
-int attr_dllimport_fn(void) {
+int attr_dllimport_fn() {
 	return 1;
 }
 
@@ -16,10 +16,10 @@ int attr_cdecl_fn(int x) {
 	return x * 3;
 }
 
-void attr_gnu_noreturn(void) {
+void attr_gnu_noreturn() {
 }
 
-int use_attrs(void) {
+int use_attrs() {
 	AttrAligned a = { 0 };
 	int(*fp)(int) = { 0 };
 	fp = attr_stdcall_fn;

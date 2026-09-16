@@ -1,6 +1,6 @@
 import "pkg_order";
 
-int main(void) {
+int main() {
 	Point pt = { 0 };
 	Outer o = { 0 };
 	pt.x = 20;

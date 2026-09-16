@@ -1,10 +1,10 @@
-/* Empty () is (void); typed prototypes required. */
+/* Empty () means zero parameters; typed prototypes are still required. */
 
-int empty_parens(void) {
+int empty_parens() {
 	return 1;
 }
 
-int explicit_void(void) {
+int another_empty() {
 	return empty_parens();
 }
 
@@ -12,6 +12,6 @@ int one_arg(int x) {
 	return x + 1;
 }
 
-int call_ok(void) {
+int call_ok() {
 	return one_arg(41);
 }

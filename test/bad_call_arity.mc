@@ -1,7 +1,7 @@
-int bad(void) {
+int bad() {
 	return f(1);
 }
 
-int f(void) {
+int f() {
 	return 0;
 }

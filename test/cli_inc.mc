@@ -2,6 +2,6 @@
 
 #include <answer.h>
 
-int from_inc(void) {
+int from_inc() {
 	return CLI_INC_ANSWER;
 }

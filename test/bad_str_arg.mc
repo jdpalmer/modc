@@ -4,7 +4,7 @@ static void sink(char* p) {
 	}
 }
 
-int main(void) {
+int main() {
 	sink("hello");
 	return 0;
 }

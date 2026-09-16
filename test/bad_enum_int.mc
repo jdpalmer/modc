@@ -5,7 +5,7 @@ enum Color {
 
 enum Shape { SHAPE_CIRCLE };
 
-int bad(void) {
+int bad() {
 	Color c = { 0 };
 	c = 1;
 	return c;

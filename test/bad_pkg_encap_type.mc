@@ -1,6 +1,6 @@
 import "pkg_encap";
 
-int main(void) {
+int main() {
 	FakeWidget* p;
 	p = 0;
 	return p != 0 ? 1: 0;

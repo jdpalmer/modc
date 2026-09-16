@@ -4,7 +4,7 @@ void writes_msg(char* msg) {
 	}
 }
 
-int main(void) {
+int main() {
 	writes_msg("nope");
 	return 0;
 }

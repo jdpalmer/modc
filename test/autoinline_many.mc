@@ -320,7 +320,7 @@ static int h79(int a, int b) {
 	return a + b + 79;
 }
 
-int autoinline_many_run(void) {
+int autoinline_many_run() {
 	int x = { 0 };
 	x = 0;
 	x = h0(x, 1);

@@ -58,7 +58,7 @@ belong to that package; subdirectories are treated as distinct packages.
 At file scope, `static` means package-private (not C file-local):
 
 ```c
-static int helper(void);           /* callable from sibling .mc in this package */
+static int helper();           /* callable from sibling .mc in this package */
 static struct Node { … };          /* type name hidden from importers */
 static enum { Cap = 16 };          /* enumerators package-private */
 static int g;                      /* package-private global */
@@ -77,7 +77,7 @@ package identity when they sit beside other packages in a mixed directory, so
 
 ## Methods and linker names
 
-Methods attach to a struct type within the same package, declared as `void (Window *w).show(void)` and called using dot-syntax (`w.show()`).
+Methods attach to a struct type within the same package, declared as `void (Window *w).show()` and called using dot-syntax (`w.show()`).
 
 Linker symbols are mangled as `{package}_{type}_{method}`. The type tag is converted to lowercase, and any slashes (`/`) in the import path become underscores (`_`). For example, in package `ui`, the method `(Window *w).show` resolves to `ui_window_show`. Standard free functions retain their source name unless explicitly marked with `overload`. See [methods.md](methods.md) for complete rules.
 
@@ -109,7 +109,7 @@ window_get_id(Window *w)
 import "ui";
 
 int
-main(void)
+main()
 {
     Window *w;
 
@@ -301,7 +301,7 @@ import "engine/window";
 #include <GLFW/glfw3.h>    /* needed if this file names GLFWwindow */
 
 int
-main(void)
+main()
 {
     GLFWwindow *w;
 

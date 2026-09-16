@@ -1,5 +1,5 @@
 import "pkg_log";
 
-int bad(void) {
+int bad() {
 	return log_hidden();
 }

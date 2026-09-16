@@ -1,6 +1,6 @@
 /* Extra parens allow intentional assignment in a condition. */
 
-int ok_if(void) {
+int ok_if() {
 	int x = { 0 };
 	x = 1;
 	if ((x = 0)) {
@@ -12,7 +12,7 @@ int ok_if(void) {
 	return 0;
 }
 
-int ok_cmp(void) {
+int ok_cmp() {
 	int x = { 0 };
 	x = 1;
 	if (x == 1) {

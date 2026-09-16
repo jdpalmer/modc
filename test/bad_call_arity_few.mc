@@ -1,4 +1,4 @@
-int bad(void) {
+int bad() {
 	return f();
 }
 

@@ -2,7 +2,7 @@
 
 #include <stdio.h>
 
-int main(void) {
+int main() {
 	printf("modc stdio smoke\n");
 	return 0;
 }

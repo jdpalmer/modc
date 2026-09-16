@@ -6,7 +6,7 @@ enum FallColor {
 	FALL_BLUE
 };
 
-int simple(void) {
+int simple() {
 	return 42;
 }
 
@@ -34,7 +34,7 @@ int via_enum(FallColor c) {
 	}
 }
 
-int after_loop(void) {
+int after_loop() {
 	int i = { 0 };
 	int s = { 0 };
 	s = 0;
@@ -44,6 +44,6 @@ int after_loop(void) {
 	return s;
 }
 
-void void_ok(void) {
+void void_ok() {
 	/* falling off void is fine */
 }

@@ -8,7 +8,7 @@ int sum8(int a[8]) {
 	return t;
 }
 
-int fixed_param_run(void) {
+int fixed_param_run() {
 	int a[8] = { 0 };
 	int i = { 0 };
 	for (i = 0; i < 8; i++) {

@@ -1,5 +1,5 @@
 import "pkg_priv";
 
-int bad(void) {
+int bad() {
 	return PrivCap;
 }

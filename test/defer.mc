@@ -9,7 +9,7 @@ void tr(int v) {
 	}
 }
 
-int lifo(void) {
+int lifo() {
 	tr(0);
 	defer tr(3);
 	defer tr(2);
@@ -17,12 +17,12 @@ int lifo(void) {
 	return 0;
 }
 
-int on_return(void) {
+int on_return() {
 	defer tr(100);
 	return 42;
 }
 
-int on_block_end(void) {
+int on_block_end() {
 	tr(0);
 	{
 		defer tr(2);
@@ -33,7 +33,7 @@ int on_block_end(void) {
 	return 0;
 }
 
-int on_break(void) {
+int on_break() {
 	nlog = 0;
 	while (1) {
 		defer tr(1);
@@ -42,7 +42,7 @@ int on_break(void) {
 	return 0;
 }
 
-int on_goto(void) {
+int on_goto() {
 	nlog = 0;
 	{
 		defer tr(5);
@@ -51,7 +51,7 @@ int on_goto(void) {
 	out: return 0;
 }
 
-int with_ranged(void) {
+int with_ranged() {
 	int a[3] = { 0 };
 	int[..] s = { 0 };
 	nlog = 0;
@@ -71,17 +71,17 @@ int ret_order_mark(int v) {
 	return v;
 }
 
-int ret_order(void) {
+int ret_order() {
 	defer ret_order_mark(2);
 	return ret_order_mark(1);
 }
 
-(int, int) ret_order_tuple(void) {
+(int, int) ret_order_tuple() {
 	defer ret_order_mark(20);
 	return (ret_order_mark(10), 7);
 }
 
-int ret_order_tuple_ok(void) {
+int ret_order_tuple_ok() {
 	ret_order_stamp = 0;
 	{
 		auto (a, b) = ret_order_tuple();

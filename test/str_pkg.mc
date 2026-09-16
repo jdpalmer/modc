@@ -1,6 +1,6 @@
 import "str";
 
-int test_cstr_write(void) {
+int test_cstr_write() {
 	char buf[32] = { 0 };
 	char[..] a = { 0 };
 	a = "hello";
@@ -13,7 +13,7 @@ int test_cstr_write(void) {
 	return 0;
 }
 
-int test_find(void) {
+int test_find() {
 	char[..] hay = { 0 };
 	char[..] needle = { 0 };
 	hay = "hello world";
@@ -46,7 +46,7 @@ int test_find(void) {
 	return 0;
 }
 
-int test_chomp(void) {
+int test_chomp() {
 	char raw[8] = { 0 };
 	char[..] s = { 0 };
 	char[..] tok = { 0 };
@@ -64,7 +64,7 @@ int test_chomp(void) {
 	return 0;
 }
 
-int test_sep_trim(void) {
+int test_sep_trim() {
 	char line[64] = { 0 };
 	char[..] rest = { 0 };
 	char[..] tok = { 0 };
@@ -115,7 +115,7 @@ int test_sep_trim(void) {
 	return 0;
 }
 
-int test_cmp_prefix(void) {
+int test_cmp_prefix() {
 	char[..] s = { 0 };
 	s = "Hello";
 	if (!str_starts_with(s, "He")) {
@@ -133,7 +133,7 @@ int test_cmp_prefix(void) {
 	return 0;
 }
 
-int test_parse(void) {
+int test_parse() {
 	{
 		auto (ok, v) = str_to_long("12345", 10);
 		if (!ok || v != 12345) {
@@ -156,7 +156,7 @@ int test_parse(void) {
 	return 0;
 }
 
-int test_subview(void) {
+int test_subview() {
 	char data[16] = { 0 };
 	char[..] chunk = { 0 };
 	char[..] word = { 0 };
@@ -171,7 +171,7 @@ int test_subview(void) {
 	return 0;
 }
 
-int str_pkg_run(void) {
+int str_pkg_run() {
 	if (test_cstr_write() != 0) {
 		return 1;
 	}

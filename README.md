@@ -66,7 +66,7 @@ At its core %C is just C.
 ```c
 #include <stdio.h>
 
-int main(void) {
+int main() {
     printf("hello, world\n");
     return 0;
 }
@@ -97,7 +97,7 @@ double dist2(Point * p) {
     return p.x * p.x + p.y * p.y; // auto-dot through pointers
 }
 
-int main(void) {
+int main() {
     Particle * particles = malloc(100 * sizeof(Particle));
     defer free(particles);
     double system_mass = 0;

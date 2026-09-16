@@ -22,7 +22,7 @@ int back_ok(int n) {
 	done: return s;
 }
 
-int decl_before_goto(void) {
+int decl_before_goto() {
 	int x = { 0 };
 	x = 3;
 	goto out;

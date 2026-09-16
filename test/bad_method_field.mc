@@ -2,9 +2,9 @@ struct Box {
 	int show;
 };
 
-void (Box* b).show(void) {
+void (Box* b).show() {
 }
 
-int main(void) {
+int main() {
 	return 0;
 }

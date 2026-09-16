@@ -28,7 +28,7 @@ Functions can return multiple values as ordered positional tuples of the form `(
     return (x, true);
 }
 
-int use(void) {
+int use() {
     auto (v, ok) = parse(5);
     if (!ok) {
         return -1;

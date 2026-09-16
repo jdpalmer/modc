@@ -4,7 +4,7 @@ typedef struct S {
 }
 S;
 
-int (S* s).len(void) {
+int (S* s).len() {
 	return s.n;
 }
 
@@ -12,7 +12,7 @@ int len(int n) {
 	return n + 1;
 }
 
-int method_len_run(void) {
+int method_len_run() {
 	S s = { 0 };
 	int a[3] = { 0 };
 	s.n = 4;

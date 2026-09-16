@@ -3,7 +3,7 @@ int add(int a, int b) {
 	return a + b;
 }
 
-int autoinline_export_run(void) {
+int autoinline_export_run() {
 	if (add(4, 6) != 10) {
 		return 1;
 	}

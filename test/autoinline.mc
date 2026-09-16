@@ -3,7 +3,7 @@ static int add(int a, int b) {
 	return a + b;
 }
 
-int autoinline_run(void) {
+int autoinline_run() {
 	int x = { 0 };
 	x = add(2, 3);
 	if (x != 5) {

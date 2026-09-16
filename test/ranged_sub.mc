@@ -10,7 +10,7 @@ int sum_elems(int[..] s) {
 	return t;
 }
 
-int from_array_range(void) {
+int from_array_range() {
 	int a[5] = { 0 };
 	int[..] s = { 0 };
 	a[0] = 1;
@@ -31,7 +31,7 @@ int from_array_range(void) {
 	return 0;
 }
 
-int open_ends(void) {
+int open_ends() {
 	int a[4] = { 0 };
 	int[..] s = { 0 };
 	int[..] t = { 0 };
@@ -62,7 +62,7 @@ int open_ends(void) {
 	return 0;
 }
 
-int ranged_sub_run(void) {
+int ranged_sub_run() {
 	if (from_array_range() != 0) {
 		return 1;
 	}

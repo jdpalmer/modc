@@ -63,7 +63,7 @@ static char* arena_bump(Arena* a, size_t n) {
 }
 
 // Zero an arena. Call before first use.
-void (Arena* a).init(void) {
+void (Arena* a).init() {
 	if (a == NULL) {
 		return;
 	}
@@ -73,7 +73,7 @@ void (Arena* a).init(void) {
 }
 
 // Free backing storage. A null receiver is a no-op (like free(3)).
-void (Arena* a).free(void) {
+void (Arena* a).free() {
 	if (a == NULL) {
 		return;
 	}
@@ -84,7 +84,7 @@ void (Arena* a).free(void) {
 }
 
 // Keep backing storage; next allocations reuse from offset 0.
-void (Arena* a).reset(void) {
+void (Arena* a).reset() {
 	if (a == NULL) {
 		return;
 	}

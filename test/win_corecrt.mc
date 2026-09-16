@@ -1,6 +1,6 @@
 #include <corecrt.h>
 
-int main(void) {
+int main() {
 	size_t n = 0;
 	rsize_t r = 0;
 	(void)n;

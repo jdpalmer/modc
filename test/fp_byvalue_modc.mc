@@ -31,7 +31,7 @@ double modc_mixed_val(Mixed m) {
 	return m.val;
 }
 
-int modc_calls_host(void) {
+int modc_calls_host() {
 	Vec2 v = { 0 };
 	Vec2 w = { 0 };
 	Mixed m = { 0 };

@@ -1,6 +1,6 @@
 #include "void_union_hdr.h"
 
-int void_union_hdr_run(void) {
+int void_union_hdr_run() {
 	if (!hdr_void_arith((void*)0)) {
 		return 1;
 	}

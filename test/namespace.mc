@@ -49,7 +49,7 @@ int compat_enum(enum Color c) {
 	return c;
 }
 
-int typedef_ok(void) {
+int typedef_ok() {
 	typedef struct Point Point;
 	Point p = { 0 };
 	p.x = 1;

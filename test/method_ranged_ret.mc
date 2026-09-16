@@ -5,11 +5,11 @@ typedef struct Line {
 }
 Line;
 
-char[..] (Line* l).view(void) {
+char[..] (Line* l).view() {
 	return ranged(l.buf, l.n);
 }
 
-int method_ranged_ret_run(void) {
+int method_ranged_ret_run() {
 	Line line = { 0 };
 	char[..] v = { 0 };
 	line.buf[0] = 'a';

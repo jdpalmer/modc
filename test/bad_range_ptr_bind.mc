@@ -26,7 +26,7 @@ overload int range_at(Triple t, size_t i) {
 	return t.c;
 }
 
-int main(void) {
+int main() {
 	Triple t = { 0 };
 	t.a = 1;
 	t.b = 2;

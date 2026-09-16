@@ -11,7 +11,7 @@ void top_read(char* msg) {
 	mid_read(msg);
 }
 
-int autoconst_transitive_ok(void) {
+int autoconst_transitive_ok() {
 	top_read("chain");
 	return 0;
 }

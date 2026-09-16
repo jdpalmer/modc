@@ -1,5 +1,5 @@
 import "leaf";
 
-int main(void) {
+int main() {
 	return leaf_add(20, 22) == 42 ? 0: 1;
 }

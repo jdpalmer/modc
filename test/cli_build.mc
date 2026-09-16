@@ -4,6 +4,6 @@ int add(int a, int b) {
 	return a + b;
 }
 
-int main(void) {
+int main() {
 	return add(20, 22) == 42 ? 0: 1;
 }

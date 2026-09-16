@@ -8,7 +8,7 @@ static int priv_add(int a, int b) {
 	return a + b + PrivCap;
 }
 
-int (Priv* p).value(void) {
+int (Priv* p).value() {
 	return p.n;
 }
 

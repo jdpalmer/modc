@@ -3,6 +3,6 @@ union Bad {
 	int x;
 };
 
-int main(void) {
+int main() {
 	return 0;
 }

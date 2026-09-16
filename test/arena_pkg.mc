@@ -1,6 +1,6 @@
 import "arena";
 
-int test_copy_cat(void) {
+int test_copy_cat() {
 	Arena a = { 0 };
 	char buf[32] = { 0 };
 	char[..] out = { 0 };
@@ -24,7 +24,7 @@ int test_copy_cat(void) {
 	return 0;
 }
 
-int test_append(void) {
+int test_append() {
 	Arena a = { 0 };
 	char[..] s = { 0 };
 	int i = { 0 };
@@ -84,7 +84,7 @@ int test_append(void) {
 	return 0;
 }
 
-int test_join(void) {
+int test_join() {
 	Arena a = { 0 };
 	char buf[32] = { 0 };
 	char[..] parts[3] = { 0 };
@@ -152,7 +152,7 @@ int test_join(void) {
 	return 0;
 }
 
-int test_replace(void) {
+int test_replace() {
 	Arena a = { 0 };
 	char buf[32] = { 0 };
 	char[..] out = { 0 };
@@ -201,7 +201,7 @@ int test_replace(void) {
 	return 0;
 }
 
-int test_reset(void) {
+int test_reset() {
 	Arena a = { 0 };
 	char[..] out = { 0 };
 	bool ok = { 0 };
@@ -227,7 +227,7 @@ int test_reset(void) {
 	return 0;
 }
 
-int arena_pkg_run(void) {
+int arena_pkg_run() {
 	if (test_copy_cat() != 0) {
 		return 1;
 	}

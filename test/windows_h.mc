@@ -1,7 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-int main(void) {
+int main() {
 	HWND w = NULL;
 	DWORD n = 0;
 	n = GetTickCount();

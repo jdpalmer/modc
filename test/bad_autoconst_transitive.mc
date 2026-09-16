@@ -13,7 +13,7 @@ void top_write(char* p) {
 	mid_write(p);
 }
 
-int main(void) {
+int main() {
 	top_write("nope");
 	return 0;
 }

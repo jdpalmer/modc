@@ -15,19 +15,19 @@ struct P gp = {
 
 char msg[] = "hi";
 
-int bump(void) {
+int bump() {
 	static int n;
 	n = n + 1;
 	return n;
 }
 
-int bump_from(void) {
+int bump_from() {
 	static int n = 5;
 	n = n + 1;
 	return n;
 }
 
-int static_arr_sum(void) {
+int static_arr_sum() {
 	static int a[3] = {
 		4, 5, 6 };
 	return a[0] + a[1] + a[2];
@@ -41,11 +41,11 @@ int sparse_at(int i) {
 	return sparse[i];
 }
 
-int gpx(void) {
+int gpx() {
 	return gp.x;
 }
 
-int gpy(void) {
+int gpy() {
 	return gp.y;
 }
 

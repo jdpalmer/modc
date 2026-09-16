@@ -4,7 +4,7 @@
 
 #define WRAP_LINE() __LINE__
 
-int file_line_tests(void) {
+int file_line_tests() {
 	int a = {0};
 	int b = {0};
 	char* f = {0};

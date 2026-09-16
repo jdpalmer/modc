@@ -1,5 +1,5 @@
 char* g = "hello";
 
-int main(void) {
+int main() {
 	return g[0];
 }

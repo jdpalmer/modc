@@ -22,34 +22,34 @@ int garr[6] = {
 int gsparse[5] = {
 	[1] = 7,[3] = 9 };
 
-int dot_x(void) {
+int dot_x() {
 	return gdot.x;
 }
 
-int dot_y(void) {
+int dot_y() {
 	return gdot.y;
 }
 
-int rect_min_x(void) {
+int rect_min_x() {
 	return grect.min.x;
 }
 
-int rect_max_y(void) {
+int rect_max_y() {
 	return grect.max.y;
 }
 
-int arr0(void) {
+int arr0() {
 	return garr[0];
 }
 
-int arr5(void) {
+int arr5() {
 	return garr[5];
 }
 
-int sparse1(void) {
+int sparse1() {
 	return gsparse[1];
 }
 
-int sparse3(void) {
+int sparse3() {
 	return gsparse[3];
 }

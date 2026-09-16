@@ -4,7 +4,7 @@ void take_ranged(char[..] x) {
 	(void)x;
 }
 
-int strlen_local(void) {
+int strlen_local() {
 	char[..] name = { 0 };
 	int n = { 0 };
 	name = "James";
@@ -15,11 +15,11 @@ int strlen_local(void) {
 	return 1;
 }
 
-int strlen_temp(void) {
+int strlen_temp() {
 	return (int)strlen("Isaac");
 }
 
-int pass_ranged(void) {
+int pass_ranged() {
 	char[..] name = { 0 };
 	name = "James";
 	take_ranged(name);
@@ -27,7 +27,7 @@ int pass_ranged(void) {
 	return 1;
 }
 
-int mutable_ok(void) {
+int mutable_ok() {
 	char buf[8] = { 0 };
 	char[..] view = { 0 };
 	buf[0] = 'a';

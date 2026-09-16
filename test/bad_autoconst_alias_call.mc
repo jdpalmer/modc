@@ -10,7 +10,7 @@ void alias_then_mutate(char* p) {
 	mutate(q);
 }
 
-int main(void) {
+int main() {
 	alias_then_mutate("nope");
 	return 0;
 }

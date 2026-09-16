@@ -49,7 +49,7 @@ static bool str_is_space(char c) {
 }
 
 // Empty view (zero length; ptr is NULL).
-char[..] str_empty(void) {
+char[..] str_empty() {
 	return ranged((char*)0, 0);
 }
 

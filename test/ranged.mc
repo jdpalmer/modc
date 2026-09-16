@@ -14,7 +14,7 @@ int[..] id_ranged(int[..] s) {
 	return s;
 }
 
-int from_array(void) {
+int from_array() {
 	int a[4] = { 0 };
 	int[..] s = { 0 };
 	a[0] = 1;
@@ -31,7 +31,7 @@ int from_array(void) {
 	return sum_elems(s);
 }
 
-int from_ptr(void) {
+int from_ptr() {
 	int a[3] = { 0 };
 	int[..] s = { 0 };
 	a[0] = 10;
@@ -44,7 +44,7 @@ int from_ptr(void) {
 	return sum_elems(s);
 }
 
-int from_scratch(void) {
+int from_scratch() {
 	int a[4] = { 0 };
 	int[..] s = { 0 };
 	s = ranged(a, 0, 4);
@@ -60,7 +60,7 @@ int from_scratch(void) {
 	return sum_elems(s);
 }
 
-int index_write(void) {
+int index_write() {
 	int a[2] = { 0 };
 	int[..] s = { 0 };
 	a[0] = 0;
@@ -71,7 +71,7 @@ int index_write(void) {
 	return a[0] + a[1];
 }
 
-int roundtrip(void) {
+int roundtrip() {
 	int a[2] = { 0 };
 	int[..] s = { 0 };
 	int[..] t = { 0 };
@@ -82,11 +82,11 @@ int roundtrip(void) {
 	return t[0] + t[1];
 }
 
-int ranged_size(void) {
+int ranged_size() {
 	return sizeof(int[..]);
 }
 
-int from_string(void) {
+int from_string() {
 	char[..] s = { 0 };
 	s = "hi";
 	if (len(s) != 2 || cap(s) != 2) {
@@ -98,19 +98,19 @@ int from_string(void) {
 	return 1;
 }
 
-int len_fixed(void) {
+int len_fixed() {
 	int a[5] = { 0 };
 	return (int)len(a);
 }
 
-int len_ranged(void) {
+int len_ranged() {
 	int a[3] = { 0 };
 	int[..] s = { 0 };
 	s = a;
 	return (int)len(s);
 }
 
-int cap_ranged(void) {
+int cap_ranged() {
 	int a[3] = { 0 };
 	int[..] s = { 0 };
 	int[..] t = { 0 };

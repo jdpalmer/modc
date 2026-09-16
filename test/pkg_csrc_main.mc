@@ -1,5 +1,5 @@
 import "pkg_csrc";
 
-int main(void) {
+int main() {
 	return pkg_add_one(41) == 42 ? 0: 1;
 }

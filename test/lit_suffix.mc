@@ -2,43 +2,43 @@
 
 /* Literal suffixes: s/us/u/l/ul/f; case; no ll. */
 
-int suf_short(void) {
+int suf_short() {
 	short a = { 0 };
 	a = 7s;
 	return a == 7 ? 0: 1;
 }
 
-int suf_ushort(void) {
+int suf_ushort() {
 	unsigned short a = { 0 };
 	a = 9us;
 	return a == 9 ? 0: 1;
 }
 
-int suf_uint(void) {
+int suf_uint() {
 	unsigned int a = { 0 };
 	a = 3u;
 	return a == 3 ? 0: 1;
 }
 
-int suf_long(void) {
+int suf_long() {
 	int64_t a = { 0 };
 	a = 5l;
 	return a == 5 && sizeof(a) == 8 ? 0: 1;
 }
 
-int suf_ulong(void) {
+int suf_ulong() {
 	uint64_t a = { 0 };
 	a = 6ul;
 	return a == 6 ? 0: 1;
 }
 
-int suf_lu(void) {
+int suf_lu() {
 	uint64_t a = { 0 };
 	a = 6lu;
 	return a == 6 ? 0: 1;
 }
 
-int suf_case(void) {
+int suf_case() {
 	unsigned int a = { 0 };
 	short b = { 0 };
 	a = 4U;
@@ -46,7 +46,7 @@ int suf_case(void) {
 	return a == 4 && b == 2 ? 0: 1;
 }
 
-int suf_float(void) {
+int suf_float() {
 	float a = { 0 };
 	double b = { 0 };
 	a = 1.5f;
@@ -54,19 +54,19 @@ int suf_float(void) {
 	return a == 1.5f && b == 2.5 ? 0: 1;
 }
 
-int suf_int_f(void) {
+int suf_int_f() {
 	float a = { 0 };
 	a = 12f;
 	return a == 12.0f ? 0: 1;
 }
 
-int suf_bin_u(void) {
+int suf_bin_u() {
 	unsigned int a = { 0 };
 	a = 0b1010u;
 	return a == 10 ? 0: 1;
 }
 
-int suf_types(void) {
+int suf_types() {
 	short a = { 0 };
 	unsigned short b = { 0 };
 	unsigned int c = { 0 };

@@ -4,7 +4,7 @@
 	return (x, true);
 }
 
-int ok(void) {
+int ok() {
 	auto (v, b) = maybe(1);
 	(void)maybe(2);
 	(void)b;

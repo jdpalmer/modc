@@ -1,6 +1,6 @@
 /* String-literal array bounds use decoded size, not source escape spelling. */
 
-int str_escape_len_run(void) {
+int str_escape_len_run() {
 	char esc[4] = "\x1b[K";
 	if (len("\x1b[K") != 4) {
 		return 1;

@@ -11,7 +11,7 @@ typedef struct UndoGroup {
 }
 UndoGroup;
 
-int nest_aggr_arr_run(void) {
+int nest_aggr_arr_run() {
 	UndoGroup g = { 0 };
 	g.n = 3;
 	g.items[0].kind = 1;

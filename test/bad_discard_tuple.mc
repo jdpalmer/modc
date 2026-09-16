@@ -4,6 +4,6 @@
 	return (x, true);
 }
 
-void bad(void) {
+void bad() {
 	maybe(1);
 }

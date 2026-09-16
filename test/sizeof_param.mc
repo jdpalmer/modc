@@ -1,6 +1,6 @@
 /* sizeof on a real array or pointer param is fine; array params decay. */
 
-int sizeof_local(void) {
+int sizeof_local() {
 	int a[4] = { 0 };
 	return sizeof(a);
 }

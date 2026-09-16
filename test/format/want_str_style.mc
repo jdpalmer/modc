@@ -16,7 +16,7 @@ char[..] sub(char[..] s, size_t lo, size_t hi) {
 	return (false, hay[0 .. 0]);
 }
 
-int demo(void) {
+int demo() {
 	auto (ok, hit) = find("ab", "a");
 	char[..]* rest;
 	char[..] s = *rest;

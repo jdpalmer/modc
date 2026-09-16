@@ -27,7 +27,7 @@ overload void take_int(int[..] x) {
 	(void)x;
 }
 
-int test_fixed(void) {
+int test_fixed() {
 	char buf[8] = { 0 };
 	char[..] s = { 0 };
 	s = "hi";
@@ -40,7 +40,7 @@ int test_fixed(void) {
 	return 0;
 }
 
-int test_literal(void) {
+int test_literal() {
 	char buf[8] = { 0 };
 	if (write_buf(buf, "ab") != 2) {
 		return 1;
@@ -51,14 +51,14 @@ int test_literal(void) {
 	return 0;
 }
 
-int test_sizing(void) {
+int test_sizing() {
 	if (write_cap(NULL, "abc", 0) != 3) {
 		return 1;
 	}
 	return 0;
 }
 
-int test_int_ranged(void) {
+int test_int_ranged() {
 	int a[4] = { 0 };
 	take_int(a);
 	return 0;

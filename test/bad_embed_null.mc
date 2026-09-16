@@ -11,6 +11,6 @@ int take(Transform t) {
 	return t.x;
 }
 
-int bad(void) {
+int bad() {
 	return take((Entity *)0);
 }

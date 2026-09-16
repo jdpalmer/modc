@@ -4,6 +4,6 @@ int add(int a, int b) {
 }
 
 // not exported
-static int hide(void) {
+static int hide() {
 	return 0;
 }

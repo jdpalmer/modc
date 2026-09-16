@@ -32,7 +32,7 @@ int xform_sum_val(Transform t) {
 	return t.x + t.y;
 }
 
-int via_call(void) {
+int via_call() {
 	Entity e = { 0 };
 	e.id = 7;
 	e.x = 3;
@@ -40,7 +40,7 @@ int via_call(void) {
 	return xform_sum(&e) == 7 && e.id == 7;
 }
 
-int via_assign(void) {
+int via_assign() {
 	Entity e = { 0 };
 	Transform* p = { 0 };
 	e.id = 1;
@@ -50,7 +50,7 @@ int via_assign(void) {
 	return p.x == 10 && p.y == 20;
 }
 
-int via_nested(void) {
+int via_nested() {
 	Outer o = { 0 };
 	o.tag = 9;
 	o.x = 2;
@@ -58,7 +58,7 @@ int via_nested(void) {
 	return xform_sum(&o) == 7 && o.tag == 9;
 }
 
-int named_no_upcast_compiles_field(void) {
+int named_no_upcast_compiles_field() {
 	Named n = { 0 };
 	n.id = 1;
 	n.t.x = 2;
@@ -66,7 +66,7 @@ int named_no_upcast_compiles_field(void) {
 	return xform_sum(&n.t) == 5;
 }
 
-int via_value_call(void) {
+int via_value_call() {
 	Entity e = { 0 };
 	e.id = 7;
 	e.x = 3;
@@ -74,7 +74,7 @@ int via_value_call(void) {
 	return xform_sum_val(e) == 7 && e.id == 7;
 }
 
-int via_value_assign(void) {
+int via_value_assign() {
 	Entity e = { 0 };
 	Transform t = { 0 };
 	e.id = 1;
@@ -84,7 +84,7 @@ int via_value_assign(void) {
 	return t.x == 10 && t.y == 20;
 }
 
-int via_value_nested(void) {
+int via_value_nested() {
 	Outer o = { 0 };
 	o.tag = 9;
 	o.x = 2;
@@ -92,7 +92,7 @@ int via_value_nested(void) {
 	return xform_sum_val(o) == 7 && o.tag == 9;
 }
 
-int via_ptr_value(void) {
+int via_ptr_value() {
 	Entity e = { 0 };
 	Entity* p = { 0 };
 	e.id = 1;

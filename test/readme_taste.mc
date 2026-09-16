@@ -17,7 +17,7 @@ double dist2(Point* p) {
 	return p.x * p.x + p.y * p.y;
 }
 
-int main(void) {
+int main() {
 	Particle* particles = { 0 };
 	double system_mass = { 0 };
 	particles = malloc(100 * sizeof(Particle));

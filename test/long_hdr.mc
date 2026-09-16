@@ -1,6 +1,6 @@
 #include "long_hdr.h"
 
-int long_hdr_ok(void) {
+int long_hdr_ok() {
 	if (header_long_size() != 8 && header_long_size() != 4) {
 		return 1;
 	}

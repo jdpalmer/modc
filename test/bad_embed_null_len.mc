@@ -3,6 +3,6 @@ typedef struct Buf {
 }
 Buf;
 
-int bad(void) {
+int bad() {
 	return (int)len((Buf *)0);
 }

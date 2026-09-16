@@ -15,7 +15,7 @@ struct Pair {
 	int32_t y;
 };
 
-int host_headers(void) {
+int host_headers() {
 	size_t off = { 0 };
 	int32_t a = { 0 };
 	uint64_t b = { 0 };

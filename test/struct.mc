@@ -20,7 +20,7 @@ int setpt(Point* p, int x, int y) {
 	return p.x + p.y;
 }
 
-int localpt(void) {
+int localpt() {
 	Point p = { 0 };
 	p.x = 3;
 	p.y = 4;
@@ -37,7 +37,7 @@ int sumarr(int* a, int n) {
 	return s;
 }
 
-int sumlocal(void) {
+int sumlocal() {
 	int a[4] = { 0 };
 	int i = { 0 };
 	int s = { 0 };

@@ -1,2 +1,2 @@
-void log_ping(void) {
+void log_ping() {
 }

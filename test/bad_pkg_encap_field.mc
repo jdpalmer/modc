@@ -1,6 +1,6 @@
 import "pkg_encap";
 
-int main(void) {
+int main() {
 	Window w = { 0 };
 	w.id = 1;
 	w.widget = 0;

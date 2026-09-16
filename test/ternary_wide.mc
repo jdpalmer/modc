@@ -5,7 +5,7 @@ int64_t pick(int c, int64_t x) {
 	return c ? x: 0;
 }
 
-int ternary_wide_run(void) {
+int ternary_wide_run() {
 	int x = { 1 };
 	int c = { 1 };
 	if ((int)pick(1, 5) != 5) {

@@ -16,13 +16,13 @@ int callstar(int(*fp)(int, int), int a, int b) {
 	return (*fp)(a, b);
 }
 
-int via_local(void) {
+int via_local() {
 	int(*fp)(int, int) = { 0 };
 	fp = add;
 	return fp(20, 22);
 }
 
-int via_addr(void) {
+int via_addr() {
 	int(*fp)(int, int) = { 0 };
 	fp = &add;
 	return (*fp)(10, 32);

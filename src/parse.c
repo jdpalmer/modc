@@ -825,7 +825,12 @@ parse_param_list(Compiler* c, Type* ret) {
 	n = 0;
 	va = 0;
 	if (atkw(c, KwVoid) && peekn(c, 1)->kind == TkPunct && peekn(c, 1)->punct == PnRparen) {
+		Span sp;
+
+		sp = peek(c)->span;
 		take(c);
+		if (user_source(c, sp))
+			error_at(c, sp, "%%C uses () for an empty parameter list; remove void");
 		return type_func(c, ret, NULL, 0, 0);
 	}
 	if (at(c, PnRparen))

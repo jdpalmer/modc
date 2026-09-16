@@ -2,6 +2,6 @@
 
 #include <net/if.h>
 
-int inc_kw_path_run(void) {
+int inc_kw_path_run() {
 	return INC_KW_OK == 7 ? 0: 1;
 }

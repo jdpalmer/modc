@@ -61,6 +61,6 @@
 #define CMT_OK 0
 #endif
 
-int pp_if_result(void) {
+int pp_if_result() {
 	return IF1 + IF0 + IFDEF_OK + ELIF_OK + EXPR_OK + NEST + OR_OK + AND_SKIP + CMT_OK;
 }

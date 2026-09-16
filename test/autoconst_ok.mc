@@ -4,7 +4,7 @@ static void sink(char* p) {
 	(void)p;
 }
 
-int autoconst_ok(void) {
+int autoconst_ok() {
 	char buf[8] = { 0 };
 	char* p = { 0 };
 	if (hdr_strlen("hi") != 2) {

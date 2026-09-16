@@ -1,6 +1,6 @@
 /* Arrays of arrays (nested fixed-size arrays) are supported. */
 
-int get22(void) {
+int get22() {
 	int a[2][3] = { 0 };
 	a[0][0] = 1;
 	a[0][1] = 2;

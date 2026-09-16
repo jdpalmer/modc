@@ -11,7 +11,7 @@ int take(Transform t) {
 	return t.x;
 }
 
-int bad(void) {
+int bad() {
 	Amb a = { 0 };
 	a.x = 1;
 	return take(a);

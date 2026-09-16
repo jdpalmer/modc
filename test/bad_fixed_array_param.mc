@@ -2,7 +2,7 @@ int sum8(int a[8]) {
 	return a[0];
 }
 
-int bad(void) {
+int bad() {
 	int b[5] = { 0 };
 	b[0] = 1;
 	b[1] = 2;

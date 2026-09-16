@@ -1,4 +1,4 @@
-int bad(void) {
+int bad() {
 	int x = 0;
 	return 0;
 }

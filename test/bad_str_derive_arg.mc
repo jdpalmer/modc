@@ -8,7 +8,7 @@ static void pass_offset(char* p) {
 	write_byte(p + 1);
 }
 
-int main(void) {
+int main() {
 	pass_offset("ab");
 	return 0;
 }
