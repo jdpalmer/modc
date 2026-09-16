@@ -1781,15 +1781,45 @@ type_expr_call(Compiler* c, Node* n) {
 	return n;
 }
 
+static int
+is_tagged_enum(Type* t) {
+	return t && t->kind == TyEnum && t->tag;
+}
+
+// Tagged enums compare only with their own type and do not support arithmetic.
+static void
+check_enum_binop(Compiler* c, Node* n, Type* lt, Type* rt) {
+	int cmp;
+
+	if (!user_source(c, n->span) || (!is_tagged_enum(lt) && !is_tagged_enum(rt)))
+		return;
+	if (n->op == PnAmpAmp || n->op == PnPipePipe)
+		return; /* Keep existing scalar truthiness rules. */
+	cmp = n->op == PnEqEq || n->op == PnBangEq || n->op == PnLt ||
+	      n->op == PnGt || n->op == PnLe || n->op == PnGe;
+	if (cmp) {
+		if (!is_tagged_enum(lt) || !is_tagged_enum(rt) || !type_eq(lt, rt))
+			error_at(c, n->span,
+				 "enum comparison requires operands of the same enum type; cast explicitly");
+		return;
+	}
+	error_at(c, n->span, "operator '%s' is not allowed on an enum; cast explicitly",
+		 punct_spell(n->op));
+}
+
 // Type-check binary operators: usual arithmetic, pointers, comparisons, shifts.
 static Node*
 type_expr_bin(Compiler* c, Node* n) {
 	Type *lt, *rt;
+	int enum_chk;
 
+	enum_chk = n->type == NULL;
 	n->a = type_expr(c, n->a);
 	n->b = type_expr(c, n->b);
 	lt = n->a ? decay(c, n->a->type) : NULL;
 	rt = n->b ? decay(c, n->b->type) : NULL;
+	if (enum_chk)
+		check_enum_binop(c, n, lt, rt);
 	if (n->op == PnPlus) {
 		if (is_ptr(lt) && is_int(rt)) {
 			if (n->type == NULL)
@@ -1832,14 +1862,20 @@ type_expr_bin(Compiler* c, Node* n) {
 // Type-check compound and simple assignment with conversions and side checks.
 static Node*
 type_expr_assign(Compiler* c, Node* n) {
-	int shift_chk, void_arith_chk;
+	int enum_chk, shift_chk, void_arith_chk;
 
+	enum_chk = n->type == NULL;
 	shift_chk = (n->op == PnShlEq || n->op == PnShrEq) && n->type == NULL;
 	void_arith_chk = (n->op == PnPlusEq || n->op == PnMinusEq) && n->type == NULL;
 	n->a = type_expr(c, n->a);
 	n->b = type_expr(c, n->b);
 	n->type = n->a ? n->a->type : c->type_int;
 	n->is_lvalue = 0;
+	if (enum_chk && n->op != PnEq && user_source(c, n->span) &&
+	    ((n->a && is_tagged_enum(n->a->type)) ||
+	     (n->b && is_tagged_enum(n->b->type))))
+		error_at(c, n->span,
+			 "compound assignment with an enum operand is not allowed; cast explicitly");
 	if (n->a && n->a->type) {
 		n->b = apply_implicit_conversions(c, n->a->type, n->b);
 		check_implicit_conv(c, n->span, n->a->type, n->b);
@@ -1974,6 +2010,11 @@ Node* type_expr(Compiler* c, Node* n) {
 			n->type = c->type_bool;
 			return n;
 		}
+		if (n->type == NULL && n->a && is_tagged_enum(n->a->type) &&
+		    user_source(c, n->span))
+			error_at(c, n->span,
+				 "operator '%s' is not allowed on an enum; cast explicitly",
+				 punct_spell(n->op));
 		if (n->op == PnPlusPlus || n->op == PnMinusMinus) {
 			if (n->type == NULL && n->a)
 				reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
@@ -1985,6 +2026,11 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	case NdPost:
 		n->a = type_expr(c, n->a);
+		if (n->type == NULL && n->a && is_tagged_enum(n->a->type) &&
+		    user_source(c, n->span))
+			error_at(c, n->span,
+				 "operator '%s' is not allowed on an enum; cast explicitly",
+				 punct_spell(n->op));
 		if (n->type == NULL && n->a && (n->op == PnPlusPlus || n->op == PnMinusMinus))
 			reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
 		n->type = n->a ? n->a->type : c->type_int;
@@ -2091,7 +2137,16 @@ Node* type_expr(Compiler* c, Node* n) {
 		n->c = type_expr(c, n->c);
 		lt = n->b ? decay(c, n->b->type) : NULL;
 		rt = n->c ? decay(c, n->c->type) : NULL;
-		if (lt && rt && is_arith(lt) && is_arith(rt))
+		if (is_tagged_enum(lt) || is_tagged_enum(rt)) {
+			if (is_tagged_enum(lt) && is_tagged_enum(rt) && type_eq(lt, rt))
+				n->type = lt;
+			else {
+				if (n->type == NULL && user_source(c, n->span))
+					error_at(c, n->span,
+						 "conditional enum arms require the same enum type; cast explicitly");
+				n->type = usual_arith(c, lt, rt);
+			}
+		} else if (lt && rt && is_arith(lt) && is_arith(rt))
 			n->type = usual_arith(c, lt, rt);
 		else if (lt)
 			n->type = lt;

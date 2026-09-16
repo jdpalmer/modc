@@ -12,7 +12,7 @@ enum Color {
 };
 
 static_assert(sizeof(Point) == 8, "Point layout");
-static_assert(COLOR_BLUE == 2);
+static_assert((int)COLOR_BLUE == 2);
 _Static_assert(1 + 1 == 2, "arith");
 
 int in_block(void) {

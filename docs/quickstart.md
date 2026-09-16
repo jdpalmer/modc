@@ -282,6 +282,8 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **First-Class Struct Tags**: Struct, union, and enum tags act directly as type names in user code (`Point p = {0};`), eliminating the need for `struct` prefixes.
 
+- **Distinct Tagged Enums**: Integers and other enum types do not implicitly convert to a tagged enum. Comparisons and conditional-expression arms require the same enum type; arithmetic, bitwise, increment, and compound-assignment operators require an explicit integer cast. Enum values widen to integers for C interoperability, and an explicit cast converts an integer back. Anonymous enum constants remain ordinary integers and are the preferred form for flags and numeric constants.
+
 - **Predictable Integer Types**: The `char` type is explicitly unsigned and 8-bit wide. Standard 64-bit integers use `int64_t`, while `long` is reserved for host ABI compatibility in foreign headers.
 
 - **Single Declarations**: Multiple variable declarations on a single line (such as `int a, b;`) are prohibited, with an exception for tuple destructuring syntax.
