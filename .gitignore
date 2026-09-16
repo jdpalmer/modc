@@ -23,6 +23,7 @@ dist/
 *.out
 *.q
 y.output
+tags.json
 
 # Compiler binary
 /modc
