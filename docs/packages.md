@@ -163,7 +163,7 @@ str_eq(out, "part");
 
 Mutator operations should be methods on pointer types (`T *`), whereas readers accept values (`str_eq(s, ...)`). See `arena/mod.mc` and `test/arena_pkg.mc` for canonical examples.
 
-For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, view)` or `a.z(view)` for NUL-terminated copies. Convert foreign C strings (`char *`) via `str_from_cstr` and `str_eq_cstr`. See [quickstart.md](quickstart.md) and [arrays.md](arrays.md).
+For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `char[..]`: `char[..] s = "..."` or pass `"..."` into APIs that take `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, view)` or `a.z(view)` for NUL-terminated copies. See [quickstart.md](quickstart.md) and [arrays.md](arrays.md).
 
 ## How imports resolve
 

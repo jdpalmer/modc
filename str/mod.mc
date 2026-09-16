@@ -10,6 +10,8 @@
 //   str_from_cstr(NULL) and str_eq_cstr(a, NULL) treat NULL C strings as empty.
 //
 // API: char[..] / str_* — read, slice, compare, split, trim; *_cstr reads char*.
+//      Prefer char[..] / non-*_cstr for string literals (str_eq(s, "x"));
+//      str_from_cstr / *_cstr are for foreign NUL-terminated char*.
 //      cstr_* — write into caller char[N] (NUL-terminated C boundary).
 //
 // Export: cstr_write(buf, view) on fixed char[N]; cstr_zlen(buf) / cstr_reset(buf) same.

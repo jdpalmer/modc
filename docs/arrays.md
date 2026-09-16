@@ -188,6 +188,8 @@ view[0] = 'x';          /* ok: mutates buf[0] */
 
 Attempting to pass a literal-backed `char[..]` to a function expecting a mutable `char *` parameter is caught by auto-const analysis regardless of whether `name` or `ptr(name)` is supplied.
 
+For string literals, prefer `char[..]` rather than wrapping with `str_from_cstr`. Bind `char[..] s = "..."` or pass `"..."` where a `char[..]` parameter is expected. Use `str_eq(a, "x")` and `str_starts_with(s, "pre")` (and other non-`*_cstr` helpers); reserve `str_from_cstr` / `*_cstr` for foreign NUL-terminated `char *` values. See [packages.md](packages.md) and `str/mod.mc`.
+
 ## Quick Reference
 
 | **Operational Need**                         | **Recommended Type / Construct**                      |
@@ -196,14 +198,14 @@ Attempting to pass a literal-backed `char[..]` to a function expecting a mutable
 | **Unbounded C API Boundary**                 | Open array `T[]` or raw pointer `T *`                 |
 | **Safe Pointer + Length Pair**               | Opaque `T[..]`, `ranged(p, n)`, `ranged(p, len, cap)`, `len()` / `cap()` / `ptr()` |
 | **C String Integration (`strlen`/`printf`)** | `char[..]` (decays to `ptr(s)`; verify NUL termination) |
-| **Literal Text Management**                  | `char[..] = "..."` or `char *` managed by auto-const  |
+| **Literal Text Management**                  | `char[..] = "..."` (prefer over `str_from_cstr("...")`); auto-const tracks immutability |
 | **Subrange Slicing**                         | Syntax forms `s[lo..hi]`, `s[lo..]`, or `s[..hi]`     |
 
 
 
 ## Standard Library Packages
 
-The standard library includes two essential packages for working with string views and memory. Importing `str` (`import "str";`) provides non-owning utilities for `char[..]` views, including safe buffer writes to fixed `char[N]` targets via `cstr_write(buf, view)`, string splitting with `str_split_once`, trimming, chomping, comparisons, and numeric parsing via `str_to_long`. It also supports substring searching through `str_find` and `str_ifind`, which return `(bool, char[..])` tuples where an empty needle matches at position zero. Full definitions are located in `str/mod.mc`.
+The standard library includes two essential packages for working with string views and memory. Importing `str` (`import "str";`) provides non-owning utilities for `char[..]` views, including safe buffer writes to fixed `char[N]` targets via `cstr_write(buf, view)`, string splitting with `str_split_once`, trimming, chomping, comparisons, and numeric parsing via `str_to_long`. It also supports substring searching through `str_find` and `str_ifind`, which return `(bool, char[..])` tuples where an empty needle matches at position zero. Prefer `char[..]` and non-`*_cstr` APIs for literals (`str_eq(s, "ok")`); use `str_from_cstr` / `*_cstr` only for foreign `char *`. Full definitions are located in `str/mod.mc`.
 
 Similarly, importing `arena` (`import "arena";`) introduces bump allocation. This package handles memory copying and concatenation using `a.copy`, `a.join`, and `a.replace`, incremental growth via `a.append` / `a.append_byte` (assign the returned view), and NUL-terminated C string allocations with `a.z`. Full definitions are located in `arena/mod.mc`.
 
