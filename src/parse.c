@@ -588,7 +588,7 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	int nlong, nshort, nsigned, nunsigned, nint, nchar, nvoid, nfloat, ndouble, nbool;
 	Type* t;
 	Symbol* s;
-	Span signed_sp, long_sp;
+	Span signed_sp, unsigned_sp, long_sp;
 
 	pending_pointee_const = 0;
 	*storage = StNone;
@@ -596,6 +596,7 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	nlong = nshort = nsigned = nunsigned = 0;
 	nint = nchar = nvoid = nfloat = ndouble = nbool = 0;
 	signed_sp.file = NULL;
+	unsigned_sp.file = NULL;
 	long_sp.file = NULL;
 	t = NULL;
 	for (;;) {
@@ -676,7 +677,10 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 			*saw_type = 1;
 			continue;
 		}
-		if (eatkw(c, KwUnsigned)) {
+		if (atkw(c, KwUnsigned)) {
+			if (unsigned_sp.file == NULL)
+				unsigned_sp = peek(c)->span;
+			take(c);
 			nunsigned++;
 			*saw_type = 1;
 			continue;
@@ -760,7 +764,10 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 		if (nsigned && user_source(c, signed_sp.file ? signed_sp : peek(c)->span))
 			error_at(c, signed_sp.file ? signed_sp : peek(c)->span,
 				 "%%C char is unsigned; signed char is not allowed");
-		/* char and unsigned char are the same type */
+		if (nunsigned && user_source(c, unsigned_sp.file ? unsigned_sp : peek(c)->span))
+			error_at(c, unsigned_sp.file ? unsigned_sp : peek(c)->span,
+				 "%%C char is already unsigned; use char, not unsigned char");
+		/* Header `unsigned char` maps to %C char. */
 		return c->type_char;
 	}
 	if (nshort)

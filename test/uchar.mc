@@ -13,7 +13,7 @@ int hi_byte_as_int(void) {
 }
 
 int uchar_alias(void) {
-	unsigned char u = { 0 };
+	char u = { 0 };
 	char c = { 0 };
 	u = 0xAB;
 	c = u;
