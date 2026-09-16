@@ -172,15 +172,19 @@ When resolving `import "a/b";`, the compiler searches package roots in order unt
 1. **Relative to the importer:** looks for `dirname(importer)/a/b/` or
    `dirname(importer)/a/b.mc`.
 
-2. **Vendored tree walk:** traverses parent directories searching for
+2. **Project root:** looks under the nearest ancestor containing `modc.ini`,
+   or under the build entry's directory when there is no manifest. This makes
+   project packages available without passing `-M .`.
+
+3. **Vendored tree walk:** traverses parent directories searching for
    `vendor/a/b/` or `vendor/a/b.mc`. When importing vendored packages, write
    `import "math"` rather than `import "vendor/math"`.
 
-3. **Explicit paths:** directories supplied via `-M dir` flags or the
+4. **Explicit paths:** directories supplied via `-M dir` flags or the
    `MODC_PATH` environment variable (colon-separated), checked as `dir/a/b` or
    `dir/a/b.mc`.
 
-4. **Standard library:** the installation package root (containing `str`,
+5. **Standard library:** the installation package root (containing `str`,
    `arena`, etc.), checking `MODC_PKG` first, then `$PREFIX/lib/modc/pkg`
    adjacent to the binary, and finally the compiler repository build root.
 
@@ -337,9 +341,12 @@ Most day-to-day commands already understand packages. `modc vendor` resolves
 `modc.ini` into `modc.lock` and `vendor/`. `modc check file.mc` resolves
 imports and type-checks the graph. `modc build` (with a file, a directory, or
 `.` by default) compiles the root plus its packages, applies `c_libs` /
-frameworks, and links; directory roots omit `*_test.mc`. `modc clean` removes
+frameworks, and links; directory roots omit `*_test.mc`. The project root is
+inferred automatically, so the usual project command is simply `modc build`;
+`-M .` remains accepted but is redundant. `modc clean` removes
 `.modc-cache/` for that project. `modc test` discovers `*_test.mc` files and
-builds them with the usual `-M` / `import` rules—see [modc-test.md](modc-test.md).
+builds them with the usual project-root / `import` rules—see
+[modc-test.md](modc-test.md).
 `modc doc` extracts package API docs from comments above non-`static`
 declarations ([modc-doc.md](modc-doc.md)), and `modc format` rewrites `.mc` files in
 place ([modc-format.md](modc-format.md)). `modc emit` still emits QBE for one translation

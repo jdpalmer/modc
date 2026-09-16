@@ -198,11 +198,14 @@ When resolving an `import` statement, the compiler uses a first-match-wins searc
 
 1. The directory containing the importing source file
 
-2. Parent directories walking upward through local `vendor/` folders
+2. The project root (the nearest parent containing `modc.ini`, or the build
+   entry's directory when there is no manifest)
 
-3. Standard search paths specified via `-M` flags or the `MODC_PATH` environment variable
+3. Parent directories walking upward through local `vendor/` folders
 
-4. The system library root (such as `lib/modc/pkg` or the in-tree library directory)
+4. Standard search paths specified via `-M` flags or the `MODC_PATH` environment variable
+
+5. The system library root (such as `lib/modc/pkg` or the in-tree library directory)
 
 An imported path can refer either to a single `.mc` file or to a directory containing multiple `.mc` files (where `mod.mc` is loaded first, if present). When importing vendored dependencies, write `import "math";` for a module located at `vendor/math/` rather than including the `vendor/` prefix in the import path.
 

@@ -148,6 +148,8 @@ check-special: $(MODC)
 	$(BUILD)/cli_dirbuild-bin
 	./modc build test/cli_dirbuild_imp -o $(BUILD)/cli_dirbuild_imp-bin
 	$(BUILD)/cli_dirbuild_imp-bin
+	./modc build test/project_root/cmd/app -o $(BUILD)/project-root-bin
+	$(BUILD)/project-root-bin
 	@rm -f $(BUILD)/cli_build $(BUILD)/cli_dirbuild
 	./modc build test/cli_build.mc && test -x cli_build && mv cli_build $(BUILD)/cli_build-default
 	$(BUILD)/cli_build-default

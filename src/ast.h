@@ -463,6 +463,7 @@ struct Compiler {
 
 	char** pkgpaths; /* -M (explicit); MODC_PATH is env-only in resolve */
 	int pkgpaths_len;
+	char project_root[1024]; /* nearest modc.ini, else entry directory */
 	char* modc_pkg; /* stdlib package root: install or in-tree */
 	char** c_libs; /* #pragma modc c_libs */
 	int c_libs_len;

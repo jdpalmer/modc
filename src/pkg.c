@@ -322,13 +322,16 @@ try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 	return 0;
 }
 
-// Resolve import "spec" relative to from_file, vendor/, -M, MODC_PATH, then modc_pkg.
+// Resolve import "spec" relative to from_file, the project root, vendor/,
+// -M, MODC_PATH, then modc_pkg.
 static int
 resolve_import(Compiler* c, const char* spec, const char* from_file, char* out, size_t out_len) {
 	char basedir[1024], cur[1024], vendor[1024];
 
 	dirname_copy(from_file, basedir, sizeof(basedir));
 	if (try_pkg_at(basedir, spec, out, out_len))
+		return 0;
+	if (c->project_root[0] && try_pkg_at(c->project_root, spec, out, out_len))
 		return 0;
 
 	snprintf(cur, sizeof(cur), "%s", basedir);
@@ -635,6 +638,8 @@ int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n) {
 	int nsrcs, i;
 
 	memset(&d, 0, sizeof(d));
+	c->project_root[0] = 0;
+	cache_project_root(root, c->project_root, sizeof(c->project_root));
 	srcs = NULL;
 	nsrcs = 0;
 	if (list_sources(root, &srcs, &nsrcs)) {
