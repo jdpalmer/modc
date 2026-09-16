@@ -125,19 +125,19 @@ check-special: $(MODC)
 	@printf '%s\n' 'import "leaf";' '' 'int main(void) {' '	return leaf_add(21, 21) == 42 ? 0: 1;' '}' > test/cache_two/main.mc
 	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two3.log
 	@grep -q 'cache hit pkg leaf' $(BUILD)/cache_two3.log
-	@grep -q 'cache miss pkg cache_two' $(BUILD)/cache_two3.log
+	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two3.log
 	$(BUILD)/cache_two
 	@printf '%s\n' 'import "leaf";' '' 'int main(void) {' '	return leaf_add(20, 22) == 42 ? 0: 1;' '}' > test/cache_two/main.mc
 	./modc build test/cache_two/main.mc -o $(BUILD)/cache_two >/dev/null
 	@printf '%s\n' 'int leaf_add(int a, int b) {' '	return a + b;' '}' '' 'static int leaf_priv(void) {' '	return 2;' '}' > test/cache_two/leaf/mod.mc
 	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two5.log
 	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two5.log
-	@grep -q 'cache hit pkg cache_two' $(BUILD)/cache_two5.log
+	@grep -q 'cache hit pkg main_mc' $(BUILD)/cache_two5.log
 	$(BUILD)/cache_two
 	@printf '%s\n' 'int leaf_add(int a, int b) {' '	return a + b;' '}' '' 'int leaf_extra(void) {' '	return 0;' '}' '' 'static int leaf_priv(void) {' '	return 1;' '}' > test/cache_two/leaf/mod.mc
 	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two4.log
 	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two4.log
-	@grep -q 'cache miss pkg cache_two' $(BUILD)/cache_two4.log
+	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two4.log
 	@printf '%s\n' 'int leaf_add(int a, int b) {' '	return a + b;' '}' '' 'static int leaf_priv(void) {' '	return 1;' '}' > test/cache_two/leaf/mod.mc
 	./modc clean -v test/cli_build.mc 2>&1 | tee $(BUILD)/cache_clean.log
 	@grep -q 'modc clean: removed' $(BUILD)/cache_clean.log
@@ -165,7 +165,7 @@ ifeq ($(shell uname -s),Darwin)
 endif
 	@env -u MODC_NO_SYSTEM_INCLUDES -u MODC_SYSINCLUDE ./modc check -v test/add.mc 2>&1 | grep -q 'system include:'
 	@./modc check test/sys_include.mc >$(BUILD)/bad_nosys.out 2>&1; test $$? -ne 0
-	@grep -Fq 'cannot find include file unistd.h' $(BUILD)/bad_nosys.out
+	@grep -Fq 'cannot find include file modc_system_probe.h' $(BUILD)/bad_nosys.out
 	./modc help build > /dev/null
 	./modc --version > /dev/null
 	./modc check test/testdriver
