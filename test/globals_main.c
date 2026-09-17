@@ -3,6 +3,7 @@ void set_g(int);
 int get_gi(void);
 int bump_s(void);
 int global_ptrs(void);
+int global_floats(void);
 int first_char(void);
 int str_len3(void);
 
@@ -22,6 +23,8 @@ main(void)
 		return 5;
 	if(!global_ptrs())
 		return 6;
+	if(!global_floats())
+		return 9;
 	if(first_char() != 'h')
 		return 7;
 	if(str_len3() != 'a' + 'b' + 'c')

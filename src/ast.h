@@ -593,6 +593,7 @@ char qbe_class(Type* t); /* 'w'/'l'/'s'/'d' or '@' aggregate */
  * receives the decoded byte count including the terminating NUL. */
 int intern_str(Compiler* c, const char* raw, int* out_len);
 int eval_const(Compiler* c, Node* n, int64_t* out);
+int eval_float_const(Compiler* c, Node* n, double* out);
 Node* type_expr(Compiler* c, Node* n);
 void mark_symbol_used(Node* n);
 Field* find_field(Type* t, const char* name, int* off);

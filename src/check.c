@@ -2140,6 +2140,102 @@ check_autoconst_globals(Compiler* c) {
 	}
 }
 
+static int global_pointer_constant(Compiler* c, Node* n);
+
+// Recognize the lvalue portion of an address constant.
+static int
+global_const_lvalue(Compiler* c, Node* n) {
+	int64_t index;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdName && n->symbol &&
+	    (n->symbol->kind == SkFunc ||
+	     (n->symbol->kind == SkVar && n->symbol->storage != StLocal &&
+	      n->symbol->storage != StParam)))
+		return 1;
+	if (n->kind == NdDeref)
+		return global_pointer_constant(c, n->a);
+	if (n->kind == NdDot)
+		return global_const_lvalue(c, n->a);
+	if (n->kind == NdArrow)
+		return global_pointer_constant(c, n->a);
+	if (n->kind == NdIndex)
+		return global_pointer_constant(c, n->a) &&
+		       eval_const(c, n->b, &index);
+	return 0;
+}
+
+// Recognize null, string, function, array, and address-plus-constant pointers.
+static int
+global_pointer_constant(Compiler* c, Node* n) {
+	int64_t v;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdCast)
+		return global_pointer_constant(c, n->a);
+	if (n->kind == NdStr)
+		return 1;
+	if (eval_const(c, n, &v))
+		return v == 0;
+	if (n->kind == NdAddr)
+		return global_const_lvalue(c, n->a);
+	if (n->kind == NdName && n->symbol &&
+	    (n->symbol->kind == SkFunc || is_array(n->type)))
+		return 1;
+	if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus)) {
+		if (global_pointer_constant(c, n->a) && eval_const(c, n->b, &v))
+			return 1;
+		if (n->op == PnPlus && eval_const(c, n->a, &v) &&
+		    global_pointer_constant(c, n->b))
+			return 1;
+	}
+	return 0;
+}
+
+static void
+check_global_init(Compiler* c, Initializer* in) {
+	double fv;
+	int64_t iv;
+	int i, ok;
+
+	if (in == NULL)
+		return;
+	if (in->expr) {
+		if (in->expr->kind == NdStr)
+			ok = 1;
+		else if ((in->expr->type && is_ptr(in->expr->type)) ||
+			 (in->expr->kind == NdName && in->expr->symbol &&
+			  (in->expr->symbol->kind == SkFunc ||
+			   is_array(in->expr->type))))
+			ok = global_pointer_constant(c, in->expr);
+		else if (in->expr->type &&
+			 (in->expr->type->kind == TyFloat ||
+			  in->expr->type->kind == TyDouble))
+			ok = eval_float_const(c, in->expr, &fv);
+		else
+			ok = eval_const(c, in->expr, &iv);
+		if (!ok)
+			error_at(c, in->expr->span,
+				 "global initializer is not a constant expression");
+	}
+	for (i = 0; i < in->items_len; i++)
+		check_global_init(c, &in->items[i]);
+}
+
+static void
+check_global_initializers(Compiler* c) {
+	int i;
+	Node* d;
+
+	for (i = 0; i < c->globals_len; i++) {
+		d = c->globals[i];
+		if (d && d->kind == NdDecl && d->init)
+			check_global_init(c, d->init);
+	}
+}
+
 /* ---- type_check_unit ---- */
 
 // True if t (or any nested component) is a package-private type.
@@ -2205,6 +2301,7 @@ void type_check_unit(Compiler* c) {
 
 	infer_readonly_summaries(c);
 	check_autoconst_globals(c);
+	check_global_initializers(c);
 	check_pkg_private_leaks(c);
 	for (i = 0; i < c->funcs_len; i++) {
 		check_uninit_func(c, c->funcs[i]);

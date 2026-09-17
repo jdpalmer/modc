@@ -7,6 +7,9 @@ int ga[3] = { 1, 2, 3 };
 int* gp = &g;
 int* gap = ga + 1;
 int* gai = &ga[2];
+float gf = 1;
+double gd = 1.5;
+double ge = 1.0 + 2.5;
 
 int twice(int x) {
 	return x * 2;
@@ -34,6 +37,10 @@ int bump_s() {
 int global_ptrs() {
 	return gp == &g && gap == &ga[1] && *gap == 2 && gai == &ga[2] &&
 	       *gai == 3 && gfp(21) == 42;
+}
+
+int global_floats() {
+	return gf == 1.0f && gd == 1.5 && ge == 3.5;
 }
 
 int first_char() {

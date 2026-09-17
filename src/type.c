@@ -1498,6 +1498,106 @@ int eval_const(Compiler* c, Node* n, int64_t* out) {
 	return eval_rec(c, n, out);
 }
 
+static int
+has_float_const(Node* n) {
+	if (n == NULL)
+		return 0;
+	if (n->type && (n->type->kind == TyFloat || n->type->kind == TyDouble))
+		return 1;
+	return has_float_const(n->a) || has_float_const(n->b) ||
+	       has_float_const(n->c);
+}
+
+// Evaluate an arithmetic constant expression as a host double for global data.
+int
+eval_float_const(Compiler* c, Node* n, double* out) {
+	double a, b;
+	int64_t iv;
+	uint64_t uv, mask;
+	int bits;
+	char* end;
+
+	if (n == NULL || out == NULL)
+		return 0;
+	if (!has_float_const(n) && eval_rec(c, n, &iv)) {
+		*out = (double)iv;
+		return 1;
+	}
+	if (n->kind == NdLit) {
+		if (n->type && (n->type->kind == TyFloat || n->type->kind == TyDouble)) {
+			if (n->s == NULL)
+				return 0;
+			errno = 0;
+			*out = strtod(n->s, &end);
+			return end != n->s && errno != ERANGE;
+		}
+		if (!eval_rec(c, n, &iv))
+			return 0;
+		*out = (double)iv;
+		return 1;
+	}
+	if (n->kind == NdCast) {
+		if (!eval_float_const(c, n->a, &a))
+			return 0;
+		if (n->type && n->type->kind == TyFloat)
+			a = (float)a;
+		else if (n->type && is_int(n->type)) {
+			bits = type_size(c, n->type) * 8;
+			if (bits <= 0 || bits > 64)
+				return 0;
+			uv = (uint64_t)a;
+			mask = bits == 64 ? UINT64_MAX : (UINT64_C(1) << bits) - 1;
+			uv &= mask;
+			if (!n->type->is_unsigned && bits < 64 &&
+			    (uv & (UINT64_C(1) << (bits - 1))))
+				uv |= ~mask;
+			a = n->type->is_unsigned ? (double)uv : (double)(int64_t)uv;
+		}
+		*out = a;
+		return 1;
+	}
+	if (n->kind == NdUn) {
+		if (!eval_float_const(c, n->a, &a))
+			return 0;
+		if (n->op == PnPlus)
+			*out = a;
+		else if (n->op == PnMinus)
+			*out = -a;
+		else if (n->op == PnBang)
+			*out = !a;
+		else
+			return 0;
+		return 1;
+	}
+	if (n->kind == NdBin) {
+		if (!eval_float_const(c, n->a, &a) ||
+		    !eval_float_const(c, n->b, &b))
+			return 0;
+		switch (n->op) {
+		case PnPlus: *out = a + b; return 1;
+		case PnMinus: *out = a - b; return 1;
+		case PnStar: *out = a * b; return 1;
+		case PnSlash: *out = a / b; return 1;
+		case PnEqEq: *out = a == b; return 1;
+		case PnBangEq: *out = a != b; return 1;
+		case PnLt: *out = a < b; return 1;
+		case PnLe: *out = a <= b; return 1;
+		case PnGt: *out = a > b; return 1;
+		case PnGe: *out = a >= b; return 1;
+		default: return 0;
+		}
+	}
+	if (n->kind == NdCond) {
+		if (!eval_float_const(c, n->a, &a))
+			return 0;
+		return eval_float_const(c, a != 0 ? n->b : n->c, out);
+	}
+	if (!eval_rec(c, n, &iv))
+		return 0;
+	*out = (double)iv;
+	return 1;
+}
+
 
 // Look up a named field, including through anonymous aggregate embeds.
 Field*

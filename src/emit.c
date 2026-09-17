@@ -3052,6 +3052,10 @@ static void
 flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 	int i, w;
 	int64_t v, addend;
+	double dv;
+	float sv;
+	uint32_t sbits;
+	uint64_t dbits;
 	Field* f;
 	Symbol* sym;
 
@@ -3090,6 +3094,22 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 		return;
 	}
 	w = type_size(c, t);
+	if (in && in->expr && (t->kind == TyFloat || t->kind == TyDouble)) {
+		if (!eval_float_const(c, in->expr, &dv)) {
+			error_at(c, in->expr->span,
+				 "global initializer is not a constant expression");
+			return;
+		}
+		if (t->kind == TyFloat) {
+			sv = (float)dv;
+			memcpy(&sbits, &sv, sizeof(sbits));
+			addgi(off, 4, 1, (int64_t)sbits, NULL, 0);
+		} else {
+			memcpy(&dbits, &dv, sizeof(dbits));
+			addgi(off, 8, 1, (int64_t)dbits, NULL, 0);
+		}
+		return;
+	}
 	if (in && in->expr && in->expr->kind == NdStr) {
 		addgi(off, 8, 2, in->expr->int_val, NULL, (int)in->expr->int_val);
 		return;
@@ -3104,7 +3124,8 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 	else if (in == NULL)
 		;
 	else if (in->expr)
-		addgi(off, w, 1, in->expr->int_val, NULL, 0);
+		error_at(c, in->expr->span,
+			 "global initializer is not a constant expression");
 }
 
 // Emit QBE data for one global variable from flattened init fragments.
