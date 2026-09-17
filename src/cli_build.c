@@ -566,13 +566,21 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 }
 
 // Content-address key for one c_sources object (arch-aware).
+// Mixes source identity and the per-file -I(srcdir) so identical bytes in
+// different directories do not share an object (local #includes differ).
 static uint64_t
 foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* projroot) {
 	uint64_t h;
-	char key[HOST_PATH_MAX];
+	char key[HOST_PATH_MAX], srcdir[HOST_PATH_MAX];
 	int i;
 
 	h = cache_hash_file(src);
+	cache_path_key(src, projroot, key, sizeof(key));
+	h = cache_hash_mix(h, cache_hash_str(key));
+	src_dirname(src, srcdir, sizeof(srcdir));
+	cache_path_key(srcdir, projroot, key, sizeof(key));
+	h = cache_hash_mix(h, cache_hash_str(key));
+	h = cache_hash_mix(h, cache_hash_str(MODC_VERSION));
 	h = cache_hash_mix(h, cache_hash_str(comp));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target()));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
@@ -580,6 +588,10 @@ foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* proj
 		h = cache_hash_mix(h, cache_hash_str(c->cli_defs[i]));
 	for (i = 0; i < c->incpaths_len; i++) {
 		cache_path_key(c->incpaths[i], projroot, key, sizeof(key));
+		h = cache_hash_mix(h, cache_hash_str(key));
+	}
+	for (i = 0; i < c->framework_paths_len; i++) {
+		cache_path_key(c->framework_paths[i], projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
 	}
 	h = cache_hash_mix(h, c->no_system_includes ? 1 : 0);
