@@ -164,6 +164,8 @@ check-special: $(MODC)
 	./modc run test/cli_build.mc
 	./modc run test/stdio_smoke.mc
 	./modc run test/cli_dirbuild
+	./modc run test/cli_args_test.mc -- a b
+	./modc test test/cli_args_test.mc -- a b
 	./modc build -Ftest/fwk_root test/fwk_include.mc -o $(BUILD)/fwk_include-bin
 	$(BUILD)/fwk_include-bin
 ifeq ($(shell uname -s),Darwin)

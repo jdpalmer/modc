@@ -105,7 +105,7 @@ int
 build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	char dir[HOST_PATH_MAX];
 	char prog[512], qbe[512], asmpath[512];
-	int i, st;
+	int i, st, runargs_len;
 	char** runargv;
 	int nrun;
 
@@ -121,7 +121,11 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 #else
 	snprintf(prog, sizeof(prog), "%s/prog", dir);
 #endif
-	if (compile_link_exe(c, o, path, dir, prog) != 0) {
+	runargs_len = o->linkargv_len;
+	o->linkargv_len = 0;
+	st = compile_link_exe(c, o, path, dir, prog);
+	o->linkargv_len = runargs_len;
+	if (st != 0) {
 		snprintf(qbe, sizeof(qbe), "%s/out.qbe", dir);
 		snprintf(asmpath, sizeof(asmpath), "%s/out.s", dir);
 		cleanup_tmpdir(dir, qbe, asmpath, NULL);
