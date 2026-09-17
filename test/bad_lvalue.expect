@@ -1,0 +1,3 @@
+F:left operand of assignment is not a modifiable lvalue
+F:operator '++' requires a modifiable lvalue
+F:address-of requires an lvalue or function

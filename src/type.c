@@ -1924,6 +1924,42 @@ type_expr_bin(Compiler* c, Node* n) {
 	return n;
 }
 
+// True when an lvalue is reached through a readonly pointer.
+static int
+readonly_lvalue(Node* n) {
+	Type* t;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdDeref) {
+		t = n->a ? n->a->type : NULL;
+		return t && is_ptr(t) && t->is_readonly;
+	}
+	if (n->kind == NdIndex) {
+		t = n->a ? n->a->type : NULL;
+		if (t && is_ptr(t) && t->is_readonly)
+			return 1;
+		t = n->b ? n->b->type : NULL;
+		return t && is_ptr(t) && t->is_readonly;
+	}
+	if (n->kind == NdDot || n->kind == NdArrow) {
+		t = n->a ? n->a->type : NULL;
+		if (t && is_ptr(t) && t->is_readonly)
+			return 1;
+		return readonly_lvalue(n->a);
+	}
+	if (n->kind == NdComma)
+		return readonly_lvalue(n->b);
+	return 0;
+}
+
+// Arrays, functions, readonly targets, and non-lvalues cannot be stored to.
+static int
+is_modifiable_lvalue(Node* n) {
+	return n && n->is_lvalue && n->type && !is_array(n->type) &&
+	       n->type->kind != TyFunc && !readonly_lvalue(n);
+}
+
 // Type-check compound and simple assignment with conversions and side checks.
 static Node*
 type_expr_assign(Compiler* c, Node* n) {
@@ -1936,6 +1972,8 @@ type_expr_assign(Compiler* c, Node* n) {
 	n->b = type_expr(c, n->b);
 	n->type = n->a ? n->a->type : c->type_int;
 	n->is_lvalue = 0;
+	if (enum_chk && n->a && !is_modifiable_lvalue(n->a))
+		error_at(c, n->a->span, "left operand of assignment is not a modifiable lvalue");
 	if (enum_chk && n->op != PnEq && user_source(c, n->span) &&
 	    ((n->a && is_tagged_enum(n->a->type)) ||
 	     (n->b && is_tagged_enum(n->b->type))))
@@ -2016,6 +2054,7 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	case NdStr:
 		n->is_immutable = 1;
+		n->is_lvalue = 1;
 		return n;
 	case NdName:
 		if (n->symbol)
@@ -2056,7 +2095,11 @@ Node* type_expr(Compiler* c, Node* n) {
 		}
 		return n;
 	case NdAddr:
+		nk = n->type == NULL;
 		n->a = type_expr(c, n->a);
+		if (nk && n->a && !n->a->is_lvalue &&
+		    (!n->a->type || n->a->type->kind != TyFunc))
+			error_at(c, n->span, "address-of requires an lvalue or function");
 		if (n->a && n->a->type)
 			n->type = type_ptr(c, n->a->type);
 		n->is_lvalue = 0;
@@ -2082,6 +2125,13 @@ Node* type_expr(Compiler* c, Node* n) {
 				 "operator '%s' is not allowed on an enum; cast explicitly",
 				 punct_spell(n->op));
 		if (n->op == PnPlusPlus || n->op == PnMinusMinus) {
+			if (n->type == NULL && n->a && !is_modifiable_lvalue(n->a))
+				error_at(c, n->span, "operator '%s' requires a modifiable lvalue",
+					 punct_spell(n->op));
+			if (n->type == NULL && n->a && n->a->type &&
+			    !is_scalar(decay(c, n->a->type)))
+				error_at(c, n->span, "operator '%s' requires a scalar operand",
+					 punct_spell(n->op));
 			if (n->type == NULL && n->a)
 				reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
 			n->type = n->a ? n->a->type : c->type_int;
@@ -2092,6 +2142,13 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	case NdPost:
 		n->a = type_expr(c, n->a);
+		if (n->type == NULL && n->a && !is_modifiable_lvalue(n->a))
+			error_at(c, n->span, "operator '%s' requires a modifiable lvalue",
+				 punct_spell(n->op));
+		if (n->type == NULL && n->a && n->a->type &&
+		    !is_scalar(decay(c, n->a->type)))
+			error_at(c, n->span, "operator '%s' requires a scalar operand",
+				 punct_spell(n->op));
 		if (n->type == NULL && n->a && is_tagged_enum(n->a->type) &&
 		    user_source(c, n->span))
 			error_at(c, n->span,
