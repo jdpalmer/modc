@@ -1976,11 +1976,25 @@ check_enum_binop(Compiler* c, Node* n, Type* lt, Type* rt) {
 		 punct_spell(n->op));
 }
 
+static int
+compatible_ptrs(Type* a, Type* b) {
+	if (!is_ptr(a) || !is_ptr(b) || a->base == NULL || b->base == NULL)
+		return 0;
+	return type_eq(a, b) || a->base->kind == TyVoid || b->base->kind == TyVoid;
+}
+
+static void
+bad_binary_operands(Compiler* c, Node* n) {
+	if (user_source(c, n->span))
+		error_at(c, n->span, "invalid operands to binary operator '%s'",
+			 punct_spell(n->op));
+}
+
 // Type-check binary operators: usual arithmetic, pointers, comparisons, shifts.
 static Node*
 type_expr_bin(Compiler* c, Node* n) {
 	Type *lt, *rt;
-	int enum_chk;
+	int enum_chk, valid;
 
 	enum_chk = n->type == NULL;
 	n->a = type_expr(c, n->a);
@@ -1989,6 +2003,7 @@ type_expr_bin(Compiler* c, Node* n) {
 	rt = n->b ? decay(c, n->b->type) : NULL;
 	if (enum_chk)
 		check_enum_binop(c, n, lt, rt);
+	valid = 1;
 	if (n->op == PnPlus) {
 		if (is_ptr(lt) && is_int(rt)) {
 			if (n->type == NULL)
@@ -1998,10 +2013,14 @@ type_expr_bin(Compiler* c, Node* n) {
 			if (n->type == NULL)
 				reject_void_ptr_arith(c, n->span, rt);
 			n->type = rt;
-		} else
+		} else if (is_arith(lt) && is_arith(rt))
 			n->type = usual_arith(c, lt, rt);
+		else {
+			valid = 0;
+			n->type = c->type_int;
+		}
 	} else if (n->op == PnMinus) {
-		if (is_ptr(lt) && is_ptr(rt)) {
+		if (compatible_ptrs(lt, rt)) {
 			if (n->type == NULL) {
 				reject_void_ptr_arith(c, n->span, lt);
 				reject_void_ptr_arith(c, n->span, rt);
@@ -2011,20 +2030,43 @@ type_expr_bin(Compiler* c, Node* n) {
 			if (n->type == NULL)
 				reject_void_ptr_arith(c, n->span, lt);
 			n->type = lt;
-		} else
+		} else if (is_arith(lt) && is_arith(rt))
 			n->type = usual_arith(c, lt, rt);
-	} else if (n->op == PnEqEq || n->op == PnBangEq || n->op == PnAmpAmp || n->op == PnPipePipe)
+		else {
+			valid = 0;
+			n->type = c->type_int;
+		}
+	} else if (n->op == PnStar || n->op == PnSlash) {
+		valid = is_arith(lt) && is_arith(rt);
+		n->type = valid ? usual_arith(c, lt, rt) : c->type_int;
+	} else if (n->op == PnPercent || n->op == PnAmp ||
+		   n->op == PnPipe || n->op == PnCaret) {
+		valid = is_int(lt) && is_int(rt);
+		n->type = valid ? usual_arith(c, lt, rt) : c->type_int;
+	} else if (n->op == PnAmpAmp || n->op == PnPipePipe) {
+		valid = is_scalar(lt) && is_scalar(rt);
 		n->type = c->type_bool;
-	else if (n->op == PnLt || n->op == PnGt || n->op == PnLe || n->op == PnGe) {
+	} else if (n->op == PnEqEq || n->op == PnBangEq) {
+		valid = (is_arith(lt) && is_arith(rt)) || compatible_ptrs(lt, rt) ||
+			(is_ptr(lt) && is_null_expr(n->b)) ||
+			(is_ptr(rt) && is_null_expr(n->a));
+		n->type = c->type_bool;
+	} else if (n->op == PnLt || n->op == PnGt || n->op == PnLe || n->op == PnGe) {
+		valid = (is_arith(lt) && is_arith(rt)) || compatible_ptrs(lt, rt);
 		if (n->type == NULL)
 			check_sign_compare(c, n->span, n->a, n->b);
 		n->type = c->type_bool;
 	} else if (n->op == PnShl || n->op == PnShr) {
+		valid = is_int(lt) && is_int(rt);
 		if (n->type == NULL)
 			check_shift_count(c, n->span, lt, n->b);
-		n->type = promote(c, lt);
-	} else
-		n->type = usual_arith(c, lt, rt);
+		n->type = valid ? promote(c, lt) : c->type_int;
+	} else {
+		valid = 0;
+		n->type = c->type_int;
+	}
+	if (enum_chk && !valid)
+		bad_binary_operands(c, n);
 	return n;
 }
 
@@ -2067,7 +2109,7 @@ is_modifiable_lvalue(Node* n) {
 // Type-check compound and simple assignment with conversions and side checks.
 static Node*
 type_expr_assign(Compiler* c, Node* n) {
-	int enum_chk, shift_chk, void_arith_chk, ptr_arith;
+	int enum_chk, shift_chk, void_arith_chk, ptr_arith, valid;
 
 	enum_chk = n->type == NULL;
 	shift_chk = (n->op == PnShlEq || n->op == PnShrEq) && n->type == NULL;
@@ -2084,6 +2126,7 @@ type_expr_assign(Compiler* c, Node* n) {
 	     (n->b && is_tagged_enum(n->b->type))))
 		error_at(c, n->span,
 			 "compound assignment with an enum operand is not allowed; cast explicitly");
+	valid = 1;
 	if (ptr_arith && n->op != PnEq) {
 		if (n->op != PnPlusEq && n->op != PnMinusEq)
 			error_at(c, n->span,
@@ -2092,8 +2135,21 @@ type_expr_assign(Compiler* c, Node* n) {
 			error_at(c, n->span,
 				 "pointer compound assignment requires an integer offset");
 	} else if (n->a && n->a->type) {
-		n->b = apply_implicit_conversions(c, n->a->type, n->b);
-		check_implicit_conv(c, n->span, n->a->type, n->b);
+		if (n->op == PnPlusEq || n->op == PnMinusEq ||
+		    n->op == PnStarEq || n->op == PnSlashEq)
+			valid = n->b && is_arith(n->a->type) && is_arith(n->b->type);
+		else if (n->op == PnPercentEq || n->op == PnAmpEq ||
+			 n->op == PnPipeEq || n->op == PnCaretEq ||
+			 n->op == PnShlEq || n->op == PnShrEq)
+			valid = n->b && is_int(n->a->type) && is_int(n->b->type);
+		if (enum_chk && n->op != PnEq && !valid)
+			error_at(c, n->span,
+				 "invalid operands to compound assignment '%s'",
+				 punct_spell(n->op));
+		if (n->op == PnEq || valid) {
+			n->b = apply_implicit_conversions(c, n->a->type, n->b);
+			check_implicit_conv(c, n->span, n->a->type, n->b);
+		}
 	}
 	if (void_arith_chk && n->a)
 		reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
@@ -2226,8 +2282,11 @@ Node* type_expr(Compiler* c, Node* n) {
 			error_at(c, n->span, "indirection requires a pointer");
 		return n;
 	case NdUn:
+		nk = n->type == NULL;
 		n->a = type_expr(c, n->a);
 		if (n->op == PnBang) {
+			if (nk && n->a && !is_scalar(decay(c, n->a->type)))
+				error_at(c, n->span, "operator '!' requires a scalar operand");
 			n->type = c->type_bool;
 			return n;
 		}
@@ -2250,6 +2309,12 @@ Node* type_expr(Compiler* c, Node* n) {
 			n->is_lvalue = 0;
 			return n;
 		}
+		if (nk && n->a &&
+		    ((n->op == PnTilde && !is_int(n->a->type)) ||
+		     ((n->op == PnPlus || n->op == PnMinus) &&
+		      !is_arith(n->a->type))))
+			error_at(c, n->span, "invalid operand to unary operator '%s'",
+				 punct_spell(n->op));
 		n->type = n->a ? promote(c, n->a->type) : c->type_int;
 		return n;
 	case NdPost:
@@ -2271,21 +2336,28 @@ Node* type_expr(Compiler* c, Node* n) {
 		n->type = n->a ? n->a->type : c->type_int;
 		return n;
 	case NdIndex:
+		nk = n->type == NULL;
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
 		lt = n->a ? n->a->type : NULL;
 		if (is_ranged(lt) && lt->base) {
+			if (nk && n->b && !is_int(n->b->type))
+				error_at(c, n->b->span, "array subscript must be an integer");
 			n->type = lt->base;
 			n->is_lvalue = 1;
 			return n;
 		}
 		if (lt && (is_array(lt) || is_ptr(lt))) {
-			if (n->type == NULL)
+			if (nk)
 				reject_void_ptr_arith(c, n->span, decay(c, lt));
+			if (nk && n->b && !is_int(n->b->type))
+				error_at(c, n->b->span, "array subscript must be an integer");
 			n->type = ptr_base(lt);
 		} else if (n->b && n->b->type && (is_array(n->b->type) || is_ptr(n->b->type))) {
-			if (n->type == NULL)
+			if (nk)
 				reject_void_ptr_arith(c, n->span, decay(c, n->b->type));
+			if (nk && lt && !is_int(lt))
+				error_at(c, n->a->span, "array subscript must be an integer");
 			n->type = ptr_base(n->b->type);
 		} else
 			error_at(c, n->span, "subscripted value is not an array or pointer");
@@ -2367,9 +2439,13 @@ Node* type_expr(Compiler* c, Node* n) {
 	case NdAssign:
 		return type_expr_assign(c, n);
 	case NdCond:
+		nk = n->type == NULL;
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
 		n->c = type_expr(c, n->c);
+		if (nk && n->a && !is_scalar(decay(c, n->a->type)))
+			error_at(c, n->a->span,
+				 "conditional expression requires a scalar condition");
 		lt = n->b ? decay(c, n->b->type) : NULL;
 		rt = n->c ? decay(c, n->c->type) : NULL;
 		if (is_tagged_enum(lt) || is_tagged_enum(rt)) {
@@ -2383,10 +2459,25 @@ Node* type_expr(Compiler* c, Node* n) {
 			}
 		} else if (lt && rt && is_arith(lt) && is_arith(rt))
 			n->type = usual_arith(c, lt, rt);
-		else if (lt)
+		else if (compatible_ptrs(lt, rt)) {
+			if (lt->base && lt->base->kind == TyVoid)
+				n->type = lt;
+			else if (rt->base && rt->base->kind == TyVoid)
+				n->type = rt;
+			else
+				n->type = lt;
+		} else if (is_ptr(lt) && is_null_expr(n->c))
 			n->type = lt;
-		else
+		else if (is_ptr(rt) && is_null_expr(n->b))
 			n->type = rt;
+		else if (lt && rt && type_eq(lt, rt))
+			n->type = lt;
+		else {
+			if (nk && user_source(c, n->span))
+				error_at(c, n->span,
+					 "conditional expression arms have incompatible types");
+			n->type = lt ? lt : (rt ? rt : c->type_int);
+		}
 		return n;
 	case NdComma:
 		n->a = type_expr(c, n->a);

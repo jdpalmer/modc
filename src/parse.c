@@ -2808,6 +2808,8 @@ check_cond_assign(Compiler* c, Node* n) {
 	if (n->kind == NdAssign && !n->paren)
 		error_at(c, n->span,
 			 "assignment in condition; use '==' or extra parentheses '((…))'");
+	if (n->type && !is_scalar(decay(c, n->type)))
+		error_at(c, n->span, "condition requires a scalar expression");
 }
 
 // Parse a statement body, requiring braces in user code.
@@ -3063,6 +3065,8 @@ parse_stmt(Compiler* c) {
 		expect(c, PnLparen, "'('");
 		n = node(NdSwitch, sp);
 		n->a = type_expr(c, parse_expr(c));
+		if (n->a && n->a->type && !is_int(n->a->type))
+			error_at(c, n->a->span, "switch expression must be an integer");
 		expect(c, PnRparen, "')'");
 		switch_depth++;
 		n->b = parse_stmt(c);
