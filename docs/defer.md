@@ -20,6 +20,10 @@ defer free(p);
 /* free runs on every exit path from this block */
 ```
 
+Deferred statements cannot contain `return`, `break`, `continue`, `goto`,
+labels, `fallthrough`, or another `defer`. Cleanup code may call a function
+that performs its own ordinary control flow.
+
 ## Evaluation Order on return
 
 When executing a `return` statement, including multi-value returns, the compiler

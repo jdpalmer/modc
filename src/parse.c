@@ -2697,6 +2697,34 @@ parse_range_for(Compiler* c, Span sp) {
 
 static Node* parse_stmt(Compiler* c);
 
+// Deferred code is emitted at each scope exit and therefore cannot transfer control.
+static int
+defer_has_control(Node* n) {
+	int i;
+
+	if (n == NULL)
+		return 0;
+	switch (n->kind) {
+	case NdReturn:
+	case NdBreak:
+	case NdContinue:
+	case NdGoto:
+	case NdLabel:
+	case NdFallthrough:
+	case NdDefer:
+		return 1;
+	default:
+		break;
+	}
+	if (defer_has_control(n->a) || defer_has_control(n->b) ||
+	    defer_has_control(n->c))
+		return 1;
+	for (i = 0; i < n->children_len; i++)
+		if (defer_has_control(n->children[i]))
+			return 1;
+	return 0;
+}
+
 // True when a statement cannot fall through (return, break, goto, etc.).
 static int
 stmt_terminates(Node* n) {
@@ -3099,6 +3127,9 @@ parse_stmt(Compiler* c) {
 		n = node(NdDefer, sp);
 		n->scope = c->current_scope;
 		n->a = parse_stmt(c);
+		if (defer_has_control(n->a))
+			error_at(c, sp,
+				 "deferred statement cannot contain a control transfer or another defer");
 		return n;
 	}
 	if (eatkw(c, KwReturn)) {
