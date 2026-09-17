@@ -275,6 +275,75 @@ host_unlink(const char* path) {
 	return _unlink(path) == 0 ? 0 : -1;
 }
 
+// Write through a same-directory temporary file, then atomically replace path.
+int
+host_write_atomic(const char* path, const void* data, size_t len) {
+	char dir[HOST_PATH_MAX], tmp[HOST_PATH_MAX];
+	const unsigned char* p;
+	HANDLE h;
+	DWORD attrs, wrote, chunk, err;
+	unsigned i;
+	size_t off;
+
+	if (path == NULL || data == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	host_dirname(path, dir, sizeof(dir));
+	h = INVALID_HANDLE_VALUE;
+	tmp[0] = 0;
+	for (i = 0; i < 10000; i++) {
+		if (snprintf(tmp, sizeof(tmp), "%s/.modc-format-%lu-%lu.tmp", dir,
+			     (unsigned long)GetCurrentProcessId(),
+			     (unsigned long)(GetTickCount() + i)) >= (int)sizeof(tmp)) {
+			errno = ENAMETOOLONG;
+			return -1;
+		}
+		h = CreateFileA(tmp, GENERIC_WRITE, 0, NULL, CREATE_NEW,
+				FILE_ATTRIBUTE_NORMAL, NULL);
+		if (h != INVALID_HANDLE_VALUE)
+			break;
+		err = GetLastError();
+		if (err != ERROR_FILE_EXISTS && err != ERROR_ALREADY_EXISTS) {
+			errno = EIO;
+			return -1;
+		}
+	}
+	if (h == INVALID_HANDLE_VALUE) {
+		errno = EEXIST;
+		return -1;
+	}
+	p = data;
+	off = 0;
+	while (off < len) {
+		chunk = len - off > 0x7fffffffU ? 0x7fffffffU : (DWORD)(len - off);
+		if (!WriteFile(h, p + off, chunk, &wrote, NULL) || wrote == 0)
+			goto fail;
+		off += wrote;
+	}
+	if (!FlushFileBuffers(h))
+		goto fail;
+	if (!CloseHandle(h)) {
+		h = INVALID_HANDLE_VALUE;
+		goto fail;
+	}
+	h = INVALID_HANDLE_VALUE;
+	attrs = GetFileAttributesA(path);
+	if (attrs != INVALID_FILE_ATTRIBUTES && !SetFileAttributesA(tmp, attrs))
+		goto fail;
+	if (!MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+		goto fail;
+	return 0;
+
+fail:
+	if (h != INVALID_HANDLE_VALUE)
+		CloseHandle(h);
+	SetFileAttributesA(tmp, FILE_ATTRIBUTE_NORMAL);
+	DeleteFileA(tmp);
+	errno = EIO;
+	return -1;
+}
+
 // Create a unique temp directory named with prefix; path in out.
 int
 host_mkdtemp(char* out, size_t n, const char* prefix) {
@@ -585,6 +654,68 @@ host_rmdir(const char* path) {
 int
 host_unlink(const char* path) {
 	return unlink(path) == 0 ? 0 : -1;
+}
+
+// Write through a same-directory temporary file, then atomically replace path.
+int
+host_write_atomic(const char* path, const void* data, size_t len) {
+	char dir[HOST_PATH_MAX], tmp[HOST_PATH_MAX];
+	const unsigned char* p;
+	struct stat st;
+	ssize_t n;
+	size_t off;
+	int fd, saved;
+
+	if (path == NULL || data == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	host_dirname(path, dir, sizeof(dir));
+	if (snprintf(tmp, sizeof(tmp), "%s/.modc-format-XXXXXX", dir) >=
+	    (int)sizeof(tmp)) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	fd = mkstemp(tmp);
+	if (fd < 0)
+		return -1;
+	if (stat(path, &st) == 0 && fchmod(fd, st.st_mode & 07777) != 0)
+		goto fail;
+	p = data;
+	off = 0;
+	while (off < len) {
+		n = write(fd, p + off, len - off);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			goto fail;
+		}
+		if (n == 0) {
+			errno = EIO;
+			goto fail;
+		}
+		off += (size_t)n;
+	}
+	while (fsync(fd) != 0) {
+		if (errno != EINTR)
+			goto fail;
+	}
+	if (close(fd) != 0) {
+		fd = -1;
+		goto fail;
+	}
+	fd = -1;
+	if (rename(tmp, path) != 0)
+		goto fail;
+	return 0;
+
+fail:
+	saved = errno;
+	if (fd >= 0)
+		close(fd);
+	unlink(tmp);
+	errno = saved;
+	return -1;
 }
 
 // Create a unique temp directory named with prefix; path in out.

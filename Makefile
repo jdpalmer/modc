@@ -205,6 +205,18 @@ endif
 	diff -u test/format/want.mc $(BUILD)/format_messy.mc
 	./modc format $(BUILD)/format_messy.mc
 	diff -u test/format/want.mc $(BUILD)/format_messy.mc
+	cp test/format/messy.mc $(BUILD)/format_mode.mc
+	chmod 640 $(BUILD)/format_mode.mc
+	@mode_before=$$(stat -f %Lp $(BUILD)/format_mode.mc 2>/dev/null || stat -c %a $(BUILD)/format_mode.mc); \
+		./modc format $(BUILD)/format_mode.mc; \
+		mode_after=$$(stat -f %Lp $(BUILD)/format_mode.mc 2>/dev/null || stat -c %a $(BUILD)/format_mode.mc); \
+		test "$$mode_before" = "$$mode_after"
+	@rm -f $(BUILD)/format_link.mc
+	cp test/format/messy.mc $(BUILD)/format_target.mc
+	@ln -s format_target.mc $(BUILD)/format_link.mc && \
+		./modc format $(BUILD)/format_link.mc && \
+		test -L $(BUILD)/format_link.mc && \
+		diff -u test/format/want.mc $(BUILD)/format_target.mc
 	cp test/format/str_style.mc $(BUILD)/format_str_style.mc
 	./modc format $(BUILD)/format_str_style.mc
 	diff -u test/format/want_str_style.mc $(BUILD)/format_str_style.mc

@@ -34,6 +34,8 @@ int host_mkdir(const char* path);  /* 0 ok; EEXIST → 0 */
 int host_rmdir(const char* path);  /* 0 ok */
 int host_unlink(const char* path); /* 0 ok */
 int host_rmtree(const char* path); /* 0 ok; recursive */
+/* Replace path only after data is completely written and synced. */
+int host_write_atomic(const char* path, const void* data, size_t len);
 
 /* Create unique temp directory; writes path into out. prefix e.g. "modc-build". */
 int host_mkdtemp(char* out, size_t n, const char* prefix);

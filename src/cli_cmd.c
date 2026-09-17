@@ -458,8 +458,9 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 static int
 format_one(Compiler* c, const char* path) {
 	char *text, *out;
+	char resolved[HOST_PATH_MAX];
+	const char* writepath;
 	size_t n;
-	FILE* f;
 
 	text = read_file(path, &n);
 	if (text == NULL) {
@@ -485,14 +486,12 @@ format_one(Compiler* c, const char* path) {
 	c->keep_comments = 0;
 	if (out == NULL)
 		return 1;
-	f = fopen(path, "wb");
-	if (f == NULL) {
+	writepath = host_realpath(path, resolved, sizeof(resolved)) == 0 ? resolved : path;
+	if (host_write_atomic(writepath, out, strlen(out)) != 0) {
 		fprintf(stderr, "modc format: cannot write %s: %s\n", path, strerror(errno));
 		free(out);
 		return 1;
 	}
-	fwrite(out, 1, strlen(out), f);
-	fclose(f);
 	free(out);
 	return 0;
 }
