@@ -86,8 +86,8 @@ check-special: $(MODC)
 	$(BUILD)/pkg_order-bin
 	./modc build test/pkg_method_order_main.mc -o $(BUILD)/pkg_method_order-bin
 	$(BUILD)/pkg_method_order-bin
-	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_app-bin
-	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vendor_app $(BUILD)/vendor_conflict
+	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic $(BUILD)/vendor_app-bin
+	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vrepos/linkdep $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic/vendor/old
 	@cp test/vendor_fix/log/mod.mc test/vendor_fix/log/modc.ini $(BUILD)/vrepos/log/
 	@cp test/vendor_fix/engine/mod.mc $(BUILD)/vrepos/engine/
 	@cp test/vendor_fix/ui/mod.mc $(BUILD)/vrepos/ui/
@@ -97,11 +97,16 @@ check-special: $(MODC)
 	@printf '[package]\nname = ui\n\n[deps.log]\ngit = file://$(BUILD)/vrepos/log\ntag = v1\n' > $(BUILD)/vrepos/ui/modc.ini
 	@cd $(BUILD)/vrepos/engine && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
 	@cd $(BUILD)/vrepos/ui && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
+	@cp test/vendor_fix/log/mod.mc $(BUILD)/vrepos/linkdep/
+	@cd $(BUILD)/vrepos/linkdep && ln -s . loop && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
 	@printf '[deps.engine]\ngit = file://$(BUILD)/vrepos/engine\ntag = v1\n\n[deps.ui]\ngit = file://$(BUILD)/vrepos/ui\ntag = v1\n' > $(BUILD)/vendor_app/modc.ini
 	./modc vendor -C $(BUILD)/vendor_app
 	@test -d $(BUILD)/vendor_app/vendor/log
 	@test -d $(BUILD)/vendor_app/vendor/engine
 	@test -d $(BUILD)/vendor_app/vendor/ui
+	@test ! -e $(BUILD)/vendor_app/.modc-vendor-old
+	./modc vendor --check -C $(BUILD)/vendor_app
+	./modc vendor -C $(BUILD)/vendor_app
 	./modc vendor --check -C $(BUILD)/vendor_app
 	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
 	$(BUILD)/vendor_app-bin
@@ -112,6 +117,15 @@ check-special: $(MODC)
 	@printf '[deps.engine]\ngit = file://$(BUILD)/vrepos/engine\ntag = v1\n\n[deps.ui]\ngit = file://$(BUILD)/vrepos/ui\ntag = v2\n' > $(BUILD)/vendor_conflict/modc.ini
 	@./modc vendor -C $(BUILD)/vendor_conflict >$(BUILD)/vendor_conflict.out 2>&1; test $$? -ne 0
 	@grep -Fq 'version conflict for "log"' $(BUILD)/vendor_conflict.out
+	@touch $(BUILD)/vendor_atomic/vendor/old/keep
+	@printf 'old-lock\n' > $(BUILD)/vendor_atomic/modc.lock
+	@printf '[deps.linkdep]\ngit = file://$(BUILD)/vrepos/linkdep\ntag = v1\n' > $(BUILD)/vendor_atomic/modc.ini
+	@./modc vendor -C $(BUILD)/vendor_atomic >$(BUILD)/vendor_atomic.out 2>&1; test $$? -ne 0
+	@grep -Fq 'refusing to follow symlink' $(BUILD)/vendor_atomic.out
+	@test -f $(BUILD)/vendor_atomic/vendor/old/keep
+	@grep -Fxq 'old-lock' $(BUILD)/vendor_atomic/modc.lock
+	@test ! -e $(BUILD)/vendor_atomic/.modc-vendor-new
+	@test ! -e $(BUILD)/vendor_atomic/.modc-lock-new
 	@rm -rf $(BUILD)/vendor_escape
 	@mkdir -p $(BUILD)/vendor_escape/escape_target
 	@touch $(BUILD)/vendor_escape/escape_target/keep

@@ -46,7 +46,8 @@ typedef struct {
 
 typedef struct {
 	char root[4096];   /* app root (absolute) */
-	char vendor[4096]; /* root/vendor */
+	char vendor[4096]; /* current materialization root */
+	char final_vendor[4096]; /* root/vendor */
 	int verbose;
 	int check_only;
 } VendorCtx;
@@ -589,7 +590,7 @@ resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* o
 	LockedPkg pkgs[MaxLocked];
 	int npkgs;
 	char rev[128], tmpdir[HOST_PATH_MAX];
-	char srcdir[1024];
+	char srcdir[1024], matdir[1024];
 	DepSpec* trans;
 	int ntrans;
 
@@ -646,7 +647,18 @@ resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* o
 			dep_free(&cur);
 			goto qfail;
 		}
-		if (read_transitive(srcdir, &trans, &ntrans)) {
+		/*
+		 * Copy first: copy_tree rejects every symlink before we inspect a
+		 * dependency-owned modc.ini, so manifest reads cannot escape the clone.
+		 */
+		if (materialize_cloned(ctx, &pkgs[npkgs - 1], srcdir)) {
+			rm_rf(tmpdir);
+			dep_free(&cur);
+			goto qfail;
+		}
+		if (snprintf(matdir, sizeof(matdir), "%s/%s", ctx->vendor,
+			     pkgs[npkgs - 1].name) >= (int)sizeof(matdir) ||
+		    read_transitive(matdir, &trans, &ntrans)) {
 			rm_rf(tmpdir);
 			dep_free(&cur);
 			goto qfail;
@@ -662,11 +674,6 @@ resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* o
 			qtail++;
 		}
 		deps_free(trans, ntrans);
-		if (materialize_cloned(ctx, &pkgs[npkgs - 1], srcdir)) {
-			rm_rf(tmpdir);
-			dep_free(&cur);
-			goto qfail;
-		}
 		rm_rf(tmpdir);
 		dep_free(&cur);
 	}
@@ -685,12 +692,10 @@ qfail:
 
 // Write modc.lock with pinned git URLs, revisions, and optional subdirs.
 static int
-write_lock(VendorCtx* ctx, LockedPkg* pkgs, int n) {
-	char path[1024];
+write_lock(const char* path, LockedPkg* pkgs, int n) {
 	FILE* f;
 	int i;
 
-	snprintf(path, sizeof(path), "%s/modc.lock", ctx->root);
 	f = fopen(path, "wb");
 	if (f == NULL) {
 		fprintf(stderr, "modc vendor: cannot write %s: %s\n", path, strerror(errno));
@@ -793,6 +798,10 @@ copy_tree(const char* src, const char* dst) {
 	const char* name;
 	char spath[1024], dpath[1024];
 
+	if (host_is_symlink(src)) {
+		fprintf(stderr, "modc vendor: refusing to follow symlink %s\n", src);
+		return 1;
+	}
 	if (host_is_file(src))
 		return copy_file(src, dst);
 	if (!host_is_dir(src))
@@ -805,8 +814,19 @@ copy_tree(const char* src, const char* dst) {
 	while ((name = host_readdir(d)) != NULL) {
 		if (name[0] == '.' && (name[1] == 0 || (name[1] == '.' && name[2] == 0)))
 			continue;
-		snprintf(spath, sizeof(spath), "%s/%s", src, name);
-		snprintf(dpath, sizeof(dpath), "%s/%s", dst, name);
+		if (snprintf(spath, sizeof(spath), "%s/%s", src, name) >=
+		    (int)sizeof(spath) ||
+		    snprintf(dpath, sizeof(dpath), "%s/%s", dst, name) >=
+		    (int)sizeof(dpath)) {
+			host_closedir(d);
+			return 1;
+		}
+		if (host_is_symlink(spath)) {
+			fprintf(stderr, "modc vendor: refusing to follow symlink %s\n",
+				spath);
+			host_closedir(d);
+			return 1;
+		}
 		if (host_is_dir(spath)) {
 			if (copy_tree(spath, dpath)) {
 				host_closedir(d);
@@ -817,6 +837,10 @@ copy_tree(const char* src, const char* dst) {
 				host_closedir(d);
 				return 1;
 			}
+		} else {
+			fprintf(stderr, "modc vendor: unsupported file type %s\n", spath);
+			host_closedir(d);
+			return 1;
 		}
 	}
 	host_closedir(d);
@@ -877,6 +901,61 @@ materialize_cloned(VendorCtx* ctx, LockedPkg* p, const char* srcdir) {
 	return 0;
 }
 
+static int
+path_present(const char* path) {
+	return host_exists(path) || host_is_symlink(path);
+}
+
+// Replace vendor/ only after the complete staged tree and lockfile are ready.
+static int
+commit_vendor(VendorCtx* ctx, const char* staged_lock) {
+	char backup[HOST_PATH_MAX], lockpath[HOST_PATH_MAX];
+	char* locktext;
+	size_t locklen;
+	int had_vendor;
+
+	if (snprintf(backup, sizeof(backup), "%s/.modc-vendor-old", ctx->root) >=
+	    (int)sizeof(backup) ||
+	    snprintf(lockpath, sizeof(lockpath), "%s/modc.lock", ctx->root) >=
+	    (int)sizeof(lockpath))
+		return 1;
+	if (path_present(backup) && rm_rf(backup) != 0) {
+		fprintf(stderr, "modc vendor: cannot remove stale vendor backup\n");
+		return 1;
+	}
+	locktext = read_file(staged_lock, &locklen);
+	if (locktext == NULL)
+		return 1;
+	had_vendor = path_present(ctx->final_vendor);
+	if (had_vendor && host_rename(ctx->final_vendor, backup) != 0) {
+		fprintf(stderr, "modc vendor: cannot preserve existing vendor/: %s\n",
+			strerror(errno));
+		free(locktext);
+		return 1;
+	}
+	if (host_rename(ctx->vendor, ctx->final_vendor) != 0) {
+		fprintf(stderr, "modc vendor: cannot install staged vendor/: %s\n",
+			strerror(errno));
+		if (had_vendor)
+			(void)host_rename(backup, ctx->final_vendor);
+		free(locktext);
+		return 1;
+	}
+	if (host_write_atomic(lockpath, locktext, locklen) != 0) {
+		fprintf(stderr, "modc vendor: cannot install modc.lock: %s\n",
+			strerror(errno));
+		(void)rm_rf(ctx->final_vendor);
+		if (had_vendor && host_rename(backup, ctx->final_vendor) != 0)
+			fprintf(stderr, "modc vendor: cannot restore previous vendor/\n");
+		free(locktext);
+		return 1;
+	}
+	free(locktext);
+	if (had_vendor && rm_rf(backup) != 0)
+		fprintf(stderr, "modc vendor: warning: cannot remove old vendor backup\n");
+	return 0;
+}
+
 // Verify vendor/ exists for every lock entry and matches the stamped revision.
 static int
 vendor_check(VendorCtx* ctx) {
@@ -909,7 +988,7 @@ vendor_check(VendorCtx* ctx) {
 // modc vendor entry: resolve modc.ini deps, write modc.lock, and populate vendor/.
 int vendor_cmd(int argc, char** argv) {
 	VendorCtx ctx;
-	char inipath[1024], root[4096];
+	char inipath[1024], root[4096], stage[4096], staged_lock[4096];
 	IniFile ini;
 	DepSpec* roots;
 	int nroots, i, err;
@@ -965,6 +1044,7 @@ int vendor_cmd(int argc, char** argv) {
 	}
 	snprintf(ctx.root, sizeof(ctx.root), "%s", root);
 	snprintf(ctx.vendor, sizeof(ctx.vendor), "%s/vendor", ctx.root);
+	snprintf(ctx.final_vendor, sizeof(ctx.final_vendor), "%s", ctx.vendor);
 	if (ctx.check_only)
 		return vendor_check(&ctx);
 	snprintf(inipath, sizeof(inipath), "%s/modc.ini", ctx.root);
@@ -983,21 +1063,47 @@ int vendor_cmd(int argc, char** argv) {
 		return 1;
 	}
 	npkgs = 0;
+	if (snprintf(stage, sizeof(stage), "%s/.modc-vendor-new", ctx.root) >=
+	    (int)sizeof(stage) ||
+	    snprintf(staged_lock, sizeof(staged_lock), "%s/.modc-lock-new",
+		     ctx.root) >= (int)sizeof(staged_lock)) {
+		deps_free(roots, nroots);
+		return 1;
+	}
+	if (path_present(stage) && rm_rf(stage) != 0) {
+		fprintf(stderr, "modc vendor: cannot remove stale staging tree\n");
+		deps_free(roots, nroots);
+		return 1;
+	}
+	if (path_present(staged_lock))
+		(void)host_unlink(staged_lock);
+	snprintf(ctx.vendor, sizeof(ctx.vendor), "%s", stage);
 	if (host_mkdir(ctx.vendor) != 0) {
-		fprintf(stderr, "modc vendor: cannot create vendor/: %s\n", strerror(errno));
+		fprintf(stderr, "modc vendor: cannot create staging tree: %s\n",
+			strerror(errno));
 		deps_free(roots, nroots);
 		return 1;
 	}
 	err = resolve_graph(&ctx, roots, nroots, pkgs, &npkgs);
 	deps_free(roots, nroots);
 	if (err) {
+		(void)rm_rf(ctx.vendor);
 		locked_free_all(pkgs, npkgs);
 		return 1;
 	}
-	if (write_lock(&ctx, pkgs, npkgs)) {
+	if (write_lock(staged_lock, pkgs, npkgs)) {
+		(void)rm_rf(ctx.vendor);
 		locked_free_all(pkgs, npkgs);
 		return 1;
 	}
+	if (commit_vendor(&ctx, staged_lock)) {
+		if (path_present(ctx.vendor))
+			(void)rm_rf(ctx.vendor);
+		(void)host_unlink(staged_lock);
+		locked_free_all(pkgs, npkgs);
+		return 1;
+	}
+	(void)host_unlink(staged_lock);
 	locked_free_all(pkgs, npkgs);
 	return 0;
 }

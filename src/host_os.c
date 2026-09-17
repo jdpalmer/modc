@@ -236,6 +236,18 @@ host_is_file(const char* path) {
 	return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+// True if path is a symbolic link, junction, or other reparse point.
+int
+host_is_symlink(const char* path) {
+	DWORD a;
+
+	if (path == NULL || path[0] == 0)
+		return 0;
+	a = GetFileAttributesA(path);
+	return a != INVALID_FILE_ATTRIBUTES &&
+	       (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
 // True if path exists (file or directory).
 int
 host_exists(const char* path) {
@@ -273,6 +285,12 @@ host_rmdir(const char* path) {
 int
 host_unlink(const char* path) {
 	return _unlink(path) == 0 ? 0 : -1;
+}
+
+// Rename without replacing an existing destination.
+int
+host_rename(const char* from, const char* to) {
+	return MoveFileExA(from, to, MOVEFILE_WRITE_THROUGH) ? 0 : -1;
 }
 
 // Write through a same-directory temporary file, then atomically replace path.
@@ -627,6 +645,14 @@ host_is_file(const char* path) {
 	return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
+// True if path itself is a symbolic link (do not follow it).
+int
+host_is_symlink(const char* path) {
+	struct stat st;
+
+	return path && path[0] && lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
+}
+
 // True if path exists (file or directory).
 int
 host_exists(const char* path) {
@@ -661,6 +687,16 @@ host_rmdir(const char* path) {
 int
 host_unlink(const char* path) {
 	return unlink(path) == 0 ? 0 : -1;
+}
+
+// Rename without replacing an existing destination.
+int
+host_rename(const char* from, const char* to) {
+	if (host_exists(to) || host_is_symlink(to)) {
+		errno = EEXIST;
+		return -1;
+	}
+	return rename(from, to) == 0 ? 0 : -1;
 }
 
 // Write through a same-directory temporary file, then atomically replace path.

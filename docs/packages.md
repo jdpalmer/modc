@@ -260,7 +260,7 @@ modc vendor
 modc build
 ```
 
-`modc vendor` recursively evaluates `modc.ini` manifests across all dependencies, converts `tag` and `branch` references to concrete Git commit hashes, and deduplicates packages by import name. Conflicting pins for the same import name raise an error. The command generates `modc.lock` and clones dependency source trees directly into `vendor/<import-name>/` as standard files without submodules (requires `git` on `PATH`).
+`modc vendor` recursively evaluates `modc.ini` manifests across all dependencies, converts `tag` and `branch` references to concrete Git commit hashes, and deduplicates packages by import name. Conflicting pins for the same import name raise an error. Dependency trees containing symbolic links are rejected. The complete tree is staged before `vendor/` and `modc.lock` are replaced, so a clone or copy failure preserves the previous vendored state. The command requires `git` on `PATH`.
 
 Use `modc vendor --check` in CI to verify that `vendor/` matches `modc.lock`. Use `modc vendor -C dir` to target another project root, and `-v` to inspect underlying Git operations.
 
