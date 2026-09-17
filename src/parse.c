@@ -3329,8 +3329,16 @@ validate_initializer_rec(Compiler* c, Type* t, Initializer* in, int base,
 			if (in->expr->kind != NdStr || t->base == NULL ||
 			    type_size(c, t->base) != 1)
 				error_at(c, sp, "array initializer must be a compatible string or list");
-			else
+			else {
+				int64_t dstlen, srclen;
+
+				dstlen = t->len;
+				srclen = in->expr->type ? in->expr->type->len : 1;
+				/* C permits `char a[2] = "hi"` with the final NUL omitted. */
+				if (dstlen >= 0 && srclen > dstlen + 1)
+					error_at(c, sp, "string literal is too long for array");
 				init_record_range(c, ck, base, type_size(c, t), sp);
+			}
 			return;
 		}
 		in->expr = apply_implicit_conversions(c, t, in->expr);

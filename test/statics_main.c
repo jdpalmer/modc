@@ -10,6 +10,7 @@ int designated_global_ok(void);
 int designated_local_ok(void);
 int designated_inferred_ok(void);
 int field_cursor_ok(void);
+int string_array_init_ok(void);
 
 int
 main(void)
@@ -40,5 +41,7 @@ main(void)
 		return 12;
 	if(!field_cursor_ok())
 		return 13;
+	if(!string_array_init_ok())
+		return 14;
 	return 0;
 }

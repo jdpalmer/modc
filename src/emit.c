@@ -2399,6 +2399,22 @@ emit_addr_off(Val base, int off) {
 
 static void emit_local_init(Compiler* c, Val base, Type* t, Initializer* in, int off);
 
+// Initialize a local character array without reading beyond the literal.
+static void
+emit_local_string_init(Compiler* c, Val dest, Type* t, Node* str) {
+	Val src;
+	int dstlen, srclen, n;
+
+	dstlen = type_size(c, t);
+	srclen = str && str->type ? type_size(c, str->type) : 0;
+	emit_zero_mem(dest, dstlen);
+	n = srclen < dstlen ? srclen : dstlen;
+	if (n > 0) {
+		src = emitexpr(c, str);
+		emitblit(dest, src, n);
+	}
+}
+
 // Return the positional cursor immediately after a field designator's top field.
 static int
 field_designator_cursor(Type* t, Initializer* in) {
@@ -2468,10 +2484,8 @@ emit_local_init(Compiler* c, Val base, Type* t, Initializer* in, int off) {
 	if (t->kind == TyArray) {
 		w = t->base ? type_size(c, t->base) : 4;
 		if (in->expr && in->expr->kind == NdStr && t->base && type_size(c, t->base) == 1) {
-			/* Copy string bytes into the array local. */
 			dest = emit_addr_off(base, off);
-			r = emitexpr(c, in->expr);
-			emitblit(dest, r, type_size(c, t));
+			emit_local_string_init(c, dest, t, in->expr);
 			return;
 		}
 		emit_local_init(c, base, t->base, in, off);
@@ -2524,16 +2538,21 @@ emitstmt_ret(Compiler* c, Node* n) {
 			if (n->init->expr) {
 				Val r;
 
-				r = emitexpr(c, n->init->expr);
-				if (is_aggr(n->type) || is_array(n->type))
-					emitblit(addr, r, storewidth(c, n->type));
+				if (is_array(n->type) && n->init->expr->kind == NdStr &&
+				    n->type->base && type_size(c, n->type->base) == 1)
+					emit_local_string_init(c, addr, n->type, n->init->expr);
 				else {
-					char cls;
+					r = emitexpr(c, n->init->expr);
+					if (is_aggr(n->type) || is_array(n->type))
+						emitblit(addr, r, storewidth(c, n->type));
+					else {
+						char cls;
 
-					cls = qbe_class(n->type);
-					if (r.cls != cls)
-						r = coerce(r, cls, n->type);
-					fprintf(outf, "\t%s %s, %s\n", storeop(c, n->type), r.text, addr.text);
+						cls = qbe_class(n->type);
+						if (r.cls != cls)
+							r = coerce(r, cls, n->type);
+						fprintf(outf, "\t%s %s, %s\n", storeop(c, n->type), r.text, addr.text);
+					}
 				}
 			} else if (n->init->is_list || n->init->items_len > 0) {
 				/* C `{0}` / partial lists: zero the object, then store members. */
@@ -3087,10 +3106,11 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 		if (in && in->expr && in->expr->kind == NdStr && t->base && t->base->size == 1) {
 			int k, n;
 
-			n = (int)in->expr->int_val;
+			n = in->expr->type ? type_size(c, in->expr->type) : 0;
 			w = type_size(c, t);
-			for (k = 0; k < w && n + k < c->strpool_len; k++)
-				addgi(off + k, 1, 1, c->strpool[n + k], NULL, 0);
+			for (k = 0; k < w && k < n; k++)
+				addgi(off + k, 1, 1,
+				      c->strpool[(int)in->expr->int_val + k], NULL, 0);
 			return;
 		}
 		w = t->base ? type_size(c, t->base) : 4;
