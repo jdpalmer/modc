@@ -74,6 +74,7 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 	type_init(c);
 	c->unit_files = NULL;
 	c->unit_files_len = 0;
+	c->unit_src_start = c->src_files_len;
 	r = 0;
 	profile = getenv("MODC_PROFILE") != NULL;
 	t_lexpp = t_prescan = t_parse = t_type = 0;
@@ -559,6 +560,7 @@ static int
 compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* dir,
 			char objs[][512], int* nobj) {
 	char cmd[8192], srcdir[1024], crooot[HOST_PATH_MAX], cached[HOST_PATH_MAX];
+	char depfile[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
 	char hex[32], what[HOST_PATH_MAX], projroot[HOST_PATH_MAX];
 	int i, off;
 	uint64_t key;
@@ -585,8 +587,10 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 		key = foreign_obj_key(c, c->csources[i], comp, projroot);
 		cache_hash_hex(key, hex, sizeof(hex));
 		snprintf(cached, sizeof(cached), "%s/foreign/%s.o", crooot, hex);
+		snprintf(depmeta, sizeof(depmeta), "%s.deps", cached);
+		snprintf(depfile, sizeof(depfile), "%s/foreign%d.d", dir, *nobj);
 		snprintf(what, sizeof(what), "foreign %s", c->csources[i]);
-		if (host_is_file(cached)) {
+		if (host_is_file(cached) && cache_deps_valid(depmeta)) {
 			if (cache_copy_file(cached, objs[*nobj]) != 0)
 				return 1;
 			cache_log(o->verbose, "hit", what);
@@ -601,6 +605,8 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 					" -D_CRT_SECURE_NO_WARNINGS");
 #endif
 		off = append_compile_flags(c, cmd, off, sizeof(cmd));
+		if (off > 0 && off < (int)sizeof(cmd))
+			off = append_opt_path(cmd, off, sizeof(cmd), " -MMD -MF ", depfile);
 		src_dirname(c->csources[i], srcdir, sizeof(srcdir));
 		if (off > 0 && off < (int)sizeof(cmd))
 			off = append_opt_path(cmd, off, sizeof(cmd), " -I", srcdir);
@@ -617,7 +623,9 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 		}
 		if (run_shell(o->verbose, cmd) != 0)
 			return 1;
-		(void)cache_copy_file(objs[*nobj], cached);
+		if (cache_copy_file(objs[*nobj], cached) == 0 &&
+		    cache_depfile_to_deps(depfile, depmeta) != 0)
+			(void)host_unlink(cached);
 		(*nobj)++;
 	}
 	return 0;
@@ -752,12 +760,32 @@ pkg_impl_hash(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 	return h;
 }
 
+// Save headers opened while preprocessing the current ModC graph.
+static int
+save_modc_deps(Compiler* c, const char* path) {
+	char** deps;
+	int i, j, n;
+
+	deps = xmalloc((size_t)(c->src_files_len - c->unit_src_start) * sizeof(char*));
+	n = 0;
+	for (i = c->unit_src_start; i < c->src_files_len; i++) {
+		for (j = 0; j < c->unit_files_len; j++)
+			if (strcmp(c->src_files[i], c->unit_files[j]) == 0)
+				break;
+		if (j == c->unit_files_len)
+			deps[n++] = c->src_files[i];
+	}
+	i = cache_write_deps(path, deps, n);
+	free(deps);
+	return i;
+}
+
 // Compute cache paths and hit flags from implementation hashes.
 static void
 pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
 	int i, j;
 	uint64_t h, needsh;
-	char needspath[HOST_PATH_MAX], stored[256];
+	char depmeta[HOST_PATH_MAX], needspath[HOST_PATH_MAX], stored[256];
 	char hex[24];
 
 	for (i = 0; i < npkgs; i++) {
@@ -769,7 +797,9 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
 		snprintf(pkgs[i].ifacepath, sizeof(pkgs[i].ifacepath),
 			 "%s/pkg/%s-%s/iface", crooot, pkgs[i].id, pkgs[i].hex);
 		pkgs[i].hit = 0;
-		if (!host_is_file(pkgs[i].objpath) || !host_is_file(pkgs[i].ifacepath))
+		snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
+		if (!host_is_file(pkgs[i].objpath) || !host_is_file(pkgs[i].ifacepath) ||
+		    !cache_deps_valid(depmeta))
 			continue;
 		snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
 			 pkgs[i].id, pkgs[i].hex);
@@ -989,7 +1019,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
 		foreign_ready = 1;
 		for (i = 0; i < c->csources_len; i++) {
-			char cached[HOST_PATH_MAX], hex[32];
+			char cached[HOST_PATH_MAX], depmeta[HOST_PATH_MAX], hex[32];
 			uint64_t key;
 
 			key = foreign_obj_key(c, c->csources[i],
@@ -998,7 +1028,8 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 					      projroot);
 			cache_hash_hex(key, hex, sizeof(hex));
 			snprintf(cached, sizeof(cached), "%s/foreign/%s.o", crooot, hex);
-			if (!host_is_file(cached))
+			snprintf(depmeta, sizeof(depmeta), "%s.deps", cached);
+			if (!host_is_file(cached) || !cache_deps_valid(depmeta))
 				foreign_ready = 0;
 			else {
 				snprintf(what, sizeof(what), "foreign %s", c->csources[i]);
@@ -1041,8 +1072,8 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	/* Any dependency source change conservatively invalidates this object. */
 	{
 		char ifacehex[MaxCachePkgs][24];
-		char curiface[HOST_PATH_MAX], needspath[HOST_PATH_MAX], needshex[24],
-			stored[64];
+		char curiface[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
+		char needspath[HOST_PATH_MAX], needshex[24], stored[64];
 		uint64_t needs;
 
 		for (i = 0; i < npkgs; i++) {
@@ -1064,8 +1095,10 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			cache_hash_hex(needs, needshex, sizeof(needshex));
 			snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
 				 pkgs[i].id, pkgs[i].hex);
+			snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
 			pkgs[i].hit = 0;
 			if (host_is_file(pkgs[i].objpath) &&
+			    cache_deps_valid(depmeta) &&
 			    cache_read_str(needspath, stored, sizeof(stored)) == 0 &&
 			    strcmp(stored, needshex) == 0)
 				pkgs[i].hit = 1;
@@ -1081,6 +1114,11 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			if (emit_pkg_object(c, o, &pkgs[i], i, dir, crooot) != 0)
 				return 1;
 			snprintf(objs[i], sizeof(objs[i]), "%s", pkgs[i].objpath);
+		}
+		for (i = 0; i < npkgs; i++) {
+			snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
+			if (save_modc_deps(c, depmeta) != 0)
+				return 1;
 		}
 		/* Stamp needs beside every obj for the next run. */
 		for (i = 0; i < npkgs; i++) {

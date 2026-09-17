@@ -453,6 +453,7 @@ struct Compiler {
 	char** src_files;
 	char** src_text;
 	int src_files_len;
+	int unit_src_start; /* src_files index where the current compile began */
 
 	int strpool_len;
 	unsigned char* strpool;
@@ -627,6 +628,9 @@ int cache_copy_file(const char* src, const char* dst);
 int cache_write_bytes(const char* path, const void* data, size_t n);
 int cache_write_str(const char* path, const char* s);
 int cache_read_str(const char* path, char* out, size_t out_len);
+int cache_write_deps(const char* path, char** files, int nfiles);
+int cache_deps_valid(const char* path);
+int cache_depfile_to_deps(const char* depfile, const char* path);
 
 /* ---- emit.c ---- */
 int emit_qbe(Compiler* c, FILE* out);

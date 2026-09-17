@@ -116,6 +116,11 @@ check-special: $(MODC)
 	./modc build -v test/pkg_csrc_main.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc2.log
 	@grep -q 'cache hit foreign' $(BUILD)/cache_csrc2.log
 	@grep -q 'cache hit graph' $(BUILD)/cache_csrc2.log
+	@printf '%s\n' 'int c_add_one(int x); /* cache invalidation */' > test/pkg_csrc/shim/add_one.h
+	./modc build -v test/pkg_csrc_main.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc3.log
+	@grep -q 'cache miss pkg pkg_csrc' $(BUILD)/cache_csrc3.log
+	@grep -q 'cache miss foreign' $(BUILD)/cache_csrc3.log
+	@printf '%s\n' 'int c_add_one(int x);' > test/pkg_csrc/shim/add_one.h
 	$(BUILD)/cache_csrc
 	@rm -rf test/cache_two/.modc-cache
 	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two1.log

@@ -287,3 +287,150 @@ cache_read_str(const char* path, char* out, size_t out_len) {
 	free(text);
 	return 0;
 }
+
+// Persist dependency paths with their current content hashes.
+int
+cache_write_deps(const char* path, char** files, int nfiles) {
+	char *buf, line[32];
+	size_t len, cap, n;
+	uint64_t h;
+	int i, j;
+
+	len = 0;
+	cap = 256;
+	buf = xmalloc(cap);
+	for (i = 0; i < nfiles; i++) {
+		if (files[i] == NULL || files[i][0] == 0)
+			continue;
+		if (strchr(files[i], '\n') || strchr(files[i], '\r') || strchr(files[i], '\t')) {
+			free(buf);
+			return 1;
+		}
+		for (j = 0; j < i; j++)
+			if (files[j] && strcmp(files[j], files[i]) == 0)
+				break;
+		if (j < i)
+			continue;
+		h = cache_hash_file(files[i]);
+		if (h == 0) {
+			free(buf);
+			return 1;
+		}
+		snprintf(line, sizeof(line), "%016" PRIx64 "\t", h);
+		n = strlen(line) + strlen(files[i]) + 1;
+		while (len + n > cap) {
+			cap *= 2;
+			buf = xrealloc(buf, cap);
+		}
+		memcpy(buf + len, line, strlen(line));
+		len += strlen(line);
+		memcpy(buf + len, files[i], strlen(files[i]));
+		len += strlen(files[i]);
+		buf[len++] = '\n';
+	}
+	i = cache_write_bytes(path, buf, len);
+	free(buf);
+	return i;
+}
+
+// Validate every dependency recorded by cache_write_deps.
+int
+cache_deps_valid(const char* path) {
+	char *text, *p, *line, hex[17], *end;
+	uint64_t want;
+
+	text = read_file(path, NULL);
+	if (text == NULL)
+		return 0;
+	for (p = text; *p;) {
+		line = p;
+		p = strchr(p, '\n');
+		if (p)
+			*p++ = 0;
+		else
+			p = line + strlen(line);
+		if (strlen(line) < 18 || line[16] != '\t') {
+			free(text);
+			return 0;
+		}
+		memcpy(hex, line, 16);
+		hex[16] = 0;
+		errno = 0;
+		want = strtoull(hex, &end, 16);
+		if (errno || *end || cache_hash_file(line + 17) != want) {
+			free(text);
+			return 0;
+		}
+	}
+	free(text);
+	return 1;
+}
+
+// Convert a GCC/Clang make-style depfile into content-hashed dependencies.
+int
+cache_depfile_to_deps(const char* depfile, const char* path) {
+	char *text, *p, *q, *tok;
+	char** files;
+	size_t n;
+	int nfiles, cap, r;
+
+	text = read_file(depfile, &n);
+	if (text == NULL)
+		return 1;
+	p = text;
+	while (*p && !(*p == ':' && isspace((unsigned char)p[1])))
+		p++;
+	if (*p == 0) {
+		free(text);
+		return 1;
+	}
+	p++;
+	nfiles = 0;
+	cap = 8;
+	files = xmalloc((size_t)cap * sizeof(char*));
+	while (*p) {
+		while (isspace((unsigned char)*p) ||
+		       (*p == '\\' && (p[1] == '\n' ||
+					(p[1] == '\r' && p[2] == '\n')))) {
+			if (*p == '\\') {
+				p += p[1] == '\r' ? 3 : 2;
+			} else
+				p++;
+		}
+		if (*p == 0)
+			break;
+		tok = xmalloc(strlen(p) + 1);
+		q = tok;
+		while (*p && !isspace((unsigned char)*p)) {
+			if (*p == '\\' && p[1]) {
+				if (p[1] == '\n') {
+					p += 2;
+					break;
+				}
+				if (p[1] == '\r' && p[2] == '\n') {
+					p += 3;
+					break;
+				}
+				p++;
+			}
+			if (*p == '$' && p[1] == '$')
+				p++;
+			*q++ = *p++;
+		}
+		*q = 0;
+		if (tok[0]) {
+			if (nfiles >= cap) {
+				cap *= 2;
+				files = xrealloc(files, (size_t)cap * sizeof(char*));
+			}
+			files[nfiles++] = tok;
+		} else
+			free(tok);
+	}
+	r = cache_write_deps(path, files, nfiles);
+	while (nfiles > 0)
+		free(files[--nfiles]);
+	free(files);
+	free(text);
+	return r;
+}
