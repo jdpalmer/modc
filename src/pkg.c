@@ -610,6 +610,7 @@ visit_file(Compiler* c, Disc* d, const char* path) {
 			free(srcs[j]);
 		free(srcs);
 		free(imps[i]);
+		imps[i] = NULL;
 	}
 	free(imps);
 	d->stack_len--;

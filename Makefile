@@ -71,6 +71,9 @@ check-special: $(MODC)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -Isrc -o $(BUILD)/intern_test test/intern_test.c $(BUILD)/diag.o
 	$(BUILD)/intern_test
+	@./modc check test/import_cleanup/main.mc >$(BUILD)/import_cleanup.out 2>&1; \
+		rc=$$?; test $$rc -eq 1
+	@grep -Fq 'cannot find package "missing"' $(BUILD)/import_cleanup.out
 	./modc build test/pkg_clib_main.mc -o $(BUILD)/pkg_clib-bin
 	$(BUILD)/pkg_clib-bin
 	./modc build test/pkg_csrc_main.mc -o $(BUILD)/pkg_csrc-bin
