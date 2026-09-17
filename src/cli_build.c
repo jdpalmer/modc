@@ -317,14 +317,47 @@ emit_one(Compiler* c, CliOpts* o, const char* path) {
 	return compile_file(c, path, stdout);
 }
 
-// Run a host shell command; print it when verbose.
-static int
-run_shell(int verbose, const char* cmd) {
-	int st;
+enum { MaxCmdArgs = 1024 };
 
-	if (verbose)
-		fprintf(stderr, "+%s\n", cmd);
-	st = host_run(cmd);
+// Print one argv element unambiguously for -v diagnostics.
+static void
+print_arg(const char* s) {
+	const char* p;
+	int quote;
+
+	quote = s[0] == 0;
+	for (p = s; *p; p++)
+		if (!isalnum((unsigned char)*p) && strchr("_./:=+,-", *p) == NULL)
+			quote = 1;
+	if (!quote) {
+		fputs(s, stderr);
+		return;
+	}
+	fputc('\'', stderr);
+	for (p = s; *p; p++) {
+		if (*p == '\'')
+			fputs("'\\''", stderr);
+		else
+			fputc(*p, stderr);
+	}
+	fputc('\'', stderr);
+}
+
+// Run a command directly, without shell parsing.
+static int
+run_argv(int verbose, const char* const argv[]) {
+	int st;
+	int i;
+
+	if (verbose) {
+		fputc('+', stderr);
+		for (i = 0; argv[i]; i++) {
+			fputc(' ', stderr);
+			print_arg(argv[i]);
+		}
+		fputc('\n', stderr);
+	}
+	st = host_spawn_wait(argv);
 	if (st != 0) {
 		if (st == -1)
 			fprintf(stderr, "modc: failed to run command: %s\n", strerror(errno));
@@ -452,45 +485,38 @@ src_dirname(const char* path, char* out, size_t n) {
 	host_dirname(path, out, n);
 }
 
-// True if a shell argument contains spaces (Windows paths).
+// Append one argument to a fixed command vector.
 static int
-shell_arg_needs_quote(const char* s) {
-	const char* p;
-
-	if (s == NULL || s[0] == 0)
-		return 0;
-	for (p = s; *p; p++)
-		if (*p == ' ' || *p == '\t' || *p == '"')
-			return 1;
+add_arg(const char** argv, int* argc, const char* arg) {
+	if (arg == NULL || *argc >= MaxCmdArgs - 1)
+		return 1;
+	argv[(*argc)++] = arg;
+	argv[*argc] = NULL;
 	return 0;
-}
-
-/* Append " PREFIX" + ARG, quoting ARG when it contains spaces (Windows paths). */
-static int
-append_opt_path(char* cmd, int off, size_t sz, const char* prefix, const char* path) {
-	if (off <= 0 || off >= (int)sz || path == NULL)
-		return off;
-	if (shell_arg_needs_quote(path))
-		return off + snprintf(cmd + off, sz - (size_t)off, "%s\"%s\"", prefix, path);
-	return off + snprintf(cmd + off, sz - (size_t)off, "%s%s", prefix, path);
 }
 
 // Append -I/-D/-F (and system -I) flags used for foreign compiles.
 static int
-append_compile_flags(Compiler* c, char* cmd, int off, size_t sz) {
+add_compile_flags(Compiler* c, const char** argv, int* argc) {
 	int i;
 
-	for (i = 0; i < c->incpaths_len && off > 0 && off < (int)sz; i++)
-		off = append_opt_path(cmd, off, sz, " -I", c->incpaths[i]);
+	for (i = 0; i < c->incpaths_len; i++)
+		if (add_arg(argv, argc, "-I") || add_arg(argv, argc, c->incpaths[i]))
+			return 1;
 	if (!c->no_system_includes) {
-		for (i = 0; i < c->sysincpaths_len && off > 0 && off < (int)sz; i++)
-			off = append_opt_path(cmd, off, sz, " -I", c->sysincpaths[i]);
+		for (i = 0; i < c->sysincpaths_len; i++)
+			if (add_arg(argv, argc, "-I") ||
+			    add_arg(argv, argc, c->sysincpaths[i]))
+				return 1;
 	}
-	for (i = 0; i < c->cli_defs_len && off > 0 && off < (int)sz; i++)
-		off += snprintf(cmd + off, sz - (size_t)off, " -D%s", c->cli_defs[i]);
-	for (i = 0; i < c->framework_paths_len && off > 0 && off < (int)sz; i++)
-		off = append_opt_path(cmd, off, sz, " -F", c->framework_paths[i]);
-	return off;
+	for (i = 0; i < c->cli_defs_len; i++)
+		if (add_arg(argv, argc, "-D") || add_arg(argv, argc, c->cli_defs[i]))
+			return 1;
+	for (i = 0; i < c->framework_paths_len; i++)
+		if (add_arg(argv, argc, "-F") ||
+		    add_arg(argv, argc, c->framework_paths[i]))
+			return 1;
+	return 0;
 }
 
 // Short OS tag mixed into cache keys (windows/darwin/linux/unix).
@@ -559,10 +585,11 @@ foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* proj
 static int
 compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* dir,
 			char objs[][512], int* nobj) {
-	char cmd[8192], srcdir[1024], crooot[HOST_PATH_MAX], cached[HOST_PATH_MAX];
+	const char* argv[MaxCmdArgs];
+	char srcdir[1024], crooot[HOST_PATH_MAX], cached[HOST_PATH_MAX];
 	char depfile[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
 	char hex[32], what[HOST_PATH_MAX], projroot[HOST_PATH_MAX];
-	int i, off;
+	int i, argc;
 	uint64_t key;
 
 	*nobj = 0;
@@ -598,30 +625,27 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 			continue;
 		}
 		cache_log(o->verbose, "miss", what);
-		off = snprintf(cmd, sizeof(cmd), "%s -c", comp);
+		argc = 0;
+		if (add_arg(argv, &argc, comp) || add_arg(argv, &argc, "-c"))
+			goto toolong;
 #ifdef _WIN32
-		if (off > 0 && off < (int)sizeof(cmd))
-			off += snprintf(cmd + off, sizeof(cmd) - (size_t)off,
-					" -D_CRT_SECURE_NO_WARNINGS");
+		if (add_arg(argv, &argc, "-D_CRT_SECURE_NO_WARNINGS"))
+			goto toolong;
 #endif
-		off = append_compile_flags(c, cmd, off, sizeof(cmd));
-		if (off > 0 && off < (int)sizeof(cmd))
-			off = append_opt_path(cmd, off, sizeof(cmd), " -MMD -MF ", depfile);
+		if (add_compile_flags(c, argv, &argc) ||
+		    add_arg(argv, &argc, "-MMD") || add_arg(argv, &argc, "-MF") ||
+		    add_arg(argv, &argc, depfile))
+			goto toolong;
 		src_dirname(c->csources[i], srcdir, sizeof(srcdir));
-		if (off > 0 && off < (int)sizeof(cmd))
-			off = append_opt_path(cmd, off, sizeof(cmd), " -I", srcdir);
-		if (src_is_objc(c->csources[i]) && off > 0 && off < (int)sizeof(cmd))
-			off += snprintf(cmd + off, sizeof(cmd) - (size_t)off,
-					" -fobjc-arc");
-		if (off > 0 && off < (int)sizeof(cmd)) {
-			off = append_opt_path(cmd, off, sizeof(cmd), " ", c->csources[i]);
-			off = append_opt_path(cmd, off, sizeof(cmd), " -o ", objs[*nobj]);
-		}
-		if (off <= 0 || off >= (int)sizeof(cmd)) {
-			fprintf(stderr, "modc: compile command too long\n");
-			return 1;
-		}
-		if (run_shell(o->verbose, cmd) != 0)
+		if (add_arg(argv, &argc, "-I") || add_arg(argv, &argc, srcdir))
+			goto toolong;
+		if (src_is_objc(c->csources[i]) &&
+		    add_arg(argv, &argc, "-fobjc-arc"))
+			goto toolong;
+		if (add_arg(argv, &argc, c->csources[i]) ||
+		    add_arg(argv, &argc, "-o") || add_arg(argv, &argc, objs[*nobj]))
+			goto toolong;
+		if (run_argv(o->verbose, argv) != 0)
 			return 1;
 		if (cache_copy_file(objs[*nobj], cached) == 0 &&
 		    cache_depfile_to_deps(depfile, depmeta) != 0)
@@ -629,41 +653,53 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 		(*nobj)++;
 	}
 	return 0;
+
+toolong:
+	fprintf(stderr, "modc: too many compile arguments\n");
+	return 1;
 }
 
 // Link package objs + foreign objs + libs into outpath.
 static int
 link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], int nobjs,
 	       char foreign[][512], int nforeign) {
-	char cmd[8192];
+	const char* argv[MaxCmdArgs];
 	const char* linker;
-	int i, off, n;
+	int i, argc, n;
 
 	linker = needs_cxx_link(c) ? tool_cxx() : tool_cc();
-	off = snprintf(cmd, sizeof(cmd), "%s", linker);
-	for (n = 0; n < nobjs && off > 0 && off < (int)sizeof(cmd); n++)
-		off = append_opt_path(cmd, off, sizeof(cmd), " ", objs[n]);
-	for (n = 0; n < nforeign && off > 0 && off < (int)sizeof(cmd); n++)
-		off = append_opt_path(cmd, off, sizeof(cmd), " ", foreign[n]);
-	if (off > 0 && off < (int)sizeof(cmd))
-		off = append_opt_path(cmd, off, sizeof(cmd), " -o ", outpath);
+	argc = 0;
+	if (add_arg(argv, &argc, linker))
+		goto toolong;
+	for (n = 0; n < nobjs; n++)
+		if (add_arg(argv, &argc, objs[n]))
+			goto toolong;
+	for (n = 0; n < nforeign; n++)
+		if (add_arg(argv, &argc, foreign[n]))
+			goto toolong;
+	if (add_arg(argv, &argc, "-o") || add_arg(argv, &argc, outpath))
+		goto toolong;
 	if (!c->no_system_includes) {
-		for (i = 0; i < c->syslibpaths_len && off > 0 && off < (int)sizeof(cmd); i++)
-			off = append_opt_path(cmd, off, sizeof(cmd), " -L",
-					      c->syslibpaths[i]);
+		for (i = 0; i < c->syslibpaths_len; i++)
+			if (add_arg(argv, &argc, "-L") ||
+			    add_arg(argv, &argc, c->syslibpaths[i]))
+				goto toolong;
 	}
-	for (i = 0; i < c->c_libs_len && off > 0 && off < (int)sizeof(cmd); i++)
-		off += snprintf(cmd + off, sizeof(cmd) - (size_t)off, " -l%s", c->c_libs[i]);
-	for (i = 0; i < c->frameworks_len && off > 0 && off < (int)sizeof(cmd); i++)
-		off += snprintf(cmd + off, sizeof(cmd) - (size_t)off, " -framework %s",
-				c->frameworks[i]);
-	for (i = 0; i < o->linkargv_len && off > 0 && off < (int)sizeof(cmd); i++)
-		off += snprintf(cmd + off, sizeof(cmd) - (size_t)off, " %s", o->linkargv[i]);
-	if (off <= 0 || off >= (int)sizeof(cmd)) {
-		fprintf(stderr, "modc: linker command too long\n");
-		return 1;
-	}
-	return run_shell(o->verbose, cmd) != 0 ? 1 : 0;
+	for (i = 0; i < c->c_libs_len; i++)
+		if (add_arg(argv, &argc, "-l") || add_arg(argv, &argc, c->c_libs[i]))
+			goto toolong;
+	for (i = 0; i < c->frameworks_len; i++)
+		if (add_arg(argv, &argc, "-framework") ||
+		    add_arg(argv, &argc, c->frameworks[i]))
+			goto toolong;
+	for (i = 0; i < o->linkargv_len; i++)
+		if (add_arg(argv, &argc, o->linkargv[i]))
+			goto toolong;
+	return run_argv(o->verbose, argv);
+
+toolong:
+	fprintf(stderr, "modc: too many linker arguments\n");
+	return 1;
 }
 
 // Sanitize package directory basename for cache path segments.
@@ -911,9 +947,9 @@ load_link_meta(Compiler* c, const char* path) {
 static int
 emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const char* dir,
 		const char* crooot) {
-	char qbe[512], asmpath[512], obj[512], cmd[4096], strsym[128];
+	const char* argv[8];
+	char qbe[512], asmpath[512], obj[512], strsym[128];
 	FILE* f;
-	int off;
 
 	(void)crooot;
 	snprintf(qbe, sizeof(qbe), "%s/pkg%d.qbe", dir, pkg_index);
@@ -929,21 +965,22 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 	fclose(f);
 	if (c->error_count)
 		return 1;
-	if (snprintf(cmd, sizeof(cmd), "%s -t %s -o %s %s", tool_qbe(), tool_qbe_target(),
-		     asmpath, qbe) >= (int)sizeof(cmd)) {
-		fprintf(stderr, "modc: command too long\n");
+	argv[0] = tool_qbe();
+	argv[1] = "-t";
+	argv[2] = tool_qbe_target();
+	argv[3] = "-o";
+	argv[4] = asmpath;
+	argv[5] = qbe;
+	argv[6] = NULL;
+	if (run_argv(o->verbose, argv) != 0)
 		return 1;
-	}
-	if (run_shell(o->verbose, cmd) != 0)
-		return 1;
-	off = snprintf(cmd, sizeof(cmd), "%s -c", tool_cc());
-	off = append_opt_path(cmd, off, sizeof(cmd), " ", asmpath);
-	off = append_opt_path(cmd, off, sizeof(cmd), " -o ", obj);
-	if (off <= 0 || off >= (int)sizeof(cmd)) {
-		fprintf(stderr, "modc: command too long\n");
-		return 1;
-	}
-	if (run_shell(o->verbose, cmd) != 0)
+	argv[0] = tool_cc();
+	argv[1] = "-c";
+	argv[2] = asmpath;
+	argv[3] = "-o";
+	argv[4] = obj;
+	argv[5] = NULL;
+	if (run_argv(o->verbose, argv) != 0)
 		return 1;
 	if (cache_copy_file(obj, pkg->objpath) != 0)
 		return 1;

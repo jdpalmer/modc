@@ -100,6 +100,11 @@ check-special: $(MODC)
 	./modc vendor --check -C $(BUILD)/vendor_app
 	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
 	$(BUILD)/vendor_app-bin
+	@rm -rf $(BUILD)/vendor_inject $(BUILD)/vendor-pwned
+	@mkdir -p $(BUILD)/vendor_inject
+	@printf '[deps.bad]\ngit = $$(touch $(BUILD)/vendor-pwned)\nrev = 0000000000000000000000000000000000000000\n' > $(BUILD)/vendor_inject/modc.ini
+	@./modc vendor -C $(BUILD)/vendor_inject >/dev/null 2>&1; test $$? -ne 0
+	@test ! -e $(BUILD)/vendor-pwned
 	./modc help vendor > /dev/null
 	./modc build test/cli_build.mc -o $(BUILD)/cli_build-bin
 	$(BUILD)/cli_build-bin
@@ -156,6 +161,9 @@ check-special: $(MODC)
 	./modc build test/project_root/cmd/app -o $(BUILD)/project-root-bin
 	$(BUILD)/project-root-bin
 	./modc clean test/project_root/cmd/app
+	./modc build test/pkg_shell -o '$(BUILD)/shell;literal-bin'
+	'$(BUILD)/shell;literal-bin'
+	./modc clean test/pkg_shell
 	@rm -f $(BUILD)/cli_build $(BUILD)/cli_dirbuild
 	./modc build test/cli_build.mc && test -x cli_build && mv cli_build $(BUILD)/cli_build-default
 	$(BUILD)/cli_build-default

@@ -42,13 +42,9 @@ HostDir* host_opendir(const char* path);
 const char* host_readdir(HostDir* d); /* basename; NULL at end */
 void host_closedir(HostDir* d);
 
-/* Run a shell command; returns exit status, or -1 on spawn failure. */
-int host_run(const char* cmd);
-/* Capture first line of stdout (git hashes); 0 ok. */
-int host_run_capture(char* out, size_t out_len, const char* cmd);
 /* Spawn argv[0] with argv (NULL-terminated); returns exit status or -1. */
-int host_spawn_wait(char* const argv[]);
-
-const char* host_devnull(void); /* "nul" or "/dev/null" */
+int host_spawn_wait(const char* const argv[]);
+/* Spawn argv and capture the first stdout token; 0 on success. */
+int host_spawn_capture(const char* const argv[], char* out, size_t out_len);
 
 #endif

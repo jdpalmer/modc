@@ -192,16 +192,16 @@ is_dir_path(const char* path) {
 	return host_is_dir(path);
 }
 
-// Run a shell command and return its exit status, or -1 on spawn/wait failure.
+// Run an argv command and return its exit status, or -1 on spawn/wait failure.
 static int
-run_status(const char* cmd) {
-	return host_run(cmd);
+run_status(const char* const argv[]) {
+	return host_spawn_wait(argv);
 }
 
-// Run a command and capture the first line of stdout (used for git ls-remote hashes).
+// Run a command and capture its first stdout token (used for git hashes).
 static int
-run_capture(char* out, size_t out_len, const char* cmd) {
-	return host_run_capture(out, out_len, cmd);
+run_capture(char* out, size_t out_len, const char* const argv[]) {
+	return host_spawn_capture(argv, out, out_len);
 }
 
 // Fill a dependency spec from a [deps.NAME] section; requires git and exactly one pin.
@@ -263,17 +263,24 @@ dep_dup(DepSpec* dst, DepSpec* src) {
 // Pin a dependency to a concrete commit: use rev as-is or resolve tag/branch via git.
 static int
 resolve_git_rev(DepSpec* d, char* revout, size_t nrev, VendorCtx* ctx) {
-	char cmd[4096], got[128];
+	const char* argv[7];
+	char ref[1024], got[128];
 
 	if (d->rev) {
 		snprintf(revout, nrev, "%s", d->rev);
 		return 0;
 	}
 	if (d->tag) {
-		snprintf(cmd, sizeof(cmd),
-			 "git ls-remote --refs \"%s\" \"refs/tags/%s\" 2>%s",
-			 d->git, d->tag, host_devnull());
-		if (run_capture(got, sizeof(got), cmd)) {
+		if (snprintf(ref, sizeof(ref), "refs/tags/%s", d->tag) >=
+		    (int)sizeof(ref))
+			return 1;
+		argv[0] = "git";
+		argv[1] = "ls-remote";
+		argv[2] = "--refs";
+		argv[3] = d->git;
+		argv[4] = ref;
+		argv[5] = NULL;
+		if (run_capture(got, sizeof(got), argv)) {
 			fprintf(stderr, "modc vendor: cannot resolve tag \"%s\" for %s\n",
 				d->tag, d->git);
 			return 1;
@@ -284,10 +291,15 @@ resolve_git_rev(DepSpec* d, char* revout, size_t nrev, VendorCtx* ctx) {
 		return 0;
 	}
 	if (d->branch) {
-		snprintf(cmd, sizeof(cmd),
-			 "git ls-remote \"%s\" \"refs/heads/%s\" 2>%s",
-			 d->git, d->branch, host_devnull());
-		if (run_capture(got, sizeof(got), cmd)) {
+		if (snprintf(ref, sizeof(ref), "refs/heads/%s", d->branch) >=
+		    (int)sizeof(ref))
+			return 1;
+		argv[0] = "git";
+		argv[1] = "ls-remote";
+		argv[2] = d->git;
+		argv[3] = ref;
+		argv[4] = NULL;
+		if (run_capture(got, sizeof(got), argv)) {
 			fprintf(stderr, "modc vendor: cannot resolve branch \"%s\" for %s\n",
 				d->branch, d->git);
 			return 1;
@@ -435,23 +447,32 @@ deps_free(DepSpec* deps, int n) {
 // Clone a git repo into a fresh temp dir and check out the pinned revision.
 static int
 clone_to_temp(DepSpec* d, const char* rev, char* tmpdir, size_t ntmp, VendorCtx* ctx) {
-	char cmd[8192];
+	const char* argv[9];
 
 	if (host_mkdtemp(tmpdir, ntmp, "modc-vendor") != 0) {
 		fprintf(stderr, "modc vendor: cannot create temp dir: %s\n", strerror(errno));
 		return 1;
 	}
-	snprintf(cmd, sizeof(cmd), "git clone --quiet \"%s\" \"%s\" 2>%s", d->git, tmpdir,
-		 host_devnull());
 	if (ctx->verbose)
 		fprintf(stderr, "vendor: git clone %s\n", d->git);
-	if (run_status(cmd)) {
+	argv[0] = "git";
+	argv[1] = "clone";
+	argv[2] = "--quiet";
+	argv[3] = d->git;
+	argv[4] = tmpdir;
+	argv[5] = NULL;
+	if (run_status(argv)) {
 		fprintf(stderr, "modc vendor: git clone failed for \"%s\"\n", d->git);
 		return 1;
 	}
-	snprintf(cmd, sizeof(cmd), "git -C \"%s\" checkout --quiet \"%s\" 2>%s", tmpdir, rev,
-		 host_devnull());
-	if (run_status(cmd)) {
+	argv[0] = "git";
+	argv[1] = "-C";
+	argv[2] = tmpdir;
+	argv[3] = "checkout";
+	argv[4] = "--quiet";
+	argv[5] = rev;
+	argv[6] = NULL;
+	if (run_status(argv)) {
 		fprintf(stderr, "modc vendor: git checkout %s failed for \"%s\"\n", rev, d->git);
 		return 1;
 	}

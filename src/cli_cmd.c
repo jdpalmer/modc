@@ -106,7 +106,7 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	char dir[HOST_PATH_MAX];
 	char prog[512], qbe[512], asmpath[512];
 	int i, st, runargs_len;
-	char** runargv;
+	const char** runargv;
 	int nrun;
 
 	c->c_libs_len = 0;
@@ -190,13 +190,15 @@ cmd_test(Compiler* c, CliOpts* o, int argc, char** argv) {
 	if (r != 0)
 		return 1;
 	if (o->corpus) {
+		const char* make_argv[] = {"make", "check", NULL};
+
 		if (o->files_len != 0) {
 			fprintf(stderr, "modc test: --corpus does not take a path\n");
 			return 1;
 		}
 		if (o->verbose)
 			fprintf(stderr, "modc test --corpus: make check\n");
-		r = host_run("make check");
+		r = host_spawn_wait(make_argv);
 		if (r == -1) {
 			fprintf(stderr, "modc test: failed to run make check: %s\n",
 				strerror(errno));

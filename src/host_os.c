@@ -13,9 +13,11 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <direct.h>
+#include <fcntl.h>
 #include <io.h>
 #include <process.h>
 #else
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -388,58 +390,77 @@ host_rmtree(const char* path) {
 	return rmtree_one(path);
 }
 
-// Run a shell command via system(); returns exit status or -1.
-int
-host_run(const char* cmd) {
-	int st;
-
-	st = system(cmd);
-	if (st == -1)
-		return -1;
-	return st;
-}
-
-// Run cmd and capture the first whitespace-delimited token into out.
-int
-host_run_capture(char* out, size_t out_len, const char* cmd) {
-	FILE* f;
-	char line[512];
-	size_t n;
-
-	out[0] = 0;
-	f = _popen(cmd, "r");
-	if (f == NULL)
-		return 1;
-	if (fgets(line, sizeof(line), f) == NULL) {
-		_pclose(f);
-		return 1;
-	}
-	_pclose(f);
-	n = strcspn(line, " \t\r\n");
-	if (n >= out_len)
-		n = out_len - 1;
-	memcpy(out, line, n);
-	out[n] = 0;
-	return out[0] == 0;
-}
-
 // Spawn argv[0] with argv and wait; returns child exit status.
 int
-host_spawn_wait(char* const argv[]) {
+host_spawn_wait(const char* const argv[]) {
 	intptr_t r;
 
 	if (argv == NULL || argv[0] == NULL)
 		return -1;
-	r = _spawnv(_P_WAIT, argv[0], (const char* const*)argv);
+	r = _spawnvp(_P_WAIT, argv[0], argv);
 	if (r < 0)
 		return -1;
 	return (int)r;
 }
 
-// Host null device path ("nul" or "/dev/null").
-const char*
-host_devnull(void) {
-	return "nul";
+// Spawn argv, suppress stderr, and capture the first stdout token.
+int
+host_spawn_capture(const char* const argv[], char* out, size_t out_len) {
+	char buf[512];
+	int pipefd[2], saveout, saveerr, nullfd, st, n, got;
+	intptr_t proc;
+	size_t used, i;
+
+	if (argv == NULL || argv[0] == NULL || out == NULL || out_len == 0)
+		return 1;
+	out[0] = 0;
+	if (_pipe(pipefd, 4096, _O_BINARY) != 0)
+		return 1;
+	saveout = _dup(1);
+	saveerr = _dup(2);
+	nullfd = _open("nul", _O_WRONLY);
+	if (saveout < 0 || saveerr < 0 || nullfd < 0) {
+		if (saveout >= 0)
+			_close(saveout);
+		if (saveerr >= 0)
+			_close(saveerr);
+		if (nullfd >= 0)
+			_close(nullfd);
+		_close(pipefd[0]);
+		_close(pipefd[1]);
+		return 1;
+	}
+	fflush(stdout);
+	fflush(stderr);
+	_dup2(pipefd[1], 1);
+	_dup2(nullfd, 2);
+	proc = _spawnvp(_P_NOWAIT, argv[0], argv);
+	_dup2(saveout, 1);
+	_dup2(saveerr, 2);
+	_close(saveout);
+	_close(saveerr);
+	_close(nullfd);
+	_close(pipefd[1]);
+	if (proc < 0) {
+		_close(pipefd[0]);
+		return 1;
+	}
+	used = 0;
+	got = 0;
+	while ((n = _read(pipefd[0], buf, sizeof(buf))) > 0) {
+		for (i = 0; i < (size_t)n; i++) {
+			if (isspace((unsigned char)buf[i])) {
+				if (used)
+					got = 1;
+			} else if (!got && used + 1 < out_len)
+				out[used++] = buf[i];
+		}
+	}
+	_close(pipefd[0]);
+	out[used] = 0;
+	if (_cwait(&st, proc, 0) < 0)
+		return 1;
+	return st != 0 || out[0] == 0;
 }
 
 #else /* POSIX */
@@ -651,46 +672,9 @@ host_rmtree(const char* path) {
 	return rmtree_one(path);
 }
 
-// Run a shell command via system(); returns exit status or -1.
-int
-host_run(const char* cmd) {
-	int st;
-
-	st = system(cmd);
-	if (st == -1)
-		return -1;
-	if (WIFEXITED(st))
-		return WEXITSTATUS(st);
-	return -1;
-}
-
-// Run cmd and capture the first whitespace-delimited token into out.
-int
-host_run_capture(char* out, size_t out_len, const char* cmd) {
-	FILE* f;
-	char line[512];
-	size_t n;
-
-	out[0] = 0;
-	f = popen(cmd, "r");
-	if (f == NULL)
-		return 1;
-	if (fgets(line, sizeof(line), f) == NULL) {
-		pclose(f);
-		return 1;
-	}
-	pclose(f);
-	n = strcspn(line, " \t\r\n");
-	if (n >= out_len)
-		n = out_len - 1;
-	memcpy(out, line, n);
-	out[n] = 0;
-	return out[0] == 0;
-}
-
 // Spawn argv[0] with argv and wait; returns child exit status.
 int
-host_spawn_wait(char* const argv[]) {
+host_spawn_wait(const char* const argv[]) {
 	pid_t pid;
 	int st;
 
@@ -700,7 +684,7 @@ host_spawn_wait(char* const argv[]) {
 	if (pid < 0)
 		return -1;
 	if (pid == 0) {
-		execv(argv[0], argv);
+		execvp(argv[0], (char* const*)argv);
 		_exit(127);
 	}
 	if (waitpid(pid, &st, 0) < 0)
@@ -710,10 +694,55 @@ host_spawn_wait(char* const argv[]) {
 	return -1;
 }
 
-// Host null device path ("nul" or "/dev/null").
-const char*
-host_devnull(void) {
-	return "/dev/null";
+// Spawn argv, suppress stderr, and capture the first stdout token.
+int
+host_spawn_capture(const char* const argv[], char* out, size_t out_len) {
+	char buf[512];
+	int pipefd[2], nullfd, st, n, got;
+	pid_t pid;
+	size_t used, i;
+
+	if (argv == NULL || argv[0] == NULL || out == NULL || out_len == 0)
+		return 1;
+	out[0] = 0;
+	if (pipe(pipefd) != 0)
+		return 1;
+	pid = fork();
+	if (pid < 0) {
+		close(pipefd[0]);
+		close(pipefd[1]);
+		return 1;
+	}
+	if (pid == 0) {
+		close(pipefd[0]);
+		if (dup2(pipefd[1], STDOUT_FILENO) < 0)
+			_exit(127);
+		close(pipefd[1]);
+		nullfd = open("/dev/null", O_WRONLY);
+		if (nullfd >= 0) {
+			(void)dup2(nullfd, STDERR_FILENO);
+			close(nullfd);
+		}
+		execvp(argv[0], (char* const*)argv);
+		_exit(127);
+	}
+	close(pipefd[1]);
+	used = 0;
+	got = 0;
+	while ((n = (int)read(pipefd[0], buf, sizeof(buf))) > 0) {
+		for (i = 0; i < (size_t)n; i++) {
+			if (isspace((unsigned char)buf[i])) {
+				if (used)
+					got = 1;
+			} else if (!got && used + 1 < out_len)
+				out[used++] = buf[i];
+		}
+	}
+	close(pipefd[0]);
+	out[used] = 0;
+	if (waitpid(pid, &st, 0) < 0 || !WIFEXITED(st))
+		return 1;
+	return WEXITSTATUS(st) != 0 || out[0] == 0;
 }
 
 #endif
