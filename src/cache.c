@@ -231,10 +231,15 @@ cache_copy_file(const char* src, const char* dst) {
 	}
 	if (n && fwrite(text, 1, n, f) != n) {
 		fclose(f);
+		host_unlink(dst);
 		free(text);
 		return 1;
 	}
-	fclose(f);
+	if (fclose(f) != 0) {
+		host_unlink(dst);
+		free(text);
+		return 1;
+	}
 	free(text);
 	return 0;
 }
@@ -251,9 +256,13 @@ cache_write_bytes(const char* path, const void* data, size_t n) {
 		return 1;
 	if (n && fwrite(data, 1, n, f) != n) {
 		fclose(f);
+		host_unlink(path);
 		return 1;
 	}
-	fclose(f);
+	if (fclose(f) != 0) {
+		host_unlink(path);
+		return 1;
+	}
 	return 0;
 }
 

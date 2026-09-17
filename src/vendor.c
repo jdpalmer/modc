@@ -694,7 +694,7 @@ qfail:
 static int
 write_lock(const char* path, LockedPkg* pkgs, int n) {
 	FILE* f;
-	int i;
+	int i, err;
 
 	f = fopen(path, "wb");
 	if (f == NULL) {
@@ -710,8 +710,12 @@ write_lock(const char* path, LockedPkg* pkgs, int n) {
 			fprintf(f, "subdir = %s\n", pkgs[i].subdir);
 		fprintf(f, "\n");
 	}
-	fclose(f);
-	return 0;
+	err = ferror(f);
+	if (fclose(f) != 0)
+		err = 1;
+	if (err)
+		(void)host_unlink(path);
+	return err;
 }
 
 // Read modc.lock into a LockedPkg array for check or materialize passes.
@@ -776,6 +780,7 @@ copy_file(const char* src, const char* dst) {
 	char* text;
 	size_t n;
 	FILE* f;
+	int err;
 
 	text = read_file(src, &n);
 	if (text == NULL)
@@ -785,10 +790,13 @@ copy_file(const char* src, const char* dst) {
 		free(text);
 		return 1;
 	}
-	fwrite(text, 1, n, f);
-	fclose(f);
+	err = n && fwrite(text, 1, n, f) != n;
+	if (fclose(f) != 0)
+		err = 1;
 	free(text);
-	return 0;
+	if (err)
+		(void)host_unlink(dst);
+	return err;
 }
 
 // Recursively copy a directory tree (or a lone file) into vendor/.
@@ -852,14 +860,18 @@ static int
 write_stamp(const char* pkgdir, const char* rev) {
 	char path[1024];
 	FILE* f;
+	int err;
 
 	snprintf(path, sizeof(path), "%s/.modc-vendor-rev", pkgdir);
 	f = fopen(path, "w");
 	if (f == NULL)
 		return 1;
-	fprintf(f, "%s\n", rev);
-	fclose(f);
-	return 0;
+	err = fprintf(f, "%s\n", rev) < 0 || ferror(f);
+	if (fclose(f) != 0)
+		err = 1;
+	if (err)
+		(void)host_unlink(path);
+	return err;
 }
 
 // Read the revision stamp written at materialize time; fails when missing or empty.

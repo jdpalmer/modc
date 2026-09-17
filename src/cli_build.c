@@ -259,6 +259,10 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 		if (profile)
 			t0 = now_sec();
 		emit_qbe(c, outf);
+		if (fflush(outf) != 0 || ferror(outf)) {
+			fprintf(stderr, "modc: output write failed: %s\n", strerror(errno));
+			return 1;
+		}
 		if (profile) {
 			t1 = now_sec();
 			t_emit = t1 - t0;
@@ -311,7 +315,13 @@ emit_one(Compiler* c, CliOpts* o, const char* path) {
 			return 1;
 		}
 		r = compile_file(c, path, f);
-		fclose(f);
+		if (fclose(f) != 0) {
+			fprintf(stderr, "modc: cannot finish %s: %s\n",
+				o->output, strerror(errno));
+			r = 1;
+		}
+		if (r)
+			(void)host_unlink(o->output);
 		return r;
 	}
 	return compile_file(c, path, stdout);
@@ -962,7 +972,11 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 		return 1;
 	}
 	emit_qbe_pkg(c, f, pkg->dir, strsym);
-	fclose(f);
+	if (fclose(f) != 0) {
+		fprintf(stderr, "modc: cannot finish %s: %s\n", qbe, strerror(errno));
+		(void)host_unlink(qbe);
+		return 1;
+	}
 	if (c->error_count)
 		return 1;
 	argv[0] = tool_qbe();

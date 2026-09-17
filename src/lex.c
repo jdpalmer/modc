@@ -103,12 +103,13 @@ static const char* alt[] = {
     "not", "not_eq", "or", "or_eq", "xor", "xor_eq",
     NULL};
 
-// Read a file into a null-terminated buffer; returns NULL on open failure.
+// Read a complete file into a null-terminated buffer; reject I/O errors.
 char* read_file(const char* path, size_t* outlen) {
 	FILE* f;
 	char* buf;
 	size_t n, cap;
 	long sz;
+	int err;
 
 	f = fopen(path, "rb");
 	if (f == NULL)
@@ -123,8 +124,16 @@ char* read_file(const char* path, size_t* outlen) {
 		cap = (size_t)sz + 1;
 		buf = xmalloc(cap);
 		n = fread(buf, 1, (size_t)sz, f);
+		err = ferror(f) || n != (size_t)sz;
 		buf[n] = 0;
-		fclose(f);
+		if (fclose(f) != 0)
+			err = 1;
+		if (err) {
+			free(buf);
+			if (errno == 0)
+				errno = EIO;
+			return NULL;
+		}
 		if (outlen)
 			*outlen = n;
 		return buf;
@@ -143,7 +152,15 @@ char* read_file(const char* path, size_t* outlen) {
 			break;
 		n += r;
 	}
-	fclose(f);
+	err = ferror(f);
+	if (fclose(f) != 0)
+		err = 1;
+	if (err) {
+		free(buf);
+		if (errno == 0)
+			errno = EIO;
+		return NULL;
+	}
 	buf[n] = 0;
 	if (outlen)
 		*outlen = n;
