@@ -87,6 +87,8 @@ str_hash_n(const char* s, size_t n) {
 
 struct Intern {
 	char* s;
+	size_t len;
+	unsigned hash;
 	struct Intern* hash_next;
 };
 
@@ -106,7 +108,7 @@ intern_grow(Compiler* c) {
 		for (j = 0; j < oldn; j++) {
 			for (p = old[j]; p; p = n) {
 				n = p->hash_next;
-				i = str_hash(p->s) & (unsigned)(cap - 1);
+				i = p->hash & (unsigned)(cap - 1);
 				p->hash_next = c->intern_tab[i];
 				c->intern_tab[i] = p;
 			}
@@ -128,12 +130,14 @@ str_intern_n(Compiler* c, const char* s, size_t n) {
 	h = str_hash_n(s, n);
 	i = h & (unsigned)(c->intern_tab_cap - 1);
 	for (e = c->intern_tab[i]; e; e = e->hash_next)
-		if (strlen(e->s) == n && memcmp(e->s, s, n) == 0)
+		if (e->hash == h && e->len == n && memcmp(e->s, s, n) == 0)
 			return e->s;
 	e = xmalloc(sizeof(*e));
 	e->s = xmalloc(n + 1);
 	memcpy(e->s, s, n);
 	e->s[n] = 0;
+	e->len = n;
+	e->hash = h;
 	e->hash_next = c->intern_tab[i];
 	c->intern_tab[i] = e;
 	c->interns_len++;
