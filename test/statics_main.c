@@ -9,6 +9,7 @@ int msg_at(int);
 int designated_global_ok(void);
 int designated_local_ok(void);
 int designated_inferred_ok(void);
+int field_cursor_ok(void);
 
 int
 main(void)
@@ -37,5 +38,7 @@ main(void)
 		return 11;
 	if(!designated_inferred_ok())
 		return 12;
+	if(!field_cursor_ok())
+		return 13;
 	return 0;
 }

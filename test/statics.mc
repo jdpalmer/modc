@@ -15,6 +15,15 @@ struct P {
 struct P gp = {
 	10, 20 };
 
+struct Triple {
+	int x;
+	int y;
+	int z;
+};
+
+struct Triple cursor_global = {
+	.y = 20, 30 };
+
 char msg[] = "hi";
 
 int bump() {
@@ -69,4 +78,11 @@ int designated_inferred_ok() {
 	int a[] = {
 		[3] = 7, 9 };
 	return len(a) == 5 && a[3] == 7 && a[4] == 9;
+}
+
+int field_cursor_ok() {
+	struct Triple v = {
+		.y = 2, 3 };
+	return cursor_global.x == 0 && cursor_global.y == 20 &&
+	       cursor_global.z == 30 && v.x == 0 && v.y == 2 && v.z == 3;
 }

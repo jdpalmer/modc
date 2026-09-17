@@ -2399,6 +2399,22 @@ emit_addr_off(Val base, int off) {
 
 static void emit_local_init(Compiler* c, Val base, Type* t, Initializer* in, int off);
 
+// Return the positional cursor immediately after a field designator's top field.
+static int
+field_designator_cursor(Type* t, Initializer* in) {
+	Field* f;
+	int pos;
+
+	if (t == NULL || in == NULL || in->fields_len == 0)
+		return 0;
+	for (f = t->fields, pos = 0; f; f = f->next, pos++)
+		if ((f->name && strcmp(f->name, in->fields[0]) == 0) ||
+		    (!f->name && is_aggr(f->type) &&
+		     find_field(f->type, in->fields[0], NULL)))
+			return pos + 1;
+	return 0;
+}
+
 // Emit a braced initializer list into a local/aggregate at base+off.
 static void
 emit_local_init_list(Compiler* c, Val base, Type* t, Initializer* in, int off) {
@@ -2420,6 +2436,7 @@ emit_local_init_list(Compiler* c, Val base, Type* t, Initializer* in, int off) {
 			ft = emit_field_path(c, t, it, &inner);
 			if (ft)
 				emit_local_init(c, base, ft, it, off + inner);
+			nextpos = field_designator_cursor(t, it);
 		} else if (t->kind == TyArray) {
 			w = type_size(c, t->base);
 			emit_local_init(c, base, t->base, it, off + nextpos * w);
@@ -3032,6 +3049,7 @@ flatten_init_list(Compiler* c, Type* t, Initializer* in, int off) {
 			ft = emit_field_path(c, t, it, &inner);
 			if (ft)
 				flatten_init(c, ft, it, off + inner);
+			nextpos = field_designator_cursor(t, it);
 		} else if (t->kind == TyArray) {
 			w = type_size(c, t->base);
 			flatten_init(c, t->base, it, off + nextpos * w);

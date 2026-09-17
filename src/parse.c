@@ -261,6 +261,7 @@ static int peek_for_init_decl(Compiler* c);
 static Node* parse_for_init_decl(Compiler* c);
 static Node* parse_destruct_decl(Compiler* c, Span sp, int allauto);
 static void finish_array_from_init(Compiler* c, Type** pt, Initializer* in);
+static void validate_initializer(Compiler* c, Type* t, Initializer* in, Span sp);
 static Node* mknames(Symbol* s, Span sp);
 
 // Parse static_assert / _Static_assert and evaluate the condition at compile time.
@@ -2956,10 +2957,7 @@ parse_for_init_decl(Compiler* c) {
 		d->init = parse_init(c);
 		finish_array_from_init(c, &s->type, d->init);
 		d->type = s->type;
-		if (d->init && d->init->expr && s->type) {
-			d->init->expr = apply_implicit_conversions(c, s->type, d->init->expr);
-			check_implicit_conv(c, sp, s->type, d->init->expr);
-		}
+		validate_initializer(c, s->type, d->init, sp);
 	}
 	require_local_init(c, sp, name, storage, d->init);
 	if (storage == StStatic) {
@@ -3198,16 +3196,6 @@ finish_array_from_init(Compiler* c, Type** pt, Initializer* in) {
 	t = *pt;
 	if (t == NULL || t->kind != TyArray)
 		return;
-	if (in && in->is_list && t->len >= 0) {
-		for (i = 0; i < in->items_len; i++) {
-			if (in->items[i].designator == IdIndexEq &&
-			    in->items[i].index >= t->len)
-				error_at(c, in->items[i].expr ? in->items[i].expr->span : (Span){0},
-					 "array designator index %" PRId64
-					 " is outside array bound %" PRId64,
-					 in->items[i].index, t->len);
-		}
-	}
 	if (t->len >= 0)
 		return;
 	len = 0;
@@ -3229,6 +3217,202 @@ finish_array_from_init(Compiler* c, Type** pt, Initializer* in) {
 	} else if (in && in->expr && in->expr->kind == NdStr)
 		*pt = type_array(c, t->base, in->expr->type ? in->expr->type->len : 1);
 	(void)c;
+}
+
+typedef struct InitRange InitRange;
+struct InitRange {
+	int off, len;
+	Span span;
+};
+
+typedef struct InitCheck InitCheck;
+struct InitCheck {
+	InitRange* ranges;
+	int len, cap;
+	Span declspan;
+};
+
+static Span
+init_span(Initializer* in, Span fallback) {
+	if (in && in->expr)
+		return in->expr->span;
+	return fallback;
+}
+
+static void
+init_record_range(Compiler* c, InitCheck* ck, int off, int len, Span sp) {
+	int i;
+
+	if (len <= 0)
+		return;
+	for (i = 0; i < ck->len; i++)
+		if (off < ck->ranges[i].off + ck->ranges[i].len &&
+		    ck->ranges[i].off < off + len) {
+			error_at(c, sp, "subobject is initialized more than once");
+			return;
+		}
+	if (ck->len >= ck->cap) {
+		ck->cap = ck->cap ? ck->cap * 2 : 8;
+		ck->ranges = xrealloc(ck->ranges,
+				     (size_t)ck->cap * sizeof(*ck->ranges));
+	}
+	ck->ranges[ck->len].off = off;
+	ck->ranges[ck->len].len = len;
+	ck->ranges[ck->len].span = sp;
+	ck->len++;
+}
+
+static Type*
+init_field_type(Compiler* c, Type* t, Initializer* in, int* off,
+		int* cursor, Span sp) {
+	Field *f, *outer;
+	Type* cur;
+	int i, inner, pos;
+
+	if (!is_aggr(t)) {
+		error_at(c, sp, "field designator for non-aggregate type");
+		return NULL;
+	}
+	cur = t;
+	*off = 0;
+	*cursor = 0;
+	for (i = 0; i < in->fields_len; i++) {
+		if (!is_aggr(cur)) {
+			error_at(c, sp, "field designator passes through non-aggregate type");
+			return NULL;
+		}
+		f = find_field(cur, in->fields[i], &inner);
+		if (f == NULL) {
+			error_at(c, sp, "no field named %s in initializer",
+				 in->fields[i]);
+			return NULL;
+		}
+		if (i == 0) {
+			for (outer = cur->fields, pos = 0; outer; outer = outer->next, pos++) {
+				if ((outer->name && strcmp(outer->name, in->fields[i]) == 0) ||
+				    (!outer->name && is_aggr(outer->type) &&
+				     find_field(outer->type, in->fields[i], NULL))) {
+					*cursor = pos + 1;
+					break;
+				}
+			}
+		}
+		*off += inner;
+		cur = f->type;
+	}
+	return cur;
+}
+
+static void
+validate_initializer_rec(Compiler* c, Type* t, Initializer* in, int base,
+			 InitCheck* ck) {
+	Initializer* it;
+	Field* f;
+	Type* child;
+	Span sp;
+	int i, j, next, off, cursor, nfields;
+
+	if (t == NULL || in == NULL)
+		return;
+	sp = init_span(in, ck->declspan);
+	if (!in->is_list) {
+		int64_t zero;
+
+		if (in->expr == NULL)
+			return;
+		if ((is_aggr(t) || t->kind == TyArray) &&
+		    eval_const(c, in->expr, &zero) && zero == 0) {
+			init_record_range(c, ck, base, type_size(c, t), sp);
+			return;
+		}
+		if (t->kind == TyArray) {
+			if (in->expr->kind != NdStr || t->base == NULL ||
+			    type_size(c, t->base) != 1)
+				error_at(c, sp, "array initializer must be a compatible string or list");
+			else
+				init_record_range(c, ck, base, type_size(c, t), sp);
+			return;
+		}
+		in->expr = apply_implicit_conversions(c, t, in->expr);
+		check_implicit_conv(c, sp, t, in->expr);
+		init_record_range(c, ck, base, type_size(c, t), sp);
+		return;
+	}
+	if (!is_aggr(t) && t->kind != TyArray) {
+		int64_t zero;
+
+		if (in->items_len > 1)
+			error_at(c, sp, "excess elements in scalar initializer");
+		if (in->items_len == 1 && t->kind == TyEnum &&
+		    in->items[0].expr &&
+		    eval_const(c, in->items[0].expr, &zero) && zero == 0) {
+			init_record_range(c, ck, base, type_size(c, t),
+					  init_span(&in->items[0], ck->declspan));
+			return;
+		}
+		if (in->items_len > 0)
+			validate_initializer_rec(c, t, &in->items[0], base, ck);
+		return;
+	}
+	nfields = 0;
+	for (f = t->fields; f; f = f->next)
+		nfields++;
+	next = 0;
+	for (i = 0; i < in->items_len; i++) {
+		it = &in->items[i];
+		sp = init_span(it, ck->declspan);
+		off = 0;
+		child = NULL;
+		if (it->designator == IdIndexEq) {
+			if (t->kind != TyArray) {
+				error_at(c, sp, "array designator for non-array type");
+				continue;
+			}
+			if (it->index < 0 || (t->len >= 0 && it->index >= t->len)) {
+				error_at(c, sp, "array designator index %" PRId64
+					 " is outside array bound %" PRId64,
+					 it->index, t->len);
+				continue;
+			}
+			off = (int)(it->index * type_size(c, t->base));
+			child = t->base;
+			next = (int)it->index + 1;
+		} else if (it->designator == IdFieldDot) {
+			child = init_field_type(c, t, it, &off, &cursor, sp);
+			if (child == NULL)
+				continue;
+			next = cursor;
+		} else if (t->kind == TyArray) {
+			if (t->len >= 0 && next >= t->len) {
+				error_at(c, sp, "excess elements in array initializer");
+				continue;
+			}
+			off = next * type_size(c, t->base);
+			child = t->base;
+			next++;
+		} else {
+			if (next >= nfields) {
+				error_at(c, sp, "excess elements in aggregate initializer");
+				continue;
+			}
+			for (f = t->fields, j = 0; f && j < next; j++)
+				f = f->next;
+			child = f->type;
+			off = f->offset;
+			next++;
+		}
+		validate_initializer_rec(c, child, it, base + off, ck);
+	}
+}
+
+static void
+validate_initializer(Compiler* c, Type* t, Initializer* in, Span sp) {
+	InitCheck ck;
+
+	memset(&ck, 0, sizeof(ck));
+	ck.declspan = sp;
+	validate_initializer_rec(c, t, in, 0, &ck);
+	free(ck.ranges);
 }
 
 // Parse `auto name = expr;` and define the local with inferred type.
@@ -3334,10 +3518,7 @@ parse_local_decl(Compiler* c, Node* blk) {
 					d->init->items = NULL;
 					d->init->items_len = 0;
 				}
-				if (d->init && d->init->expr && s->type) {
-					d->init->expr = apply_implicit_conversions(c, s->type, d->init->expr);
-					check_implicit_conv(c, sp, s->type, d->init->expr);
-				}
+				validate_initializer(c, s->type, d->init, sp);
 			}
 			require_local_init(c, sp, name, st, d->init);
 			if (st == StStatic) {
@@ -3584,10 +3765,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 				d->type = s->type;
 				s->type = d->type;
 				s->defined = 1;
-				if (d->init && d->init->expr && ty) {
-					d->init->expr = apply_implicit_conversions(c, ty, d->init->expr);
-					check_implicit_conv(c, sp, ty, d->init->expr);
-				}
+				validate_initializer(c, s->type, d->init, sp);
 			}
 			if (c->block == 0)
 				add_global(c, d);
