@@ -21,10 +21,6 @@ struct Val {
 };
 
 enum {
-	MaxLoop = 32,
-	MaxCase = 128,
-	MaxDefer = 64,
-	MaxDeferStmt = 64,
 	MaxInlineMap = 32,
 	MaxInlineStack = 16,
 	InlineNodeBudget = 32
@@ -32,7 +28,7 @@ enum {
 
 typedef struct DeferFrame DeferFrame;
 struct DeferFrame {
-	Node* stmts[MaxDeferStmt];
+	Node* stmts[MaxDefersPerScope];
 	int stmts_len;
 	Node* scope;
 };
@@ -81,8 +77,9 @@ static int* localparam;
 static char** localslot; /* QBE slot basename; uniquified when names collide */
 static int locals_len;
 static int locals_cap;
-static int loopbrk[MaxLoop], loopcont[MaxLoop], loop_defer[MaxLoop], loops_len;
-static DeferFrame deferstk[MaxDefer];
+static int loopbrk[MaxControlDepth], loopcont[MaxControlDepth];
+static int loop_defer[MaxControlDepth], loops_len;
+static DeferFrame deferstk[MaxDeferDepth];
 static int defers_len;
 static InlineSite* isites;
 static int isites_len;
@@ -100,7 +97,7 @@ static void emit_defers_frame(Compiler* c, int fi);
 static void pop_defer_frame(Compiler* c);
 static void emit_defers_until(Compiler* c, int target);
 static void emit_all_defers(Compiler* c);
-static void push_defer_frame(Node* scope);
+static void push_defer_frame(Compiler* c, Node* scope);
 static void add_defer(Compiler* c, Node* stmt);
 static int inline_eligible(Symbol* s);
 static void register_inline_sites(Compiler* c, Node* n);
@@ -2210,13 +2207,16 @@ emitexpr(Compiler* c, Node* n) {
 
 // Push break/continue targets and the defer depth at loop entry.
 static void
-pushloop(int brk, int cont) {
-	if (loops_len < MaxLoop) {
+pushloop(Compiler* c, int brk, int cont) {
+	if (loops_len < MaxControlDepth) {
 		loop_defer[loops_len] = defers_len;
 		loopbrk[loops_len] = brk;
 		loopcont[loops_len] = cont;
 		loops_len++;
-	}
+	} else
+		error_at(c, emit_curfn ? emit_curfn->span : (Span){0},
+			 "control-flow nesting exceeds implementation limit of %d",
+			 MaxControlDepth);
 }
 
 // Pop the innermost loop's break/continue labels.
@@ -2228,9 +2228,13 @@ poploop(void) {
 
 // One defer stack frame per compound statement.
 static void
-push_defer_frame(Node* scope) {
-	if (defers_len >= MaxDefer)
+push_defer_frame(Compiler* c, Node* scope) {
+	if (defers_len >= MaxDeferDepth) {
+		error_at(c, scope ? scope->span : (Span){0},
+			 "block nesting exceeds implementation limit of %d",
+			 MaxDeferDepth);
 		return;
+	}
 	deferstk[defers_len].stmts_len = 0;
 	deferstk[defers_len].scope = scope;
 	defers_len++;
@@ -2245,8 +2249,12 @@ add_defer(Compiler* c, Node* stmt) {
 	if (defers_len <= 0 || stmt == NULL)
 		return;
 	f = &deferstk[defers_len - 1];
-	if (f->stmts_len >= MaxDeferStmt)
+	if (f->stmts_len >= MaxDefersPerScope) {
+		error_at(c, stmt->span,
+			 "scope exceeds implementation limit of %d defers",
+			 MaxDefersPerScope);
 		return;
+	}
 	f->stmts[f->stmts_len++] = stmt;
 }
 
@@ -2324,33 +2332,38 @@ struct Casearm {
 
 // Gather switch case arms and default label from the case-list subtree.
 static void
-collectcases(Node* n, Casearm* arms, int* narm, int* def) {
+collectcases(Compiler* c, Node* n, Casearm* arms, int* narm, int* def) {
 	int i;
 
 	if (n == NULL)
 		return;
 	if (n->kind == NdCase) {
-		if (*narm < MaxCase) {
+		if (*narm < MaxSwitchCases) {
 			arms[*narm].lo = n->int_val;
 			arms[*narm].hi = (n->b && n->b->kind == NdLit) ? n->b->int_val : n->int_val;
 			if (n->op == 0)
 				n->op = newlbl(); /* reuse op as label */
 			arms[*narm].lbl = n->op;
 			(*narm)++;
-		}
+		} else
+			error_at(c, n->span,
+				 "switch exceeds implementation limit of %d cases",
+				 MaxSwitchCases);
 		return;
 	}
+	if (n->kind == NdSwitch)
+		return; /* Its cases belong to the nested switch. */
 	if (n->kind == NdDefault) {
 		if (n->op == 0)
 			n->op = newlbl();
 		*def = n->op;
 		return;
 	}
-	collectcases(n->a, arms, narm, def);
-	collectcases(n->b, arms, narm, def);
-	collectcases(n->c, arms, narm, def);
+	collectcases(c, n->a, arms, narm, def);
+	collectcases(c, n->b, arms, narm, def);
+	collectcases(c, n->c, arms, narm, def);
 	for (i = 0; i < n->children_len; i++)
-		collectcases(n->children[i], arms, narm, def);
+		collectcases(c, n->children[i], arms, narm, def);
 }
 
 // Label id for a case/default arm (stored in node->op).
@@ -2533,7 +2546,7 @@ static int
 emitstmt_ret(Compiler* c, Node* n) {
 	int t, t2, t3, t4, i, def, narm, fallen, defer_base;
 	Val v;
-	Casearm arms[MaxCase];
+	Casearm arms[MaxSwitchCases];
 
 	if (n == NULL)
 		return 0;
@@ -2575,7 +2588,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		return 0;
 	case NdBlock:
 		defer_base = defers_len;
-		push_defer_frame(n);
+		push_defer_frame(c, n);
 		fallen = 0;
 		for (i = 0; i < n->children_len; i++) {
 			if (n->children[i]->kind == NdDefer)
@@ -2610,7 +2623,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		emitlbl(t);
 		emitbooljmp(c, n->a, t2, t3);
 		emitlbl(t2);
-		pushloop(t3, t);
+		pushloop(c, t3, t);
 		if (!emitstmt_ret(c, n->b))
 			emitjmp(t);
 		poploop();
@@ -2621,7 +2634,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		t2 = newlbl();
 		t3 = newlbl();
 		emitlbl(t);
-		pushloop(t3, t2);
+		pushloop(c, t3, t2);
 		emitstmt_ret(c, n->a);
 		poploop();
 		emitlbl(t2);
@@ -2645,7 +2658,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		else
 			emitjmp(t2);
 		emitlbl(t2);
-		pushloop(t3, t4);
+		pushloop(c, t3, t4);
 		if (n->children_len > 0)
 			emitstmt_ret(c, n->children[0]);
 		emitlbl(t4);
@@ -2755,7 +2768,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 	case NdSwitch: {
 		narm = 0;
 		def = 0;
-		collectcases(n->b, arms, &narm, &def);
+		collectcases(c, n->b, arms, &narm, &def);
 		t3 = newlbl();
 		if (def == 0)
 			def = t3;
@@ -2797,7 +2810,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 			emitlbl(t);
 		}
 		emitjmp(def);
-		pushloop(t3, loops_len > 0 ? loopcont[loops_len - 1] : 0);
+		pushloop(c, t3, loops_len > 0 ? loopcont[loops_len - 1] : 0);
 		fallen = emitstmt_ret(c, n->b);
 		if (!fallen)
 			emitjmp(t3);

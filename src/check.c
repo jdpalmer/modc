@@ -2236,6 +2236,75 @@ check_global_initializers(Compiler* c) {
 	}
 }
 
+static int
+switch_case_count(Node* n) {
+	int i, total;
+
+	if (n == NULL || n->kind == NdSwitch)
+		return 0;
+	if (n->kind == NdCase)
+		return 1;
+	total = switch_case_count(n->a) + switch_case_count(n->b) +
+		switch_case_count(n->c);
+	for (i = 0; i < n->children_len; i++)
+		total += switch_case_count(n->children[i]);
+	return total;
+}
+
+// Enforce fixed emitter capacities before any QBE is written.
+static void
+check_emitter_limits_node(Compiler* c, Node* n, int control_depth,
+			  int defer_depth) {
+	int i, ndefers, ncases;
+
+	if (n == NULL)
+		return;
+	if (n->kind == NdWhile || n->kind == NdDo || n->kind == NdFor ||
+	    n->kind == NdSwitch) {
+		control_depth++;
+		if (control_depth == MaxControlDepth + 1)
+			error_at(c, n->span,
+				 "control-flow nesting exceeds implementation limit of %d",
+				 MaxControlDepth);
+	}
+	if (n->kind == NdBlock) {
+		defer_depth++;
+		if (defer_depth == MaxDeferDepth + 1)
+			error_at(c, n->span,
+				 "block nesting exceeds implementation limit of %d",
+				 MaxDeferDepth);
+		ndefers = 0;
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i] && n->children[i]->kind == NdDefer)
+				ndefers++;
+		if (ndefers > MaxDefersPerScope)
+			error_at(c, n->span,
+				 "scope has %d defers; implementation limit is %d",
+				 ndefers, MaxDefersPerScope);
+	}
+	if (n->kind == NdSwitch) {
+		ncases = switch_case_count(n->b);
+		if (ncases > MaxSwitchCases)
+			error_at(c, n->span,
+				 "switch has %d cases; implementation limit is %d",
+				 ncases, MaxSwitchCases);
+	}
+	check_emitter_limits_node(c, n->a, control_depth, defer_depth);
+	check_emitter_limits_node(c, n->b, control_depth, defer_depth);
+	check_emitter_limits_node(c, n->c, control_depth, defer_depth);
+	for (i = 0; i < n->children_len; i++)
+		check_emitter_limits_node(c, n->children[i], control_depth,
+					  defer_depth);
+}
+
+static void
+check_emitter_limits(Compiler* c) {
+	int i;
+
+	for (i = 0; i < c->funcs_len; i++)
+		check_emitter_limits_node(c, c->funcs[i], 0, 0);
+}
+
 /* ---- type_check_unit ---- */
 
 // True if t (or any nested component) is a package-private type.
@@ -2302,6 +2371,7 @@ void type_check_unit(Compiler* c) {
 	infer_readonly_summaries(c);
 	check_autoconst_globals(c);
 	check_global_initializers(c);
+	check_emitter_limits(c);
 	check_pkg_private_leaks(c);
 	for (i = 0; i < c->funcs_len; i++) {
 		check_uninit_func(c, c->funcs[i]);

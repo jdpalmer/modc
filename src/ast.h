@@ -396,7 +396,11 @@ struct Macro {
 
 enum {
 	MaxErr = 20,
-	MaxParams = 64
+	MaxParams = 64,
+	MaxControlDepth = 32,
+	MaxDeferDepth = 64,
+	MaxDefersPerScope = 64,
+	MaxSwitchCases = 128
 };
 
 struct Compiler {

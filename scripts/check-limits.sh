@@ -53,3 +53,55 @@ if "$MODC" check "$TMP/args65.mc" >"$TMP/args65.out" 2>&1; then
 	exit 1
 fi
 grep -q "limited to 64 arguments" "$TMP/args65.out"
+
+awk 'BEGIN {
+	print "int too_deep() {"
+	for (i = 0; i < 64; i++) print "{"
+	print "return 0;"
+	for (i = 0; i < 64; i++) print "}"
+	print "}"
+}' > "$TMP/blocks65.mc"
+if "$MODC" check "$TMP/blocks65.mc" >"$TMP/blocks65.out" 2>&1; then
+	echo "expected 65 nested blocks to fail" >&2
+	exit 1
+fi
+grep -q "block nesting exceeds implementation limit of 64" "$TMP/blocks65.out"
+
+awk 'BEGIN {
+	print "int too_many_defers() {"
+	for (i = 0; i < 65; i++) print "defer 0;"
+	print "return 0;"
+	print "}"
+}' > "$TMP/defers65.mc"
+if "$MODC" check "$TMP/defers65.mc" >"$TMP/defers65.out" 2>&1; then
+	echo "expected 65 defers in one scope to fail" >&2
+	exit 1
+fi
+grep -q "scope has 65 defers; implementation limit is 64" "$TMP/defers65.out"
+
+awk 'BEGIN {
+	print "int too_many_cases(int x) {"
+	print "switch (x) {"
+	for (i = 0; i < 129; i++) printf "case %d: return %d;\n", i, i
+	print "default: return -1;"
+	print "}"
+	print "}"
+}' > "$TMP/cases129.mc"
+if "$MODC" check "$TMP/cases129.mc" >"$TMP/cases129.out" 2>&1; then
+	echo "expected 129 switch cases to fail" >&2
+	exit 1
+fi
+grep -q "switch has 129 cases; implementation limit is 128" "$TMP/cases129.out"
+
+awk 'BEGIN {
+	print "int too_many_loops() {"
+	for (i = 0; i < 33; i++) print "while (1) {"
+	print "return 0;"
+	for (i = 0; i < 33; i++) print "}"
+	print "}"
+}' > "$TMP/loops33.mc"
+if "$MODC" check "$TMP/loops33.mc" >"$TMP/loops33.out" 2>&1; then
+	echo "expected 33 nested loops to fail" >&2
+	exit 1
+fi
+grep -q "control-flow nesting exceeds implementation limit of 32" "$TMP/loops33.out"
