@@ -1275,6 +1275,12 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 	fn = type_func(c, ret, params, np, ft->is_varargs);
 	for (i = 0; i < np; i++)
 		fn->param_names[i] = param_names[i];
+	for (i = 0; i < ft->params_len; i++) {
+		if (ft->param_array)
+			fn->param_array[i + 1] = ft->param_array[i];
+		if (ft->param_fixed_len)
+			fn->param_fixed_len[i + 1] = ft->param_fixed_len[i];
+	}
 	free(params);
 	free(param_names);
 	return fn;

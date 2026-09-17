@@ -19,8 +19,13 @@ int (Widget* w).id() {
 	return w.id_val;
 }
 
+int (Widget* w).array_len(int a[3]) {
+	return (int)len(a) + w.id_val;
+}
+
 int test_method() {
 	Window win = { 0 };
+	int nums[3] = { 0 };
 	win.title_len_val = 3;
 	win.id_val = 7;
 	if (win.title_len() != 3) {
@@ -32,6 +37,9 @@ int test_method() {
 	}
 	if (win.id() != 7) {
 		return 3;
+	}
+	if (win.array_len(nums) != 10) {
+		return 4;
 	}
 	return 0;
 }
