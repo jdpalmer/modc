@@ -109,6 +109,16 @@ check-special: $(MODC)
 	@printf '[deps.engine]\ngit = file://$(BUILD)/vrepos/engine\ntag = v1\n\n[deps.ui]\ngit = file://$(BUILD)/vrepos/ui\ntag = v2\n' > $(BUILD)/vendor_conflict/modc.ini
 	@./modc vendor -C $(BUILD)/vendor_conflict >$(BUILD)/vendor_conflict.out 2>&1; test $$? -ne 0
 	@grep -Fq 'version conflict for "log"' $(BUILD)/vendor_conflict.out
+	@rm -rf $(BUILD)/vendor_escape
+	@mkdir -p $(BUILD)/vendor_escape/escape_target
+	@touch $(BUILD)/vendor_escape/escape_target/keep
+	@printf '[deps.../escape_target]\ngit = file://$(BUILD)/vrepos/log\ntag = v1\n' > $(BUILD)/vendor_escape/modc.ini
+	@./modc vendor -C $(BUILD)/vendor_escape >$(BUILD)/vendor_escape_name.out 2>&1; test $$? -ne 0
+	@grep -Fq 'must be one portable path component' $(BUILD)/vendor_escape_name.out
+	@test -f $(BUILD)/vendor_escape/escape_target/keep
+	@printf '[deps.bad]\ngit = file://$(BUILD)/vrepos/log\ntag = v1\nsubdir = ../outside\n' > $(BUILD)/vendor_escape/modc.ini
+	@./modc vendor -C $(BUILD)/vendor_escape >$(BUILD)/vendor_escape_subdir.out 2>&1; test $$? -ne 0
+	@grep -Fq 'subdir must be a relative path without traversal' $(BUILD)/vendor_escape_subdir.out
 	@rm -rf $(BUILD)/vendor_inject $(BUILD)/vendor-pwned
 	@mkdir -p $(BUILD)/vendor_inject
 	@printf '[deps.bad]\ngit = $$(touch $(BUILD)/vendor-pwned)\nrev = 0000000000000000000000000000000000000000\n' > $(BUILD)/vendor_inject/modc.ini

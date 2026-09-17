@@ -231,7 +231,7 @@ git = https://github.com/you/modc-log.git
 rev = abc123def4567890
 ```
 
-Each dependency entry must specify a `git` URL (`https://` or `file://`) and exactly one version pin (`tag`, `rev`, or `branch`). Set `subdir = path` if a package resides within a subfolder of a monorepo.
+Each dependency entry must specify a `git` URL (`https://` or `file://`) and exactly one version pin (`tag`, `rev`, or `branch`). Dependency names are single portable path components. Set `subdir = path` if a package resides within a subfolder of a monorepo; it must be relative and cannot contain `.` or `..` path components.
 
 Library packages publish their own `modc.ini` at their repository root or subdirectory declaring their dependencies. Libraries define a `[package]` section matching their import name and do not commit a `vendor/` folder.
 

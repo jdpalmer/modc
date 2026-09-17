@@ -56,6 +56,59 @@ static int copy_tree(const char* src, const char* dst);
 static int write_stamp(const char* pkgdir, const char* rev);
 static int materialize_cloned(VendorCtx* ctx, LockedPkg* p, const char* srcdir);
 
+// Dependency names become direct children of vendor/, so allow one portable component.
+static int
+valid_dep_name(const char* s) {
+	const unsigned char* p;
+
+	if (s == NULL || s[0] == 0 || strcmp(s, ".") == 0 || strcmp(s, "..") == 0)
+		return 0;
+	for (p = (const unsigned char*)s; *p; p++)
+		if (!isalnum(*p) && *p != '_' && *p != '-' && *p != '.')
+			return 0;
+	return 1;
+}
+
+// A monorepo subdirectory may be nested, but must remain relative and traversal-free.
+static int
+valid_subdir(const char* s) {
+	const char *p, *start;
+	size_t n;
+
+	if (s == NULL || s[0] == 0)
+		return 1;
+	if (host_path_is_abs(s) || s[0] == '/' || s[0] == '\\' ||
+	    (isalpha((unsigned char)s[0]) && s[1] == ':'))
+		return 0;
+	start = s;
+	for (p = s;; p++) {
+		if (*p != '/' && *p != '\\' && *p != 0)
+			continue;
+		n = (size_t)(p - start);
+		if (n == 0 || (n == 1 && start[0] == '.') ||
+		    (n == 2 && start[0] == '.' && start[1] == '.'))
+			return 0;
+		if (*p == 0)
+			break;
+		start = p + 1;
+	}
+	return 1;
+}
+
+// Verify an existing selected subdirectory still resolves beneath its clone.
+static int
+path_within(const char* root, const char* path) {
+	char rroot[HOST_PATH_MAX], rpath[HOST_PATH_MAX];
+	size_t n;
+
+	if (host_realpath(root, rroot, sizeof(rroot)) != 0 ||
+	    host_realpath(path, rpath, sizeof(rpath)) != 0)
+		return 0;
+	n = strlen(rroot);
+	return strncmp(rroot, rpath, n) == 0 &&
+	       (rpath[n] == 0 || host_path_is_sep((unsigned char)rpath[n]));
+}
+
 // Release all heap storage owned by a parsed INI file.
 static void
 ini_free(IniFile* ini) {
@@ -421,16 +474,28 @@ parse_deps_ini(IniFile* ini, const char* prefix, DepSpec** out, int* out_len) {
 			continue;
 		memset(&list[n], 0, sizeof(list[n]));
 		list[n].name = xstrdup(p);
+		if (!valid_dep_name(list[n].name)) {
+			fprintf(stderr,
+				"modc vendor: dependency name \"%s\" must be one portable path component\n",
+				list[n].name);
+			goto fail_current;
+		}
 		err = dep_from_sect(&list[n], s);
 		if (err == 1) {
 			fprintf(stderr, "modc vendor: [%s] requires git = URL\n", s->name);
-			goto fail;
+			goto fail_current;
 		}
 		if (err == 2) {
 			fprintf(stderr,
 				"modc vendor: [%s] requires exactly one of tag, rev, branch\n",
 				s->name);
-			goto fail;
+			goto fail_current;
+		}
+		if (!valid_subdir(list[n].subdir)) {
+			fprintf(stderr,
+				"modc vendor: [%s] subdir must be a relative path without traversal\n",
+				s->name);
+			goto fail_current;
 		}
 		n++;
 	}
@@ -438,6 +503,8 @@ parse_deps_ini(IniFile* ini, const char* prefix, DepSpec** out, int* out_len) {
 	*out_len = n;
 	return 0;
 
+fail_current:
+	dep_free(&list[n]);
 fail:
 	while (n > 0)
 		dep_free(&list[--n]);
@@ -558,11 +625,21 @@ resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* o
 			dep_free(&cur);
 			goto qfail;
 		}
-		if (cur.subdir && cur.subdir[0])
-			snprintf(srcdir, sizeof(srcdir), "%s/%s", tmpdir, cur.subdir);
-		else
-			snprintf(srcdir, sizeof(srcdir), "%s", tmpdir);
-		if (!is_dir_path(srcdir)) {
+		if (cur.subdir && cur.subdir[0]) {
+			if (snprintf(srcdir, sizeof(srcdir), "%s/%s", tmpdir, cur.subdir) >=
+			    (int)sizeof(srcdir)) {
+				fprintf(stderr, "modc vendor: subdir path is too long\n");
+				rm_rf(tmpdir);
+				dep_free(&cur);
+				goto qfail;
+			}
+		} else if (snprintf(srcdir, sizeof(srcdir), "%s", tmpdir) >=
+			   (int)sizeof(srcdir)) {
+			rm_rf(tmpdir);
+			dep_free(&cur);
+			goto qfail;
+		}
+		if (!is_dir_path(srcdir) || !path_within(tmpdir, srcdir)) {
 			fprintf(stderr, "modc vendor: subdir \"%s\" not found in %s\n",
 				cur.subdir ? cur.subdir : "", cur.git);
 			rm_rf(tmpdir);
@@ -646,7 +723,7 @@ load_lock(VendorCtx* ctx, LockedPkg* pkgs, int* out_len) {
 	}
 	n = 0;
 	for (i = 0; i < ini.nsect; i++) {
-		const char *git, *rev, *subdir;
+		const char *name, *git, *rev, *subdir;
 
 		if (strncmp(ini.sect[i].name, "pkg.", 4) != 0)
 			continue;
@@ -656,16 +733,24 @@ load_lock(VendorCtx* ctx, LockedPkg* pkgs, int* out_len) {
 		}
 		git = ini_get(&ini.sect[i], "git");
 		rev = ini_get(&ini.sect[i], "rev");
+		name = ini.sect[i].name + 4;
+		subdir = ini_get(&ini.sect[i], "subdir");
 		if (git == NULL || rev == NULL) {
 			fprintf(stderr, "modc vendor: [%s] requires git and rev\n",
 				ini.sect[i].name);
 			ini_free(&ini);
 			return 1;
 		}
-		pkgs[n].name = xstrdup(ini.sect[i].name + 4);
+		if (!valid_dep_name(name) || !valid_subdir(subdir)) {
+			fprintf(stderr, "modc vendor: unsafe package path in [%s]\n",
+				ini.sect[i].name);
+			locked_free_all(pkgs, n);
+			ini_free(&ini);
+			return 1;
+		}
+		pkgs[n].name = xstrdup(name);
 		pkgs[n].git = xstrdup(git);
 		pkgs[n].rev = xstrdup(rev);
-		subdir = ini_get(&ini.sect[i], "subdir");
 		pkgs[n].subdir = xstrdup(subdir ? subdir : "");
 		n++;
 	}
