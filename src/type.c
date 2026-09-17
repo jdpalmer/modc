@@ -2067,7 +2067,7 @@ is_modifiable_lvalue(Node* n) {
 // Type-check compound and simple assignment with conversions and side checks.
 static Node*
 type_expr_assign(Compiler* c, Node* n) {
-	int enum_chk, shift_chk, void_arith_chk;
+	int enum_chk, shift_chk, void_arith_chk, ptr_arith;
 
 	enum_chk = n->type == NULL;
 	shift_chk = (n->op == PnShlEq || n->op == PnShrEq) && n->type == NULL;
@@ -2076,6 +2076,7 @@ type_expr_assign(Compiler* c, Node* n) {
 	n->b = type_expr(c, n->b);
 	n->type = n->a ? n->a->type : c->type_int;
 	n->is_lvalue = 0;
+	ptr_arith = n->a && is_ptr(n->a->type);
 	if (enum_chk && n->a && !is_modifiable_lvalue(n->a))
 		error_at(c, n->a->span, "left operand of assignment is not a modifiable lvalue");
 	if (enum_chk && n->op != PnEq && user_source(c, n->span) &&
@@ -2083,7 +2084,14 @@ type_expr_assign(Compiler* c, Node* n) {
 	     (n->b && is_tagged_enum(n->b->type))))
 		error_at(c, n->span,
 			 "compound assignment with an enum operand is not allowed; cast explicitly");
-	if (n->a && n->a->type) {
+	if (ptr_arith && n->op != PnEq) {
+		if (n->op != PnPlusEq && n->op != PnMinusEq)
+			error_at(c, n->span,
+				 "only += and -= are allowed as pointer compound assignments");
+		else if (!n->b || !is_int(n->b->type))
+			error_at(c, n->span,
+				 "pointer compound assignment requires an integer offset");
+	} else if (n->a && n->a->type) {
 		n->b = apply_implicit_conversions(c, n->a->type, n->b);
 		check_implicit_conv(c, n->span, n->a->type, n->b);
 	}

@@ -1,0 +1,1 @@
+F:only += and -= are allowed as pointer compound assignments

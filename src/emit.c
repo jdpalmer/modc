@@ -1327,9 +1327,9 @@ qbe_arith_op(int punct, int is_unsigned) {
 // Compound assigns evaluate the lhs address once (no double a[i] for a[i] += k).
 static Val
 emitexpr_assign(Compiler* c, Node* n) {
-	Val v, l, r, addr;
+	Val v, l, r, addr, scaled;
 	const char* op;
-	int uns;
+	int uns, step;
 
 	if (n->op != PnEq && n->a && !is_aggr(n->a->type)) {
 		r = emitexpr(c, n->b);
@@ -1340,6 +1340,16 @@ emitexpr_assign(Compiler* c, Node* n) {
 		op = qbe_arith_op(n->op, uns);
 		if (r.cls != l.cls)
 			r = coerce(r, l.cls, n->a->type);
+		if (n->a->type && is_ptr(n->a->type) &&
+		    (n->op == PnPlusEq || n->op == PnMinusEq)) {
+			step = n->a->type->base ? type_size(c, n->a->type->base) : 1;
+			if (step != 1) {
+				scaled = vtmp(l.cls, c->type_llong);
+				fprintf(outf, "\t%s =%c mul %s, %d\n",
+					scaled.text, scaled.cls, r.text, step);
+				r = scaled;
+			}
+		}
 		if (n->op == PnShlEq || n->op == PnShrEq)
 			r = mask_shift_count(c, r, n->a->type);
 		v = vtmp(l.cls, n->a->type);
