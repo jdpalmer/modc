@@ -420,7 +420,10 @@ cache_depfile_to_deps(const char* depfile, const char* path) {
 					p += 3;
 					break;
 				}
-				p++;
+				/* Makefile escapes: \ , \#, \\. Otherwise keep '\'
+				 * so Windows drive paths (C:\…) survive. */
+				if (p[1] == ' ' || p[1] == '#' || p[1] == '\\')
+					p++;
 			}
 			if (*p == '$' && p[1] == '$')
 				p++;

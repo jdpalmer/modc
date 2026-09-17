@@ -78,8 +78,7 @@ valid_subdir(const char* s) {
 
 	if (s == NULL || s[0] == 0)
 		return 1;
-	if (host_path_is_abs(s) || s[0] == '/' || s[0] == '\\' ||
-	    (isalpha((unsigned char)s[0]) && s[1] == ':'))
+	if (host_path_is_abs(s))
 		return 0;
 	start = s;
 	for (p = s;; p++) {
@@ -807,7 +806,11 @@ copy_tree(const char* src, const char* dst) {
 	char spath[1024], dpath[1024];
 
 	if (host_is_symlink(src)) {
-		fprintf(stderr, "modc vendor: refusing to follow symlink %s\n", src);
+		char shown[HOST_PATH_MAX];
+
+		snprintf(shown, sizeof(shown), "%s", src);
+		host_path_slashify(shown);
+		fprintf(stderr, "modc vendor: refusing to follow symlink %s\n", shown);
 		return 1;
 	}
 	if (host_is_file(src))
@@ -830,8 +833,12 @@ copy_tree(const char* src, const char* dst) {
 			return 1;
 		}
 		if (host_is_symlink(spath)) {
+			char shown[HOST_PATH_MAX];
+
+			snprintf(shown, sizeof(shown), "%s", spath);
+			host_path_slashify(shown);
 			fprintf(stderr, "modc vendor: refusing to follow symlink %s\n",
-				spath);
+				shown);
 			host_closedir(d);
 			return 1;
 		}

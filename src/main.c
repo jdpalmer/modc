@@ -340,25 +340,23 @@ add_sysinc(Compiler* c, const char* path) {
 	c->sysincpaths[c->sysincpaths_len++] = xstrdup(path);
 }
 
-// Split a PATH-like include list (:; on Win) into system includes.
+// Split a PATH-like include list (; on Win32, : elsewhere) into system includes.
 static void
 add_sysinc_from_env(Compiler* c, const char* list) {
 	char buf[PATH_MAX], *p, *start;
+	char sep;
 	size_t n;
 
 	if (list == NULL || list[0] == 0)
 		return;
+	sep = host_path_list_sep();
 	start = xstrdup(list);
 	for (p = start; *p;) {
-		char* sep;
-#ifdef _WIN32
-		/* INCLUDE uses ';'; do not treat drive-letter ':' as a separator. */
-		sep = strchr(p, ';');
-#else
-		sep = strchr(p, ':');
-#endif
-		if (sep)
-			n = (size_t)(sep - p);
+		char* end;
+
+		end = strchr(p, sep);
+		if (end)
+			n = (size_t)(end - p);
 		else
 			n = strlen(p);
 		if (n >= sizeof(buf))
@@ -366,9 +364,9 @@ add_sysinc_from_env(Compiler* c, const char* list) {
 		memcpy(buf, p, n);
 		buf[n] = 0;
 		add_sysinc(c, buf);
-		if (sep == NULL)
+		if (end == NULL)
 			break;
-		p = sep + 1;
+		p = end + 1;
 	}
 	free(start);
 }

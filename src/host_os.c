@@ -76,6 +76,40 @@ host_path_last_sep(const char* path) {
 	return last;
 }
 
+// Basename of path (after last separator), or path itself.
+const char*
+host_path_basename(const char* path) {
+	const char* sep;
+
+	if (path == NULL || path[0] == 0)
+		return path;
+	sep = host_path_last_sep(path);
+	return sep ? sep + 1 : path;
+}
+
+// True if path contains a / or \ separator.
+int
+host_path_has_sep(const char* path) {
+	const char* p;
+
+	if (path == NULL)
+		return 0;
+	for (p = path; *p; p++)
+		if (host_path_is_sep((unsigned char)*p))
+			return 1;
+	return 0;
+}
+
+// Separator for PATH-like lists (MODC_PATH, INCLUDE).
+char
+host_path_list_sep(void) {
+#ifdef _WIN32
+	return ';';
+#else
+	return ':';
+#endif
+}
+
 // Normalize backslashes to / in place for portable cache keys.
 void
 host_path_slashify(char* path) {

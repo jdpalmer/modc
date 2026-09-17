@@ -16,6 +16,9 @@ typedef struct HostDir HostDir;
 int host_path_is_sep(int c);
 int host_path_is_abs(const char* path);
 const char* host_path_last_sep(const char* path);
+const char* host_path_basename(const char* path); /* after last sep, or path */
+int host_path_has_sep(const char* path);	  /* any / or \ */
+char host_path_list_sep(void);			  /* ';' on Win32, ':' elsewhere */
 void host_dirname(const char* path, char* out, size_t n);
 char* host_join_path(const char* a, const char* b); /* heap; always uses '/' */
 void host_path_slashify(char* path);		    /* '\\' → '/' in place */

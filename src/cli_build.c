@@ -730,8 +730,7 @@ pkg_id_from_dir(const char* dir, char* out, size_t out_len) {
 	const char* base;
 	size_t i, j;
 
-	base = host_path_last_sep(dir);
-	base = base ? base + 1 : dir;
+	base = host_path_basename(dir);
 	if (base[0] == 0)
 		base = "root";
 	for (i = 0, j = 0; base[i] && j + 1 < out_len; i++) {

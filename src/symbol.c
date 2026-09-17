@@ -132,15 +132,7 @@ symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 
 	if (s->block == 0 && !user_source(c, sp)) {
 		home = c->infile ? c->infile : "";
-		base = strrchr(home, '/');
-		base = base ? base + 1 : home;
-#ifdef _WIN32
-		{
-			const char* b2 = strrchr(home, '\\');
-			if (b2 && b2 + 1 > base)
-				base = b2 + 1;
-		}
-#endif
+		base = host_path_basename(home);
 		if (strcmp(base, "bridge.mc") == 0) {
 			s->header = 0;
 			s->home = xstrdup(home);

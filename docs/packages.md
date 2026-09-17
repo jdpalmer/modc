@@ -181,7 +181,8 @@ When resolving `import "a/b";`, the compiler searches package roots in order unt
    `import "math"` rather than `import "vendor/math"`.
 
 4. **Explicit paths:** directories supplied via `-M dir` flags or the
-   `MODC_PATH` environment variable (colon-separated), checked as `dir/a/b` or
+   `MODC_PATH` environment variable (`;`-separated on Windows, `:`-separated
+   elsewhere), checked as `dir/a/b` or
    `dir/a/b.mc`.
 
 5. **Standard library:** the installation package root (containing `str`,

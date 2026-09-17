@@ -396,7 +396,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 		load = ".";
 	} else if (path_exists(target)) {
 		load = target;
-	} else if (strchr(target, '/') == NULL && (dot = strrchr(target, '.')) != NULL && strcmp(dot, ".mc") != 0) {
+	} else if (!host_path_has_sep(target) && (dot = strrchr(target, '.')) != NULL && strcmp(dot, ".mc") != 0) {
 		snprintf(pkgbuf, sizeof(pkgbuf), "%.*s", (int)(dot - target), target);
 		snprintf(symbuf, sizeof(symbuf), "%s", dot + 1);
 		if (pkg_resolve_spec(c, pkgbuf, resolved, sizeof(resolved))) {
@@ -405,7 +405,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 		}
 		load = resolved;
 		sym = symbuf;
-	} else if (strchr(target, '/') == NULL) {
+	} else if (!host_path_has_sep(target)) {
 		bare_name = 1;
 		snprintf(symbuf, sizeof(symbuf), "%s", target);
 		/* Prefer local symbol in "."; else package list. */

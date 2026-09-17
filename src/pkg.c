@@ -108,6 +108,7 @@ dirname_copy(const char* path, char* out, size_t n) {
 // Resolve and record an extra C/C++ TU from a #pragma modc c_sources path.
 void pkg_add_csource(Compiler* c, const char* from_file, const char* relpath) {
 	char pkgdir[1024], path[1024];
+	char* joined;
 	int i;
 
 	if (relpath == NULL || relpath[0] == 0 || from_file == NULL)
@@ -115,10 +116,9 @@ void pkg_add_csource(Compiler* c, const char* from_file, const char* relpath) {
 	if (!has_csource_ext(relpath))
 		return;
 	dirname_copy(from_file, pkgdir, sizeof(pkgdir));
-	if (relpath[0] == '/')
-		snprintf(path, sizeof(path), "%s", relpath);
-	else
-		snprintf(path, sizeof(path), "%s/%s", pkgdir, relpath);
+	joined = host_join_path(pkgdir, relpath);
+	snprintf(path, sizeof(path), "%s", joined);
+	free(joined);
 	for (i = 0; i < c->csources_len; i++)
 		if (strcmp(c->csources[i], path) == 0)
 			return;
@@ -145,8 +145,7 @@ int pkg_is_test_src(const char* path) {
 
 	if (path == NULL)
 		return 0;
-	base = strrchr(path, '/');
-	base = base ? base + 1 : path;
+	base = host_path_basename(path);
 	n = strlen(base);
 	/* at least "x_test.mc" */
 	return n >= 9 && strcmp(base + n - 8, "_test.mc") == 0;
@@ -254,12 +253,9 @@ void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
 	if (mcfile == NULL || out_len == 0)
 		return;
 	pkg_file_root(mcfile, root, sizeof(root));
-	base = strrchr(root, '/');
-	base = base ? base + 1 : root;
-	if (base[0] == 0 || strcmp(base, ".") == 0) {
-		base = strrchr(mcfile, '/');
-		base = base ? base + 1 : mcfile;
-	}
+	base = host_path_basename(root);
+	if (base[0] == 0 || strcmp(base, ".") == 0)
+		base = host_path_basename(mcfile);
 	dot = strrchr(base, '.');
 	if (dot && strcmp(dot, ".mc") == 0)
 		n = (size_t)(dot - base);
@@ -295,6 +291,7 @@ static int
 try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 	const char *env, *p, *q;
 	char* pathdup;
+	char sep;
 	int i;
 
 	for (i = 0; i < c->pkgpaths_len; i++)
@@ -302,9 +299,10 @@ try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 			return 1;
 	env = getenv("MODC_PATH");
 	if (env && env[0]) {
+		sep = host_path_list_sep();
 		pathdup = xstrdup(env);
 		for (p = pathdup; *p;) {
-			q = strchr(p, ':');
+			q = strchr(p, sep);
 			if (q)
 				*(char*)q = 0;
 			if (p[0] && try_pkg_at(p, spec, out, out_len)) {
@@ -363,10 +361,8 @@ cmp_src(const void* a, const void* b) {
 	const char *na, *nb;
 	int moda, modb;
 
-	na = strrchr(sa, '/');
-	nb = strrchr(sb, '/');
-	na = na ? na + 1 : sa;
-	nb = nb ? nb + 1 : sb;
+	na = host_path_basename(sa);
+	nb = host_path_basename(sb);
 	moda = strcmp(na, "mod.mc") == 0;
 	modb = strcmp(nb, "mod.mc") == 0;
 	if (moda != modb)
