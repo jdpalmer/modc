@@ -2902,6 +2902,75 @@ addgi(int off, int w, int kind, int64_t val, Symbol* sym, int stroff) {
 	ginits_len++;
 }
 
+static int global_reloc(Compiler* c, Node* n, Symbol** sym, int64_t* addend);
+
+// Resolve the address of a global lvalue into a linker symbol and byte addend.
+static int
+global_lvalue_reloc(Compiler* c, Node* n, Symbol** sym, int64_t* addend) {
+	int64_t index;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdName && n->symbol &&
+	    (is_global_symbol(n->symbol) || is_static_local(n->symbol) ||
+	     n->symbol->kind == SkFunc)) {
+		*sym = n->symbol;
+		*addend = 0;
+		return 1;
+	}
+	if (n->kind == NdDeref)
+		return global_reloc(c, n->a, sym, addend);
+	if (n->kind == NdIndex && global_reloc(c, n->a, sym, addend) &&
+	    eval_const(c, n->b, &index)) {
+		*addend += index * type_size(c, n->type);
+		return 1;
+	}
+	if (n->kind == NdDot && global_lvalue_reloc(c, n->a, sym, addend)) {
+		*addend += n->int_val;
+		return 1;
+	}
+	if (n->kind == NdArrow && global_reloc(c, n->a, sym, addend)) {
+		*addend += n->int_val;
+		return 1;
+	}
+	return 0;
+}
+
+// Recognize static pointer constants accepted in global initializers.
+static int
+global_reloc(Compiler* c, Node* n, Symbol** sym, int64_t* addend) {
+	int64_t delta;
+	Type* t;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdCast)
+		return global_reloc(c, n->a, sym, addend);
+	if (n->kind == NdAddr)
+		return global_lvalue_reloc(c, n->a, sym, addend);
+	if (n->kind == NdName && n->symbol &&
+	    (n->symbol->kind == SkFunc || is_array(n->type)))
+		return global_lvalue_reloc(c, n, sym, addend);
+	if (n->kind != NdBin || (n->op != PnPlus && n->op != PnMinus))
+		return 0;
+	if (global_reloc(c, n->a, sym, addend) && eval_const(c, n->b, &delta)) {
+		t = n->a ? n->a->type : NULL;
+		if (t && (is_ptr(t) || is_array(t)))
+			delta *= type_size(c, t->base);
+		*addend += n->op == PnMinus ? -delta : delta;
+		return 1;
+	}
+	if (n->op == PnPlus && global_reloc(c, n->b, sym, addend) &&
+	    eval_const(c, n->a, &delta)) {
+		t = n->b ? n->b->type : NULL;
+		if (t && (is_ptr(t) || is_array(t)))
+			delta *= type_size(c, t->base);
+		*addend += delta;
+		return 1;
+	}
+	return 0;
+}
+
 // Resolve a designated-initializer field path to its type and total byte offset.
 static Type*
 emit_field_path(Compiler* c, Type* t, Initializer* it, int* totoff) {
@@ -2966,8 +3035,9 @@ flatten_init_list(Compiler* c, Type* t, Initializer* in, int off) {
 static void
 flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 	int i, w;
-	int64_t v;
+	int64_t v, addend;
 	Field* f;
+	Symbol* sym;
 
 	if (t == NULL)
 		return;
@@ -3006,6 +3076,11 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 	w = type_size(c, t);
 	if (in && in->expr && in->expr->kind == NdStr) {
 		addgi(off, 8, 2, in->expr->int_val, NULL, (int)in->expr->int_val);
+		return;
+	}
+	if (in && in->expr && w == 8 &&
+	    global_reloc(c, in->expr, &sym, &addend)) {
+		addgi(off, w, 3, addend, sym, 0);
 		return;
 	}
 	if (in && in->expr && eval_const(c, in->expr, &v))
@@ -3060,6 +3135,13 @@ emitgsym(Compiler* c, Node* d) {
 				fputc(',', outf);
 			if (gi->kind == 2)
 				fprintf(outf, " l $%s + %d", emit_str_symbol, gi->stroff);
+			else if (gi->kind == 3) {
+				fprintf(outf, " l $%s", symbol_link_name(gi->symbol));
+				if (gi->val > 0)
+					fprintf(outf, " + %" PRId64, gi->val);
+				else if (gi->val < 0)
+					fprintf(outf, " - %" PRId64, -gi->val);
+			}
 			else {
 				switch (gi->w) {
 				case 1:

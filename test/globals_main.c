@@ -2,6 +2,7 @@ int get_g(void);
 void set_g(int);
 int get_gi(void);
 int bump_s(void);
+int global_ptrs(void);
 int first_char(void);
 int str_len3(void);
 
@@ -19,9 +20,11 @@ main(void)
 		return 4;
 	if(bump_s() != 2)
 		return 5;
-	if(first_char() != 'h')
+	if(!global_ptrs())
 		return 6;
-	if(str_len3() != 'a' + 'b' + 'c')
+	if(first_char() != 'h')
 		return 7;
+	if(str_len3() != 'a' + 'b' + 'c')
+		return 8;
 	return 0;
 }

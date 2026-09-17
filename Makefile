@@ -150,6 +150,7 @@ check-special: $(MODC)
 	$(BUILD)/cli_dirbuild_imp-bin
 	./modc build test/project_root/cmd/app -o $(BUILD)/project-root-bin
 	$(BUILD)/project-root-bin
+	./modc clean test/project_root/cmd/app
 	@rm -f $(BUILD)/cli_build $(BUILD)/cli_dirbuild
 	./modc build test/cli_build.mc && test -x cli_build && mv cli_build $(BUILD)/cli_build-default
 	$(BUILD)/cli_build-default
