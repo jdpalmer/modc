@@ -10,6 +10,7 @@
 #include "ast.h"
 
 static int switch_depth;
+static int loop_depth;
 /* Header `const` before a declarator: apply is_readonly to the first pointer level. */
 static int pending_pointee_const;
 
@@ -2655,7 +2656,9 @@ parse_range_for(Compiler* c, Span sp) {
 
 	isym = symbol_define(c, iname, SkVar, c->type_ullong, StLocal, sp);
 	vsym = symbol_define(c, vname, SkVar, vtype ? vtype : ri.elem, StLocal, sp);
+	loop_depth++;
 	body = parse_braced_body(c, "for");
+	loop_depth--;
 
 	bodyblk = node(NdBlock, sp);
 	bodyblk->int_val = c->block;
@@ -3017,12 +3020,16 @@ parse_stmt(Compiler* c) {
 		check_cond_assign(c, a);
 		n = node(NdWhile, sp);
 		n->a = a;
+		loop_depth++;
 		n->b = parse_braced_body(c, "while");
+		loop_depth--;
 		return n;
 	}
 	if (eatkw(c, KwDo)) {
 		n = node(NdDo, sp);
+		loop_depth++;
 		n->a = parse_braced_body(c, "do");
+		loop_depth--;
 		if (!eatkw(c, KwWhile))
 			error_tok(c, peek(c), "expected 'while'");
 		expect(c, PnLparen, "'('");
@@ -3056,7 +3063,9 @@ parse_stmt(Compiler* c) {
 		if (!at(c, PnRparen))
 			n->c = type_expr(c, parse_comma_expr(c));
 		expect(c, PnRparen, "')'");
+		loop_depth++;
 		node_add(n, parse_braced_body(c, "for"));
+		loop_depth--;
 		if (for_scope)
 			symbol_pop_block(c);
 		return n;
@@ -3077,6 +3086,8 @@ parse_stmt(Compiler* c) {
 	if (eatkw(c, KwCase)) {
 		int64_t hi;
 
+		if (switch_depth == 0)
+			error_at(c, sp, "case label outside of switch");
 		n = node(NdCase, sp);
 		n->a = type_expr(c, parse_expr(c));
 		if (!eval_const(c, n->a, &n->int_val))
@@ -3108,14 +3119,20 @@ parse_stmt(Compiler* c) {
 		return n;
 	}
 	if (eatkw(c, KwDefault)) {
+		if (switch_depth == 0)
+			error_at(c, sp, "default label outside of switch");
 		expect(c, PnColon, "':'");
 		return node(NdDefault, sp);
 	}
 	if (eatkw(c, KwBreak)) {
+		if (loop_depth == 0 && switch_depth == 0)
+			error_at(c, sp, "break outside of loop or switch");
 		expect(c, PnSemi, "';'");
 		return node(NdBreak, sp);
 	}
 	if (eatkw(c, KwContinue)) {
+		if (loop_depth == 0)
+			error_at(c, sp, "continue outside of loop");
 		expect(c, PnSemi, "';'");
 		return node(NdContinue, sp);
 	}
