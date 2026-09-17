@@ -124,7 +124,7 @@ check-special: $(MODC)
 	@grep -q 'cache hit graph' $(BUILD)/cache_two2.log
 	@printf '%s\n' 'import "leaf";' '' 'int main() {' '	return leaf_add(21, 21) == 42 ? 0: 1;' '}' > test/cache_two/main.mc
 	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two3.log
-	@grep -q 'cache hit pkg leaf' $(BUILD)/cache_two3.log
+	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two3.log
 	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two3.log
 	$(BUILD)/cache_two
 	@printf '%s\n' 'import "leaf";' '' 'int main() {' '	return leaf_add(20, 22) == 42 ? 0: 1;' '}' > test/cache_two/main.mc
@@ -132,9 +132,9 @@ check-special: $(MODC)
 	@printf '%s\n' 'int leaf_add(int a, int b) {' '	return a + b;' '}' '' 'static int leaf_priv() {' '	return 2;' '}' > test/cache_two/leaf/mod.mc
 	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two5.log
 	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two5.log
-	@grep -q 'cache hit pkg main_mc' $(BUILD)/cache_two5.log
+	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two5.log
 	$(BUILD)/cache_two
-	@printf '%s\n' 'int leaf_add(int a, int b) {' '	return a + b;' '}' '' 'int leaf_extra() {' '	return 0;' '}' '' 'static int leaf_priv() {' '	return 1;' '}' > test/cache_two/leaf/mod.mc
+	@printf '%s\n' 'double leaf_add(int a, int b) {' '	return a + b;' '}' '' 'static int leaf_priv() {' '	return 1;' '}' > test/cache_two/leaf/mod.mc
 	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two4.log
 	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two4.log
 	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two4.log

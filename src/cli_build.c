@@ -752,49 +752,12 @@ pkg_impl_hash(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 	return h;
 }
 
-// Digest of non-static API symbols visible to importers.
-static uint64_t
-pkg_iface_hash(Compiler* c, const char* pkg_dir) {
-	Symbol* s;
-	uint64_t h;
-	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], home[HOST_PATH_MAX];
-	const char* src;
-
-	h = cache_hash_str(pkg_dir);
-	snprintf(root, sizeof(root), "%s", pkg_dir);
-	if (host_abspath(root, abs, sizeof(abs)) == 0)
-		snprintf(root, sizeof(root), "%s", abs);
-	for (s = c->symbols; s; s = s->next) {
-		if (s->dead || s->hidden || s->header)
-			continue;
-		if (s->storage == StStatic || s->storage == StLocal || s->storage == StParam)
-			continue;
-		if (s->kind != SkFunc && s->kind != SkVar && s->kind != SkTypedef &&
-		    s->kind != SkTag && s->kind != SkEnumCon)
-			continue;
-		src = s->home;
-		if (src == NULL || src[0] == 0)
-			src = s->span.file;
-		if (src == NULL || src[0] == 0)
-			continue;
-		pkg_file_root(src, home, sizeof(home));
-		if (host_abspath(home, abs, sizeof(abs)) == 0)
-			snprintf(home, sizeof(home), "%s", abs);
-		if (strcmp(home, root) != 0)
-			continue;
-		h = cache_hash_mix(h, cache_hash_str(s->name));
-		h = cache_hash_mix(h, (uint64_t)s->kind);
-		h = cache_hash_mix(h, cache_hash_str(type_name(s->type)));
-	}
-	return h;
-}
-
-// Compute cache paths and hit flags from impl + dep iface needs.
+// Compute cache paths and hit flags from implementation hashes.
 static void
 pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
 	int i, j;
 	uint64_t h, needsh;
-	char iface[128], path[HOST_PATH_MAX], needspath[HOST_PATH_MAX], stored[256];
+	char needspath[HOST_PATH_MAX], stored[256];
 	char hex[24];
 
 	for (i = 0; i < npkgs; i++) {
@@ -814,11 +777,7 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
 		for (j = 0; j < npkgs; j++) {
 			if (i == j)
 				continue;
-			/* Stable "current iface" path — survives dep impl changes. */
-			snprintf(path, sizeof(path), "%s/pkg/%s/iface", crooot, pkgs[j].id);
-			iface[0] = 0;
-			(void)cache_read_str(path, iface, sizeof(iface));
-			needsh = cache_hash_mix(needsh, cache_hash_str(iface));
+			needsh = cache_hash_mix(needsh, pkgs[j].impl);
 		}
 		cache_hash_hex(needsh, hex, sizeof(hex));
 		stored[0] = 0;
@@ -1079,7 +1038,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	if (r != 0)
 		return 1;
 
-	/* Fresh ifaces → re-validate hits (dep API may have changed). */
+	/* Any dependency source change conservatively invalidates this object. */
 	{
 		char ifacehex[MaxCachePkgs][24];
 		char curiface[HOST_PATH_MAX], needspath[HOST_PATH_MAX], needshex[24],
@@ -1087,8 +1046,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		uint64_t needs;
 
 		for (i = 0; i < npkgs; i++) {
-			cache_hash_hex(pkg_iface_hash(c, pkgs[i].dir), ifacehex[i],
-				       sizeof(ifacehex[i]));
+			cache_hash_hex(pkgs[i].impl, ifacehex[i], sizeof(ifacehex[i]));
 			snprintf(curiface, sizeof(curiface), "%s/pkg/%s/iface", crooot,
 				 pkgs[i].id);
 			if (cache_write_str(curiface, ifacehex[i]) != 0)
@@ -1101,7 +1059,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			for (j = 0; j < npkgs; j++) {
 				if (j == i)
 					continue;
-				needs = cache_hash_mix(needs, cache_hash_str(ifacehex[j]));
+				needs = cache_hash_mix(needs, pkgs[j].impl);
 			}
 			cache_hash_hex(needs, needshex, sizeof(needshex));
 			snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
@@ -1130,7 +1088,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			for (j = 0; j < npkgs; j++) {
 				if (j == i)
 					continue;
-				needs = cache_hash_mix(needs, cache_hash_str(ifacehex[j]));
+				needs = cache_hash_mix(needs, pkgs[j].impl);
 			}
 			cache_hash_hex(needs, needshex, sizeof(needshex));
 			snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
