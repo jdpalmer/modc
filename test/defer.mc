@@ -51,6 +51,15 @@ int on_goto() {
 	out: return 0;
 }
 
+int on_branch(int x) {
+	defer tr(9);
+	if (x) {
+		defer tr(8);
+		return 1;
+	}
+	return 2;
+}
+
 int with_ranged() {
 	int a[3] = { 0 };
 	int[..] s = { 0 };

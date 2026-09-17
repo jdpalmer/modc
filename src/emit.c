@@ -96,7 +96,7 @@ static void collect(Compiler* c, Node* n);
 static int emitstmt_ret(Compiler* c, Node* n);
 static void emit_defers_frame(Compiler* c, int fi);
 static void pop_defer_frame(Compiler* c);
-static void emit_defers_pop_until(Compiler* c, int target);
+static void emit_defers_until(Compiler* c, int target);
 static void emit_all_defers(Compiler* c);
 static void push_defer_frame(int block);
 static void add_defer(Compiler* c, Node* stmt);
@@ -2247,7 +2247,6 @@ emit_defers_frame(Compiler* c, int fi) {
 		return;
 	for (i = deferstk[fi].stmts_len - 1; i >= 0; i--)
 		(void)emitstmt_ret(c, deferstk[fi].stmts[i]);
-	deferstk[fi].stmts_len = 0;
 }
 
 // Run and discard the innermost defer frame (leaving a block).
@@ -2259,24 +2258,28 @@ pop_defer_frame(Compiler* c) {
 	defers_len--;
 }
 
-// Run defers until the stack depth matches target (break/continue/return).
+// Emit defers for a control transfer without changing lexical emission state.
 static void
-emit_defers_pop_until(Compiler* c, int target) {
-	while (defers_len > target)
-		pop_defer_frame(c);
+emit_defers_until(Compiler* c, int target) {
+	int i;
+
+	for (i = defers_len - 1; i >= target; i--)
+		emit_defers_frame(c, i);
 }
 
 // Run every queued defer before function return.
 static void
 emit_all_defers(Compiler* c) {
-	emit_defers_pop_until(c, 0);
+	emit_defers_until(c, 0);
 }
 
-// Pop defer frames that would be skipped by a forward goto across blocks.
+// Emit defer frames that would be skipped by a forward goto across blocks.
 static void
 emit_defers_for_goto(Compiler* c, int label_block) {
-	while (defers_len > 0 && deferstk[defers_len - 1].block > label_block)
-		pop_defer_frame(c);
+	int i;
+
+	for (i = defers_len - 1; i >= 0 && deferstk[i].block > label_block; i--)
+		emit_defers_frame(c, i);
 }
 
 // Branch on a scalar condition without materializing a bool temporary when possible.
@@ -2472,7 +2475,7 @@ emit_local_init(Compiler* c, Val base, Type* t, Initializer* in, int off) {
 // Emit one statement; returns 1 if control cannot fall through (return/break/goto).
 static int
 emitstmt_ret(Compiler* c, Node* n) {
-	int t, t2, t3, t4, i, def, narm, fallen;
+	int t, t2, t3, t4, i, def, narm, fallen, defer_base;
 	Val v;
 	Casearm arms[MaxCase];
 
@@ -2510,6 +2513,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		}
 		return 0;
 	case NdBlock:
+		defer_base = defers_len;
 		push_defer_frame((int)n->int_val);
 		fallen = 0;
 		for (i = 0; i < n->children_len; i++) {
@@ -2520,6 +2524,8 @@ emitstmt_ret(Compiler* c, Node* n) {
 		}
 		if (!fallen)
 			pop_defer_frame(c);
+		else
+			defers_len = defer_base;
 		return fallen;
 	case NdIf:
 		t = newlbl();
@@ -2590,13 +2596,13 @@ emitstmt_ret(Compiler* c, Node* n) {
 		return 0;
 	case NdBreak:
 		if (loops_len > 0)
-			emit_defers_pop_until(c, loop_defer[loops_len - 1]);
+			emit_defers_until(c, loop_defer[loops_len - 1]);
 		if (loops_len > 0)
 			emitjmp(loopbrk[loops_len - 1]);
 		return 1;
 	case NdContinue:
 		if (loops_len > 0)
-			emit_defers_pop_until(c, loop_defer[loops_len - 1]);
+			emit_defers_until(c, loop_defer[loops_len - 1]);
 		if (loops_len > 0)
 			emitjmp(loopcont[loops_len - 1]);
 		return 1;

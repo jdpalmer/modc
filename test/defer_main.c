@@ -7,6 +7,7 @@ int on_return(void);
 int on_block_end(void);
 int on_break(void);
 int on_goto(void);
+int on_branch(int x);
 int with_ranged(void);
 int ret_order(void);
 int ret_order_tuple_ok(void);
@@ -42,19 +43,31 @@ main(void)
 	if(nlog != 1 || defer_log[0] != 5)
 		return 10;
 
-	if(with_ranged() != 6)
+	nlog = 0;
+	if(on_branch(1) != 1)
 		return 11;
-	if(nlog != 1 || defer_log[0] != 99)
+	if(nlog != 2 || defer_log[0] != 8 || defer_log[1] != 9)
 		return 12;
+
+	nlog = 0;
+	if(on_branch(0) != 2)
+		return 13;
+	if(nlog != 1 || defer_log[0] != 9)
+		return 14;
+
+	if(with_ranged() != 6)
+		return 15;
+	if(nlog != 1 || defer_log[0] != 99)
+		return 16;
 
 	ret_order_stamp = 0;
 	if(ret_order() != 1)
-		return 13;
+		return 17;
 	if(ret_order_stamp != 2)
-		return 14;
+		return 18;
 
 	if(ret_order_tuple_ok() != 0)
-		return 15;
+		return 19;
 
 	return 0;
 }
