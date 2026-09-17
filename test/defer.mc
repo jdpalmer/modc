@@ -111,3 +111,18 @@ int ret_order_tuple_ok() {
 	}
 	return 0;
 }
+
+struct ReturnPair {
+	int x;
+	int y;
+};
+
+struct ReturnPair aggregate_return_snapshot() {
+	struct ReturnPair p = {
+		10, 11 };
+	defer {
+		p.x = 90;
+		p.y = 91;
+	}
+	return p;
+}

@@ -89,6 +89,8 @@ static int isites_len;
 static int isites_cap;
 static InlineCtx inl;
 static Node* emit_curfn;
+static Val aggregate_ret_slot;
+static int has_aggregate_ret_slot;
 
 static Val emitexpr(Compiler* c, Node* n);
 static Val emitlval(Compiler* c, Node* n);
@@ -2705,7 +2707,14 @@ emitstmt_ret(Compiler* c, Node* n) {
 
 			rt = emit_curfn && emit_curfn->type ? emit_curfn->type->base : NULL;
 			v = emitexpr(c, n->a);
-			if (rt && !is_aggr(rt)) {
+			if (rt && is_aggr(rt) && has_aggregate_ret_slot) {
+				/*
+				 * Aggregate values are represented by an address. Snapshot the
+				 * value before cleanup so a defer cannot mutate its backing local.
+				 */
+				emitblit(aggregate_ret_slot, v, storewidth(c, rt));
+				v = aggregate_ret_slot;
+			} else if (rt && !is_aggr(rt)) {
 				char cls;
 
 				cls = qbe_class(rt);
@@ -2858,6 +2867,7 @@ emitfunc(Compiler* c, Node* fn) {
 	inl.active = 0;
 	inl.site = NULL;
 	inl.stack_len = 0;
+	has_aggregate_ret_slot = 0;
 	collect(c, fn->a);
 	register_inline_sites(c, fn->a);
 	for (i = 0; i < (ty ? ty->params_len : 0); i++) {
@@ -2915,6 +2925,16 @@ emitfunc(Compiler* c, Node* fn) {
 	fputs(") {\n@start\n", outf);
 	emit_curfn = fn;
 	emitallocs(c);
+	if (is_aggr(ret)) {
+		int align, width;
+
+		width = storewidth(c, ret);
+		align = type_align(c, ret);
+		aggregate_ret_slot = vtmp('l', type_ptr(c, ret));
+		fprintf(outf, "\t%s =l %s %d\n", aggregate_ret_slot.text,
+			align >= 8 ? "alloc8" : "alloc4", width);
+		has_aggregate_ret_slot = 1;
+	}
 	returned = emitstmt_ret(c, fn->a);
 	emit_curfn = NULL;
 	if (!returned) {

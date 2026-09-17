@@ -13,6 +13,13 @@ int with_ranged(void);
 int ret_order(void);
 int ret_order_tuple_ok(void);
 
+struct ReturnPair {
+	int x;
+	int y;
+};
+
+struct ReturnPair aggregate_return_snapshot(void);
+
 int
 main(void)
 {
@@ -74,6 +81,12 @@ main(void)
 
 	if(ret_order_tuple_ok() != 0)
 		return 19;
+
+	{
+		struct ReturnPair p = aggregate_return_snapshot();
+		if(p.x != 10 || p.y != 11)
+			return 22;
+	}
 
 	return 0;
 }
