@@ -1282,15 +1282,10 @@ ensure_build_root(CliOpts* o) {
 		add_file(o, ".");
 }
 
-// Unlink temp artifacts and remove the temp directory.
+// Remove the entire temp build directory (pkg*.o, foreign*.o, etc.).
 void
-cleanup_tmpdir(const char* dir, const char* a, const char* b, const char* c) {
-	if (a)
-		host_unlink(a);
-	if (b)
-		host_unlink(b);
-	if (c)
-		host_unlink(c);
-	host_rmdir(dir);
+cleanup_tmpdir(const char* dir) {
+	if (dir && dir[0])
+		(void)host_rmtree(dir);
 }
 

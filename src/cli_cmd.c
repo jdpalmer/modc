@@ -62,7 +62,6 @@ cmd_emit(Compiler* c, CliOpts* o, int argc, char** argv) {
 int
 cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 	char dir[HOST_PATH_MAX];
-	char qbe[512], asmpath[512];
 	int i, r;
 	char* outname;
 
@@ -93,9 +92,7 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 		return 1;
 	}
 	r = compile_link_exe(c, o, o->files[0], dir, o->output);
-	snprintf(qbe, sizeof(qbe), "%s/out.qbe", dir);
-	snprintf(asmpath, sizeof(asmpath), "%s/out.s", dir);
-	cleanup_tmpdir(dir, qbe, asmpath, NULL);
+	cleanup_tmpdir(dir);
 	free(outname);
 	return r;
 }
@@ -104,7 +101,7 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 int
 build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	char dir[HOST_PATH_MAX];
-	char prog[512], qbe[512], asmpath[512];
+	char prog[512];
 	int i, st, runargs_len;
 	const char** runargv;
 	int nrun;
@@ -126,9 +123,7 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	st = compile_link_exe(c, o, path, dir, prog);
 	o->linkargv_len = runargs_len;
 	if (st != 0) {
-		snprintf(qbe, sizeof(qbe), "%s/out.qbe", dir);
-		snprintf(asmpath, sizeof(asmpath), "%s/out.s", dir);
-		cleanup_tmpdir(dir, qbe, asmpath, NULL);
+		cleanup_tmpdir(dir);
 		return 1;
 	}
 	nrun = o->linkargv_len + 2;
@@ -139,14 +134,12 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	runargv[nrun - 1] = NULL;
 	st = host_spawn_wait(runargv);
 	free(runargv);
-	snprintf(qbe, sizeof(qbe), "%s/out.qbe", dir);
-	snprintf(asmpath, sizeof(asmpath), "%s/out.s", dir);
 	if (st < 0) {
 		fprintf(stderr, "modc: failed to run %s: %s\n", prog, strerror(errno));
-		cleanup_tmpdir(dir, qbe, asmpath, prog);
+		cleanup_tmpdir(dir);
 		return 1;
 	}
-	cleanup_tmpdir(dir, qbe, asmpath, prog);
+	cleanup_tmpdir(dir);
 	return st;
 }
 

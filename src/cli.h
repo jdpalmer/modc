@@ -43,7 +43,7 @@ int emit_one(Compiler* c, CliOpts* o, const char* path);
 int compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, const char* outpath);
 char* default_out_name(const char* path);
 void ensure_build_root(CliOpts* o);
-void cleanup_tmpdir(const char* dir, const char* a, const char* b, const char* c);
+void cleanup_tmpdir(const char* dir);
 int build_and_run_root(Compiler* c, CliOpts* o, const char* path);
 
 int cmd_check(Compiler* c, CliOpts* o, int argc, char** argv);
