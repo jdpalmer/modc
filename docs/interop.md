@@ -54,7 +54,14 @@ POSIX pieces needed by the `fs` / `os` packages (`unistd`, `fcntl`, `sys/stat`,
 `dirent`, `poll`, `time`, `sys/wait`, `signal`), and a thin Win32 surface
 (`windows.h` with the `*A` APIs those packages call). Prefer growing a stub
 when a package needs a new call; use `#pragma modc c_sources(...)` for large
-native code.
+native code. Parsing full installed Windows/GTK SDK trees is **not** a goal—
+stubs plus ordinary C headers are the supported surface.
+
+The preprocessor supports the usual `#define` / `#include` / `#if` subset used by
+most headers (including correct `|` / `^` / `&` and relational vs equality
+precedence). Obscure or SDK-only preprocessor features are out of scope; extend
+a stub instead of growing `pp.c`. `#pragma once` deduplicates includes; classic
+#ifndef include-guard heuristics are not used as a skip cache.
 
 Package logic lives in `.mc` sources. System API declarations belong in hosted
 stubs (`unistd.h`, `windows.h`, …), not in the package.

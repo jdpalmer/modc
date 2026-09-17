@@ -34,7 +34,7 @@ static int if_eval(Compiler* c, Tok* src, int src_files_len, int* i);
 static Span pp_dyn_span;
 static int pp_expand_depth;
 static int pp_prof;
-static int pp_ninc_open, pp_ninc_once, pp_ninc_guard, pp_ninc_miss;
+static int pp_ninc_open, pp_ninc_once, pp_ninc_miss;
 static double pp_t_find, pp_t_read, pp_t_lex, pp_t_proc;
 static double pp_t_emit, pp_t_expand, pp_t_dir;
 static uint64_t pp_n_emit, pp_n_expand, pp_n_dir;
@@ -407,7 +407,7 @@ file_exists(const char* path) {
 	return host_is_file(path);
 }
 
-/* ---- once / include / guard caches ---- */
+/* ---- once / include caches ---- */
 
 struct PpOnce {
 	char* path;
@@ -418,12 +418,6 @@ struct PpInc {
 	char* key;  /* "1:name" angled, or "0:dir/name" quoted */
 	char* path; /* resolved path; NULL = miss cached */
 	struct PpInc* hash_next;
-};
-
-struct PpGuard {
-	char* path;  /* resolved include path */
-	char* macro; /* #ifndef / #define guard name */
-	struct PpGuard* hash_next;
 };
 
 // Insert path into the #pragma once hash table.
@@ -556,71 +550,6 @@ inc_insert(Compiler* c, const char* key, const char* path) {
 	}
 }
 
-// Double the include-guard (path → macro) hash table.
-static void
-guard_tab_grow(Compiler* c) {
-	struct PpGuard **old, *p, *n;
-	int j, oldn, cap;
-	unsigned i;
-
-	cap = c->guard_tab_cap ? c->guard_tab_cap * 2 : 512;
-	old = c->guard_tab;
-	oldn = c->guard_tab_cap;
-	c->guard_tab = xmalloc((size_t)cap * sizeof(struct PpGuard*));
-	c->guard_tab_cap = cap;
-	if (old) {
-		for (j = 0; j < oldn; j++) {
-			for (p = old[j]; p; p = n) {
-				n = p->hash_next;
-				i = str_hash(p->path) & (unsigned)(cap - 1);
-				p->hash_next = c->guard_tab[i];
-				c->guard_tab[i] = p;
-			}
-		}
-		free(old);
-	}
-}
-
-// Return the #ifndef guard macro for path, or NULL.
-static const char*
-guard_lookup(Compiler* c, const char* path) {
-	struct PpGuard* e;
-	unsigned i;
-
-	if (path == NULL || c->guard_tab_cap == 0)
-		return NULL;
-	i = str_hash(path) & (unsigned)(c->guard_tab_cap - 1);
-	for (e = c->guard_tab[i]; e; e = e->hash_next)
-		if (strcmp(e->path, path) == 0)
-			return e->macro;
-	return NULL;
-}
-
-// Record that path is wrapped by an include-guard macro.
-static void
-guard_insert(Compiler* c, const char* path, const char* macro) {
-	struct PpGuard* e;
-	unsigned i;
-
-	if (path == NULL || macro == NULL || guard_lookup(c, path))
-		return;
-	if (c->guard_tab_cap == 0)
-		guard_tab_grow(c);
-	e = xmalloc(sizeof(*e));
-	e->path = xstrdup(path);
-	e->macro = xstrdup(macro);
-	i = str_hash(path) & (unsigned)(c->guard_tab_cap - 1);
-	e->hash_next = c->guard_tab[i];
-	c->guard_tab[i] = e;
-	{
-		int bucket = 0;
-		for (e = c->guard_tab[i]; e; e = e->hash_next)
-			bucket++;
-		if (bucket > 8 && c->guard_tab_cap < 65536)
-			guard_tab_grow(c);
-	}
-}
-
 // Canonicalize a path for #pragma once deduplication.
 static char*
 resolve_once(const char* path) {
@@ -629,62 +558,6 @@ resolve_once(const char* path) {
 	if (host_realpath(path, buf, sizeof(buf)) == 0)
 		return xstrdup(buf);
 	return xstrdup(path);
-}
-
-// Detect #ifndef GUARD / #define GUARD at the start of a lexed header.
-static const char*
-detect_include_guard(Tok* tokens, int tokens_len) {
-	int i;
-	const char* name;
-
-	i = 0;
-	while (i < tokens_len && tokens[i].kind == TkNewline)
-		i++;
-	/* Skip leading #pragma once / #pragma warning lines. */
-	while (i + 1 < tokens_len && tokens[i].kind == TkPunct && tokens[i].punct == PnHash && tokens[i].bol &&
-	       tokens[i + 1].kind == TkIdent && strcmp(tokens[i + 1].s, "pragma") == 0) {
-		i += 2;
-		while (i < tokens_len && tokens[i].kind != TkNewline && tokens[i].kind != TkEof)
-			i++;
-		while (i < tokens_len && tokens[i].kind == TkNewline)
-			i++;
-	}
-	if (i + 2 >= tokens_len || !(tokens[i].kind == TkPunct && tokens[i].punct == PnHash && tokens[i].bol))
-		return NULL;
-	i++;
-	name = NULL;
-	if (tokens[i].kind == TkIdent && strcmp(tokens[i].s, "ifndef") == 0) {
-		i++;
-		if (i < tokens_len && tokens[i].kind == TkIdent)
-			name = tokens[i].s;
-	} else if (tokens[i].kind == TkIdent && strcmp(tokens[i].s, "if") == 0) {
-		i++;
-		if (i < tokens_len && tokens[i].kind == TkPunct && tokens[i].punct == PnBang)
-			i++;
-		else
-			return NULL;
-		if (i < tokens_len && tokens[i].kind == TkIdent && strcmp(tokens[i].s, "defined") == 0)
-			i++;
-		else
-			return NULL;
-		if (i < tokens_len && tokens[i].kind == TkPunct && tokens[i].punct == PnLparen)
-			i++;
-		if (i < tokens_len && tokens[i].kind == TkIdent)
-			name = tokens[i].s;
-	}
-	if (name == NULL)
-		return NULL;
-	/* Next directive should be #define NAME */
-	i++;
-	while (i < tokens_len && tokens[i].kind == TkNewline)
-		i++;
-	if (i + 2 >= tokens_len || !(tokens[i].kind == TkPunct && tokens[i].punct == PnHash && tokens[i].bol))
-		return NULL;
-	if (!(tokens[i + 1].kind == TkIdent && strcmp(tokens[i + 1].s, "define") == 0))
-		return NULL;
-	if (!(tokens[i + 2].kind == TkIdent && strcmp(tokens[i + 2].s, name) == 0))
-		return NULL;
-	return name;
 }
 
 // Search include paths for "file" or <file> relative to the including TU.
@@ -831,10 +704,11 @@ header_name(Tok* src, int src_files_len, int* i, int* angled) {
 }
 
 // Lex, preprocess, and splice one #include file into the output stream.
+// Dedup relies on #pragma once (and once_files); classic ifndef guards are
+// processed normally on each include — no heuristic skip cache.
 static void
 do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 	char *path, *text;
-	const char* guard;
 	Tok* itoks;
 	int tokens_len, cap, nsave, capsave;
 	Tok* saved;
@@ -856,12 +730,6 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 	}
 	if (already_once(c, path)) {
 		pp_ninc_once++;
-		free(path);
-		return;
-	}
-	guard = guard_lookup(c, path);
-	if (guard && pp_defined(c, guard)) {
-		pp_ninc_guard++;
 		free(path);
 		return;
 	}
@@ -899,7 +767,6 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 	/* drop trailing TkEof */
 	if (tokens_len > 0 && itoks[tokens_len - 1].kind == TkEof)
 		tokens_len--;
-	guard = detect_include_guard(itoks, tokens_len);
 	{
 		int skipstack[64], nsp = 0;
 		if (pp_prof)
@@ -912,8 +779,6 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 		(void)cap;
 	}
 	pp_ninc_open++;
-	if (guard && !already_once(c, path))
-		guard_insert(c, path, guard);
 	free(text);
 	free(path);
 }
@@ -1055,8 +920,11 @@ ip_take(Ifp* p) {
 static int64_t iexpr(Ifp* p);
 static int64_t ior(Ifp* p);
 static int64_t iandand(Ifp* p);
-static int64_t ibit(Ifp* p);
-static int64_t icmp(Ifp* p);
+static int64_t iorbit(Ifp* p);
+static int64_t ixor(Ifp* p);
+static int64_t iand(Ifp* p);
+static int64_t ieq(Ifp* p);
+static int64_t irel(Ifp* p);
 static int64_t ishift(Ifp* p);
 static int64_t iadd(Ifp* p);
 static int64_t imul(Ifp* p);
@@ -1097,57 +965,85 @@ static int64_t
 iandand(Ifp* p) {
 	int64_t a, b;
 
-	a = ibit(p);
+	a = iorbit(p);
 	while (ip_eatp(p, PnAmpAmp)) {
-		b = ibit(p);
+		b = iorbit(p);
 		a = a && b;
 	}
 	return a;
 }
 
-// Parse bitwise &, |, ^ in #if expressions.
+// Parse bitwise | in #if expressions.
 static int64_t
-ibit(Ifp* p) {
+iorbit(Ifp* p) {
 	int64_t a, b;
-	int op;
 
-	a = icmp(p);
-	for (;;) {
-		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
-		if (op != PnAmp && op != PnPipe && op != PnCaret)
-			break;
-		ip_take(p);
-		b = icmp(p);
-		if (op == PnAmp)
-			a &= b;
-		else if (op == PnPipe)
-			a |= b;
-		else
-			a ^= b;
+	a = ixor(p);
+	while (ip_eatp(p, PnPipe)) {
+		b = ixor(p);
+		a |= b;
 	}
 	return a;
 }
 
-// Parse relational and equality operators in #if expressions.
+// Parse bitwise ^ in #if expressions.
 static int64_t
-icmp(Ifp* p) {
+ixor(Ifp* p) {
+	int64_t a, b;
+
+	a = iand(p);
+	while (ip_eatp(p, PnCaret)) {
+		b = iand(p);
+		a ^= b;
+	}
+	return a;
+}
+
+// Parse bitwise & in #if expressions.
+static int64_t
+iand(Ifp* p) {
+	int64_t a, b;
+
+	a = ieq(p);
+	while (ip_eatp(p, PnAmp)) {
+		b = ieq(p);
+		a &= b;
+	}
+	return a;
+}
+
+// Parse == and != in #if expressions.
+static int64_t
+ieq(Ifp* p) {
+	int64_t a, b;
+	int op;
+
+	a = irel(p);
+	for (;;) {
+		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
+		if (op != PnEqEq && op != PnBangEq)
+			break;
+		ip_take(p);
+		b = irel(p);
+		a = op == PnEqEq ? a == b : a != b;
+	}
+	return a;
+}
+
+// Parse < > <= >= in #if expressions.
+static int64_t
+irel(Ifp* p) {
 	int64_t a, b;
 	int op;
 
 	a = ishift(p);
 	for (;;) {
 		op = ip_peek(p)->kind == TkPunct ? ip_peek(p)->punct : -1;
-		if (op != PnEqEq && op != PnBangEq && op != PnLt && op != PnGt && op != PnLe && op != PnGe)
+		if (op != PnLt && op != PnGt && op != PnLe && op != PnGe)
 			break;
 		ip_take(p);
 		b = ishift(p);
 		switch (op) {
-		case PnEqEq:
-			a = a == b;
-			break;
-		case PnBangEq:
-			a = a != b;
-			break;
 		case PnLt:
 			a = a < b;
 			break;
@@ -2419,12 +2315,11 @@ void pp_define(Compiler* c, const char* def) {
 	do_define(c, src, 3, &ii, 0);
 }
 
-// Clear #pragma once, include-path, and include-guard caches between TUs.
+// Clear #pragma once and include-path caches between TUs.
 void pp_clear_once(Compiler* c) {
 	int i;
 	struct PpOnce *o, *on;
 	struct PpInc *e, *en;
-	struct PpGuard *g, *gn;
 
 	for (i = 0; i < c->once_files_len; i++)
 		free(c->once_files[i]);
@@ -2455,19 +2350,6 @@ void pp_clear_once(Compiler* c) {
 		c->include_tab = NULL;
 		c->include_tab_cap = 0;
 	}
-	if (c->guard_tab) {
-		for (i = 0; i < c->guard_tab_cap; i++) {
-			for (g = c->guard_tab[i]; g; g = gn) {
-				gn = g->hash_next;
-				free(g->path);
-				free(g->macro);
-				free(g);
-			}
-		}
-		free(c->guard_tab);
-		c->guard_tab = NULL;
-		c->guard_tab_cap = 0;
-	}
 }
 
 // Install predefined macros (__FILE__, host OS/arch, etc.) before preprocessing.
@@ -2480,17 +2362,10 @@ void pp_init(Compiler* c) {
 #endif
 #ifdef _WIN32
 	pp_define(c, "_WIN32");
-	/* Clang-for-MSVC persona: enough for Windows SDK #if graphs. */
+	/* Enough for hosted stubs and ordinary headers; not a full Win SDK persona. */
 	pp_define(c, "_WIN64");
 	pp_define(c, "_MSC_VER=1930");
-	pp_define(c, "_MSC_FULL_VER=193000000");
-	pp_define(c, "_MSC_EXTENSIONS");
 	pp_define(c, "_M_X64=100");
-	pp_define(c, "_M_AMD64=100");
-	pp_define(c, "__clang__");
-	pp_define(c, "__clang_major__=17");
-	pp_define(c, "__clang_minor__=0");
-	pp_define(c, "__clang_patchlevel__=0");
 #endif
 	/* Architecture: mirror the host compiler that built modc (not __GNUC__). */
 #if defined(__x86_64__) || defined(_M_X64) || defined(__amd64__)
@@ -2524,7 +2399,7 @@ void pp_run(Compiler* c) {
 	Tok eof;
 
 	pp_prof = getenv("MODC_PROFILE") != NULL;
-	pp_ninc_open = pp_ninc_once = pp_ninc_guard = pp_ninc_miss = 0;
+	pp_ninc_open = pp_ninc_once = pp_ninc_miss = 0;
 	pp_t_find = pp_t_read = pp_t_lex = pp_t_proc = 0;
 	pp_t_emit = pp_t_expand = pp_t_dir = 0;
 	pp_n_emit = pp_n_expand = pp_n_dir = 0;
@@ -2544,8 +2419,8 @@ void pp_run(Compiler* c) {
 	pp_arena_clear();
 	if (pp_prof)
 		fprintf(stderr,
-			"modc pp: open=%d once_skip=%d guard_skip=%d miss=%d tokens_len=%d macros_len=%d\n"
+			"modc pp: open=%d once_skip=%d miss=%d tokens_len=%d macros_len=%d\n"
 			"         emit_toks=%llu expands=%llu dirs=%llu  expand=%.3fs emit=%.3fs find=%.3fs read=%.3fs lex=%.3fs\n",
-			pp_ninc_open, pp_ninc_once, pp_ninc_guard, pp_ninc_miss, c->tokens_len, c->macros_len,
+			pp_ninc_open, pp_ninc_once, pp_ninc_miss, c->tokens_len, c->macros_len,
 			pp_n_emit, pp_n_expand, pp_n_dir, pp_t_expand, pp_t_emit, pp_t_find, pp_t_read, pp_t_lex);
 }

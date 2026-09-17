@@ -61,6 +61,21 @@
 #define CMT_OK 0
 #endif
 
+/* | binds looser than & → 1|(2&0) == 1 (not (1|2)&0 == 0) */
+#if (1 | 2 & 0) == 1
+#define PREC_BIT 1
+#else
+#define PREC_BIT 0
+#endif
+
+/* < binds tighter than == → 1 == (2 < 1) is false (not (1 == 2) < 1) */
+#if !(1 == 2 < 1)
+#define PREC_EQ 1
+#else
+#define PREC_EQ 0
+#endif
+
 int pp_if_result() {
-	return IF1 + IF0 + IFDEF_OK + ELIF_OK + EXPR_OK + NEST + OR_OK + AND_SKIP + CMT_OK;
+	return IF1 + IF0 + IFDEF_OK + ELIF_OK + EXPR_OK + NEST + OR_OK + AND_SKIP + CMT_OK +
+	       PREC_BIT + PREC_EQ;
 }

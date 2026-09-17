@@ -451,8 +451,6 @@ struct Compiler {
 	int once_tab_cap;
 	struct PpInc** include_tab; /* #include path cache */
 	int include_tab_cap;
-	struct PpGuard** guard_tab; /* path → include-guard macro */
-	int guard_tab_cap;
 	struct Intern** intern_tab; /* string intern pool for idents/macros */
 	int intern_tab_cap;
 	int interns_len;
