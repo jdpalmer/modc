@@ -287,6 +287,8 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Empty Parameter Lists**: Write `foo()` for a function or method with no parameters. The legacy C spelling `foo(void)` is rejected in user source, while imported C headers retain standard C semantics.
 
+- **Function Arity**: Function declarations and calls support at most 64 parameters or arguments. Larger interfaces are rejected instead of being truncated.
+
 - **Distinct Tagged Enums**: Integers and other enum types do not implicitly convert to a tagged enum. Comparisons and conditional-expression arms require the same enum type; arithmetic, bitwise, increment, and compound-assignment operators require an explicit integer cast. Enum values widen to integers for C interoperability, and an explicit cast converts an integer back. Anonymous enum constants remain ordinary integers and are the preferred form for flags and numeric constants.
 
 - **Predictable Integer Types**: The `char` type is explicitly unsigned and 8-bit wide; user code writes `char`, never `signed char` or the redundant `unsigned char` spelling. Standard 64-bit integers use `int64_t`, while `long` is reserved for host ABI compatibility in foreign headers.

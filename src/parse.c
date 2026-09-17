@@ -816,14 +816,15 @@ static Type* parse_pointers(Compiler* c, Type* base);
 // Parse a function parameter list and build a function type.
 static Type*
 parse_param_list(Compiler* c, Type* ret) {
-	Type *params[64], *ty, *base;
-	char *names[64], *nm;
-	char was_arr[64];
-	int64_t fixed_len[64];
-	int n, va, storage, saw, i;
+	Type *params[MaxParams], *ty, *base;
+	char *names[MaxParams], *nm;
+	char was_arr[MaxParams];
+	int64_t fixed_len[MaxParams];
+	int n, va, storage, saw, i, too_many;
 
 	n = 0;
 	va = 0;
+	too_many = 0;
 	if (atkw(c, KwVoid) && peekn(c, 1)->kind == TkPunct && peekn(c, 1)->punct == PnRparen) {
 		Span sp;
 
@@ -855,25 +856,32 @@ parse_param_list(Compiler* c, Type* ret) {
 		}
 		nm = NULL;
 		ty = parse_declarator(c, base, &nm, 1);
-		was_arr[n] = 0;
-		fixed_len[n] = -1;
-		if (is_ranged(ty)) {
-			/* ranged array parameter: pass by value */
-		} else if (is_array(ty)) {
-			was_arr[n] = 1;
-			if (user_source(c, psp) && ty->len >= 0)
-				fixed_len[n] = ty->len;
-			ty = type_ptr(c, ty->base);
-			if (pending_pointee_const) {
-				ty->is_readonly = 1;
-				pending_pointee_const = 0;
-			}
-		} else if (is_func(ty))
-			ty = type_ptr(c, ty);
-		if (n < 64) {
+		if (n < MaxParams) {
+			was_arr[n] = 0;
+			fixed_len[n] = -1;
+			if (is_ranged(ty)) {
+				/* ranged array parameter: pass by value */
+			} else if (is_array(ty)) {
+				was_arr[n] = 1;
+				if (user_source(c, psp) && ty->len >= 0)
+					fixed_len[n] = ty->len;
+				ty = type_ptr(c, ty->base);
+				if (pending_pointee_const) {
+					ty->is_readonly = 1;
+					pending_pointee_const = 0;
+				}
+			} else if (is_func(ty))
+				ty = type_ptr(c, ty);
 			params[n] = ty;
 			names[n] = nm;
 			n++;
+		} else if (!too_many) {
+			error_at(c, psp, "function declarations are limited to %d parameters",
+				 MaxParams);
+			too_many = 1;
+			if (pending_pointee_const) {
+				pending_pointee_const = 0;
+			}
 		}
 		if (eat(c, PnComma))
 			continue;
@@ -1252,6 +1260,9 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 	expect(c, PnLparen, "'('");
 	ft = parse_param_list(c, ret);
 	expect(c, PnRparen, "')'");
+	if (ft->params_len >= MaxParams)
+		error_at(c, peek(c)->span, "method declarations are limited to %d total parameters",
+			 MaxParams);
 	np = ft->params_len + 1;
 	params = xmalloc((size_t)np * sizeof(Type*));
 	param_names = xmalloc((size_t)np * sizeof(char*));

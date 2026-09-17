@@ -392,7 +392,10 @@ struct Macro {
 	Macro* hash_next; /* hash chain */
 };
 
-enum { MaxErr = 20 };
+enum {
+	MaxErr = 20,
+	MaxParams = 64
+};
 
 struct Compiler {
 	char* infile;

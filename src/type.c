@@ -1279,14 +1279,15 @@ hexval(int ch) {
 
 // Decode C escapes and append a NUL-terminated string to the compile-time pool.
 int intern_str(Compiler* c, const char* raw, int* out_len) {
-	unsigned char buf[4096];
+	unsigned char* buf;
 	int n, i, off, dig;
 	unsigned v;
 
 	n = 0;
 	if (raw == NULL)
 		raw = "";
-	for (i = 0; raw[i] && n < (int)sizeof(buf) - 1;) {
+	buf = xmalloc(strlen(raw) + 1);
+	for (i = 0; raw[i];) {
 		if (raw[i] == '\\' && raw[i + 1]) {
 			i++;
 			switch (raw[i]) {
@@ -1358,6 +1359,7 @@ int intern_str(Compiler* c, const char* raw, int* out_len) {
 	}
 	memcpy(c->strpool + c->strpool_len, buf, n);
 	c->strpool_len += n;
+	free(buf);
 	return off;
 }
 
@@ -1600,6 +1602,8 @@ type_expr_call(Compiler* c, Node* n) {
 	Symbol* osym;
 	int i;
 
+	if (n->type == NULL && n->children_len > MaxParams)
+		error_at(c, n->span, "calls are limited to %d arguments", MaxParams);
 	if (n->a && n->a->kind == NdMethod)
 		return lower_method_call(c, n);
 	n->a = type_expr(c, n->a);

@@ -1742,8 +1742,8 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		tgt = emitexpr(c, n->a);
 	fixed = fixedparams(ft);
 	{
-		Val args[32];
-		int na = n->children_len < 32 ? n->children_len : 32;
+		Val args[MaxParams];
+		int na = n->children_len < MaxParams ? n->children_len : MaxParams;
 		for (i = 0; i < na; i++) {
 			Type* pt;
 
@@ -2875,8 +2875,8 @@ struct GInit {
 	Symbol* symbol;
 };
 
-static GInit ginits[1024];
-static int ginits_len;
+static GInit* ginits;
+static int ginits_len, ginits_cap;
 
 // Sort global init fragments by byte offset for sequential data emission.
 static int
@@ -2891,8 +2891,10 @@ ginit_cmp(const void* a, const void* b) {
 // Record one byte/word of a compile-time global initializer.
 static void
 addgi(int off, int w, int kind, int64_t val, Symbol* sym, int stroff) {
-	if (ginits_len >= 1024)
-		return;
+	if (ginits_len >= ginits_cap) {
+		ginits_cap = ginits_cap ? ginits_cap * 2 : 256;
+		ginits = xrealloc(ginits, (size_t)ginits_cap * sizeof(*ginits));
+	}
 	ginits[ginits_len].off = off;
 	ginits[ginits_len].w = w;
 	ginits[ginits_len].kind = kind;
@@ -3124,6 +3126,8 @@ emitgsym(Compiler* c, Node* d) {
 		first = 1;
 		for (i = 0; i < ginits_len; i++) {
 			gi = &ginits[i];
+			if (i > 0 && i % 64 == 0)
+				fputs("\n\t", outf);
 			gap = gi->off - pos;
 			if (gap > 0) {
 				if (!first)
@@ -3179,8 +3183,11 @@ emitstrdata(Compiler* c) {
 	if (c->strpool_len <= 0)
 		return;
 	fprintf(outf, "data $%s = { b", emit_str_symbol);
-	for (i = 0; i < c->strpool_len; i++)
+	for (i = 0; i < c->strpool_len; i++) {
+		if (i > 0 && i % 64 == 0)
+			fputs(",\n\tb", outf);
 		fprintf(outf, " %u", (unsigned)c->strpool[i]);
+	}
 	fputs(" }\n\n", outf);
 }
 
