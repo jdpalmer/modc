@@ -160,6 +160,17 @@ check-special: $(MODC)
 	@grep -q 'modc clean: removed' $(BUILD)/cache_clean.log
 	@test ! -d test/.modc-cache
 	./modc clean test/cli_build.mc
+ifneq ($(OS),Windows_NT)
+	@rm -rf $(BUILD)/rmtree_project $(BUILD)/rmtree_target
+	@mkdir -p $(BUILD)/rmtree_project/.modc-cache $(BUILD)/rmtree_target
+	@touch $(BUILD)/rmtree_target/keep
+	@ln -s missing $(BUILD)/rmtree_project/.modc-cache/broken
+	@ln -s $(BUILD)/rmtree_target $(BUILD)/rmtree_project/.modc-cache/linkdir
+	@mkfifo $(BUILD)/rmtree_project/.modc-cache/fifo
+	./modc clean $(BUILD)/rmtree_project
+	@test ! -e $(BUILD)/rmtree_project/.modc-cache
+	@test -f $(BUILD)/rmtree_target/keep
+endif
 	./modc help clean > /dev/null
 	./modc build test/cli_dirbuild -o $(BUILD)/cli_dirbuild-bin
 	$(BUILD)/cli_dirbuild-bin

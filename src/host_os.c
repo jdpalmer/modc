@@ -429,11 +429,18 @@ rmtree_one(const char* path) {
 	HostDir* d;
 	const char* name;
 	char child[HOST_PATH_MAX];
+	DWORD attrs;
 
-	if (host_is_file(path))
-		return host_unlink(path);
-	if (!host_is_dir(path))
+	attrs = GetFileAttributesA(path);
+	if (attrs == INVALID_FILE_ATTRIBUTES)
 		return -1;
+	if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) {
+		if (attrs & FILE_ATTRIBUTE_DIRECTORY)
+			return host_rmdir(path);
+		return host_unlink(path);
+	}
+	if (!(attrs & FILE_ATTRIBUTE_DIRECTORY))
+		return host_unlink(path);
 	d = host_opendir(path);
 	if (d == NULL)
 		return -1;
@@ -773,11 +780,12 @@ rmtree_one(const char* path) {
 	HostDir* d;
 	const char* name;
 	char child[HOST_PATH_MAX];
+	struct stat st;
 
-	if (host_is_file(path))
-		return host_unlink(path);
-	if (!host_is_dir(path))
+	if (lstat(path, &st) != 0)
 		return -1;
+	if (!S_ISDIR(st.st_mode))
+		return host_unlink(path);
 	d = host_opendir(path);
 	if (d == NULL)
 		return -1;
