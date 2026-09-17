@@ -315,6 +315,8 @@ When writing or generating %C code, adhere to the following dialect conventions 
 
 ### Code Design and Error Patterns
 
+- **Live Method Receivers**: Do not null-check `(T *r)` at the start of a method unless the API documents null/closed as valid (idempotent `close`/`free`, or fallible I/O). Callers keep receivers live; see [methods.md](methods.md).
+
 - **Resource Management**: Prefer `defer` for resource cleanup rather than implementing traditional `goto err` failure ladders.
 
 - **Return Values over Out-Parameters**: Return multi-value tuples such as `(T, bool)` alongside `auto` destructuring instead of passing mutable pointer out-parameters.

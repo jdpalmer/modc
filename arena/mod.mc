@@ -8,8 +8,8 @@
 // validation. Grow with s = a.append(s, …) — assign a new view, do not mutate
 // T[..] fields.
 //
-// Preconditions:
-//   Arena* a — non-null on Arena methods except a.free() when a is NULL (like free(3)).
+// Receivers are live handles (see docs/methods.md). Only a.free() accepts a
+// null Arena* (no-op, like free(3)).
 import "str";
 
 #include <stddef.h>
@@ -25,9 +25,6 @@ struct Arena {
 static bool arena_ensure(Arena* a, size_t need) {
 	char* p = { 0 };
 	size_t newcap = { 0 };
-	if (a == NULL) {
-		return false;
-	}
 	if (need <= a.cap) {
 		return true;
 	}
@@ -49,7 +46,7 @@ static bool arena_ensure(Arena* a, size_t need) {
 }
 
 static char* arena_bump(Arena* a, size_t n) {
-	if (a == NULL || n == 0) {
+	if (n == 0) {
 		return NULL;
 	}
 	if (!arena_ensure(a, a.off + n)) {
@@ -64,9 +61,6 @@ static char* arena_bump(Arena* a, size_t n) {
 
 // Zero an arena. Call before first use.
 void (Arena* a).init() {
-	if (a == NULL) {
-		return;
-	}
 	a.base = NULL;
 	a.cap = 0;
 	a.off = 0;
@@ -85,9 +79,6 @@ void (Arena* a).free() {
 
 // Keep backing storage; next allocations reuse from offset 0.
 void (Arena* a).reset() {
-	if (a == NULL) {
-		return;
-	}
 	a.off = 0;
 }
 
@@ -95,9 +86,6 @@ void (Arena* a).reset() {
 (bool, char[..]) (Arena* a).copy(char[..] s) {
 	size_t n = { 0 };
 	char* p = { 0 };
-	if (a == NULL) {
-		return (false, str_empty());
-	}
 	n = len(s);
 	if (n == 0) {
 		return (true, str_empty());
@@ -116,9 +104,6 @@ void (Arena* a).reset() {
 	size_t n = { 0 };
 	size_t newlen = { 0 };
 	char* p = { 0 };
-	if (a == NULL) {
-		return (false, str_empty());
-	}
 	cn = len(cur);
 	n = len(s);
 	newlen = cn + n;
@@ -153,9 +138,6 @@ void (Arena* a).reset() {
 (bool, char[..]) (Arena* a).join(char[..] sep, char[..]* parts, size_t nparts) {
 	char[..] out = { 0 };
 	size_t i = { 0 };
-	if (a == NULL) {
-		return (false, str_empty());
-	}
 	out = str_empty();
 	for (i = 0; i < nparts; i++) {
 		if (i != 0) {
@@ -180,9 +162,6 @@ void (Arena* a).reset() {
 (bool, char[..]) (Arena* a).replace(char[..] s, char[..] old, char[..] new) {
 	char[..] out = { 0 };
 	size_t i = { 0 };
-	if (a == NULL) {
-		return (false, str_empty());
-	}
 	if (len(old) == 0) {
 		return a.copy(s);
 	}
@@ -223,9 +202,6 @@ void (Arena* a).reset() {
 char* (Arena* a).z(char[..] s) {
 	size_t n = { 0 };
 	char* p = { 0 };
-	if (a == NULL) {
-		return NULL;
-	}
 	n = len(s);
 	p = arena_bump(a, n + 1);
 	if (p == NULL) {

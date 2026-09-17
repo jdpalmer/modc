@@ -38,6 +38,18 @@ Method declarations follow the form `ret (T *receiver).name(params)`. Receivers 
 
 When calling `expr.name()`, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. A null `T *` is not diagnosed for ordinary method calls; if the method body dereferences it, behavior is the same as any other null pointer in C. Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
 
+### Receivers assume a live object
+
+Pointer receivers are ordinary non-null handles, not optional values. Do **not**
+null-check the receiver at the start of a method by default. Treat `T *r` like a
+C parameter the caller must keep valid for the call.
+
+Guard the receiver only when null (or already-closed) is part of the documented
+contract—for example idempotent `close` / `free` (a no-op on null, like
+`free(3)`), or fallible I/O that returns `(…, false)` for a closed handle. Those
+APIs should say so in a comment or package doc. Everyday mutators (`init`,
+`show`, `append`, …) should assume `r` is live and use `r.field` directly.
+
 ## Linker Symbol Mangling
 
 Methods generate linker symbols using the `package_type_method` pattern. Package paths convert slashes to underscores (`ui/draw` becomes `ui_draw`), struct tags convert to lowercase (`Window` becomes `window`), and method names remain unchanged. The table below assumes the defining package is `ui`:
