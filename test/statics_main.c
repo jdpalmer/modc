@@ -6,6 +6,9 @@ int sparse_at(int);
 int gpx(void);
 int gpy(void);
 int msg_at(int);
+int designated_global_ok(void);
+int designated_local_ok(void);
+int designated_inferred_ok(void);
 
 int
 main(void)
@@ -28,5 +31,11 @@ main(void)
 		return 8;
 	if(msg_at(0) != 'h' || msg_at(1) != 'i' || msg_at(2) != 0)
 		return 9;
+	if(!designated_global_ok())
+		return 10;
+	if(!designated_local_ok())
+		return 11;
+	if(!designated_inferred_ok())
+		return 12;
 	return 0;
 }

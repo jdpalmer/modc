@@ -4,6 +4,8 @@ int garr[3] = {
 	1, 2, 3 };
 int sparse[3] = {
 	1, 0, 3 };
+int designated[5] = {
+	[3] = 7, 9 };
 
 struct P {
 	int x;
@@ -51,4 +53,20 @@ int gpy() {
 
 int msg_at(int i) {
 	return msg[i];
+}
+
+int designated_global_ok() {
+	return designated[0] == 0 && designated[3] == 7 && designated[4] == 9;
+}
+
+int designated_local_ok() {
+	int a[5] = {
+		[3] = 7, 9 };
+	return a[0] == 0 && a[3] == 7 && a[4] == 9;
+}
+
+int designated_inferred_ok() {
+	int a[] = {
+		[3] = 7, 9 };
+	return len(a) == 5 && a[3] == 7 && a[4] == 9;
 }

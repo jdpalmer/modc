@@ -2403,6 +2403,7 @@ emit_local_init_list(Compiler* c, Val base, Type* t, Initializer* in, int off) {
 				continue;
 			w = type_size(c, t->base);
 			emit_local_init(c, base, t->base, it, off + (int)(it->index * w));
+			nextpos = (int)it->index + 1;
 		} else if (it->designator == IdFieldDot) {
 			ft = emit_field_path(c, t, it, &inner);
 			if (ft)
@@ -3014,6 +3015,7 @@ flatten_init_list(Compiler* c, Type* t, Initializer* in, int off) {
 			}
 			w = type_size(c, t->base);
 			flatten_init(c, t->base, it, off + (int)(it->index * w));
+			nextpos = (int)it->index + 1;
 		} else if (it->designator == IdFieldDot) {
 			ft = emit_field_path(c, t, it, &inner);
 			if (ft)

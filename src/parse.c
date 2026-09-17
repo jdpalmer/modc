@@ -3143,10 +3143,22 @@ static void
 finish_array_from_init(Compiler* c, Type** pt, Initializer* in) {
 	Type* t;
 	int64_t len, i, idx;
-	int pos;
+	int64_t pos;
 
 	t = *pt;
-	if (t == NULL || t->kind != TyArray || t->len >= 0)
+	if (t == NULL || t->kind != TyArray)
+		return;
+	if (in && in->is_list && t->len >= 0) {
+		for (i = 0; i < in->items_len; i++) {
+			if (in->items[i].designator == IdIndexEq &&
+			    in->items[i].index >= t->len)
+				error_at(c, in->items[i].expr ? in->items[i].expr->span : (Span){0},
+					 "array designator index %" PRId64
+					 " is outside array bound %" PRId64,
+					 in->items[i].index, t->len);
+		}
+	}
+	if (t->len >= 0)
 		return;
 	len = 0;
 	if (in && in->is_list) {
@@ -3154,6 +3166,7 @@ finish_array_from_init(Compiler* c, Type** pt, Initializer* in) {
 		for (i = 0; i < in->items_len; i++) {
 			if (in->items[i].designator == IdIndexEq) {
 				idx = in->items[i].index + 1;
+				pos = idx;
 				if (idx > len)
 					len = idx;
 			} else {

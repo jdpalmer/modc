@@ -331,12 +331,14 @@ locked_find(LockedPkg* pkgs, int n, const char* name) {
 	return -1;
 }
 
-// Record a resolved package in the lock set; rejects duplicate names with conflicting git/rev.
+// Record a resolved package; exact duplicates are not added a second time.
 static int
-locked_add(LockedPkg* pkgs, int* np, DepSpec* d, const char* rev) {
+locked_add(LockedPkg* pkgs, int* np, DepSpec* d, const char* rev, int* added) {
 	LockedPkg* p;
+	const char *asub, *bsub;
 	int i;
 
+	*added = 0;
 	i = locked_find(pkgs, *np, d->name);
 	if (i >= 0) {
 		p = &pkgs[i];
@@ -354,6 +356,14 @@ locked_add(LockedPkg* pkgs, int* np, DepSpec* d, const char* rev) {
 				d->name, p->rev, rev);
 			return 1;
 		}
+		asub = p->subdir ? p->subdir : "";
+		bsub = d->subdir ? d->subdir : "";
+		if (strcmp(asub, bsub) != 0) {
+			fprintf(stderr,
+				"modc vendor: subdirectory conflict for \"%s\" (%s vs %s)\n",
+				d->name, asub, bsub);
+			return 1;
+		}
 		return 0;
 	}
 	if (*np >= MaxLocked)
@@ -364,6 +374,7 @@ locked_add(LockedPkg* pkgs, int* np, DepSpec* d, const char* rev) {
 	p->rev = xstrdup(rev);
 	p->subdir = d->subdir ? xstrdup(d->subdir) : xstrdup("");
 	(*np)++;
+	*added = 1;
 	return 0;
 }
 
@@ -507,7 +518,7 @@ read_transitive(const char* srcdir, DepSpec** out, int* out_len) {
 static int
 resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* out_len) {
 	DepSpec queue[MaxQueue];
-	int qhead, qtail, nq, i, ti;
+	int qhead, qtail, nq, i, ti, added;
 	LockedPkg pkgs[MaxLocked];
 	int npkgs;
 	char rev[128], tmpdir[HOST_PATH_MAX];
@@ -531,17 +542,17 @@ resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* o
 
 		cur = queue[qhead];
 		qhead++;
-		if (locked_find(pkgs, npkgs, cur.name) >= 0) {
-			dep_free(&cur);
-			continue;
-		}
 		if (resolve_git_rev(&cur, rev, sizeof(rev), ctx)) {
 			dep_free(&cur);
 			goto qfail;
 		}
-		if (locked_add(pkgs, &npkgs, &cur, rev)) {
+		if (locked_add(pkgs, &npkgs, &cur, rev, &added)) {
 			dep_free(&cur);
 			goto qfail;
+		}
+		if (!added) {
+			dep_free(&cur);
+			continue;
 		}
 		if (clone_to_temp(&cur, rev, tmpdir, sizeof(tmpdir), ctx)) {
 			dep_free(&cur);

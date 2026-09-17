@@ -81,8 +81,8 @@ check-special: $(MODC)
 	$(BUILD)/pkg_order-bin
 	./modc build test/pkg_method_order_main.mc -o $(BUILD)/pkg_method_order-bin
 	$(BUILD)/pkg_method_order-bin
-	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_app-bin
-	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vendor_app
+	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_app-bin
+	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vendor_app $(BUILD)/vendor_conflict
 	@cp test/vendor_fix/log/mod.mc test/vendor_fix/log/modc.ini $(BUILD)/vrepos/log/
 	@cp test/vendor_fix/engine/mod.mc $(BUILD)/vrepos/engine/
 	@cp test/vendor_fix/ui/mod.mc $(BUILD)/vrepos/ui/
@@ -100,6 +100,13 @@ check-special: $(MODC)
 	./modc vendor --check -C $(BUILD)/vendor_app
 	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
 	$(BUILD)/vendor_app-bin
+	@printf '\n/* v2 */\n' >> $(BUILD)/vrepos/log/mod.mc
+	@cd $(BUILD)/vrepos/log && git add mod.mc && git -c user.email=t@test.com -c user.name=t commit -q -m v2 && git tag v2
+	@printf '[package]\nname = ui\n\n[deps.log]\ngit = file://$(BUILD)/vrepos/log\ntag = v2\n' > $(BUILD)/vrepos/ui/modc.ini
+	@cd $(BUILD)/vrepos/ui && git add modc.ini && git -c user.email=t@test.com -c user.name=t commit -q -m v2 && git tag v2
+	@printf '[deps.engine]\ngit = file://$(BUILD)/vrepos/engine\ntag = v1\n\n[deps.ui]\ngit = file://$(BUILD)/vrepos/ui\ntag = v2\n' > $(BUILD)/vendor_conflict/modc.ini
+	@./modc vendor -C $(BUILD)/vendor_conflict >$(BUILD)/vendor_conflict.out 2>&1; test $$? -ne 0
+	@grep -Fq 'version conflict for "log"' $(BUILD)/vendor_conflict.out
 	@rm -rf $(BUILD)/vendor_inject $(BUILD)/vendor-pwned
 	@mkdir -p $(BUILD)/vendor_inject
 	@printf '[deps.bad]\ngit = $$(touch $(BUILD)/vendor-pwned)\nrev = 0000000000000000000000000000000000000000\n' > $(BUILD)/vendor_inject/modc.ini
