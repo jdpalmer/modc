@@ -2292,7 +2292,7 @@ static void add_func(Compiler* c, Node* n) {
 // Parse a compound statement and optionally push/pop a symbol scope.
 static Node*
 parse_compound(Compiler* c, int scoped) {
-	Node *blk, *s;
+	Node *blk, *s, *parent;
 	Span sp;
 
 	sp = peek(c)->span;
@@ -2301,12 +2301,16 @@ parse_compound(Compiler* c, int scoped) {
 		symbol_push_block(c);
 	blk = node(NdBlock, sp);
 	blk->int_val = c->block;
+	parent = c->current_scope;
+	blk->scope = parent;
+	c->current_scope = blk;
 	while (!at(c, PnRbrace) && peek(c)->kind != TkEof && !c->fatal) {
 		s = parse_stmt(c);
 		if (s)
 			node_add(blk, s);
 	}
 	expect(c, PnRbrace, "'}'");
+	c->current_scope = parent;
 	if (!scoped)
 		symbol_pop_block(c);
 	return blk;
@@ -3093,6 +3097,7 @@ parse_stmt(Compiler* c) {
 	}
 	if (eatkw(c, KwDefer)) {
 		n = node(NdDefer, sp);
+		n->scope = c->current_scope;
 		n->a = parse_stmt(c);
 		return n;
 	}
@@ -3122,6 +3127,7 @@ parse_stmt(Compiler* c) {
 		n = node(NdGoto, sp);
 		n->s = t->s;
 		n->symbol = s;
+		n->scope = c->current_scope;
 		expect(c, PnSemi, "';'");
 		return n;
 	}
@@ -3130,9 +3136,11 @@ parse_stmt(Compiler* c) {
 		take(c); /* : */
 		s = symbol_define(c, t->s, SkLabel, NULL, StNone, t->span);
 		s->defined = 1;
+		s->label_scope = c->current_scope;
 		n = node(NdLabel, sp);
 		n->s = t->s;
 		n->symbol = s;
+		n->scope = c->current_scope;
 		n->a = parse_stmt(c);
 		return n;
 	}

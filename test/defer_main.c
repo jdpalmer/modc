@@ -7,6 +7,7 @@ int on_return(void);
 int on_block_end(void);
 int on_break(void);
 int on_goto(void);
+int goto_same_scope(void);
 int on_branch(int x);
 int with_ranged(void);
 int ret_order(void);
@@ -42,6 +43,11 @@ main(void)
 		return 9;
 	if(nlog != 1 || defer_log[0] != 5)
 		return 10;
+
+	if(goto_same_scope() != 0)
+		return 20;
+	if(nlog != 2 || defer_log[0] != 7 || defer_log[1] != 6)
+		return 21;
 
 	nlog = 0;
 	if(on_branch(1) != 1)

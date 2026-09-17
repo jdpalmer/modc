@@ -51,6 +51,14 @@ int on_goto() {
 	out: return 0;
 }
 
+int goto_same_scope() {
+	nlog = 0;
+	defer tr(6);
+	goto same;
+	same: tr(7);
+	return 0;
+}
+
 int on_branch(int x) {
 	defer tr(9);
 	if (x) {

@@ -59,3 +59,7 @@ defer a.free();
 ```
 
 The feature remains simple by design. It does not introduce a generalized effect system, function-level scoping, or ownership type dependencies. Native headers do not parse `defer` keywords; cleanup routines belong strictly inside user `.mc` source files.
+
+A `goto` may remain in its current lexical block or jump to an enclosing block.
+Jumps into child or sibling blocks are rejected, as are forward jumps that
+would bypass a `defer` registration in a scope that remains active.

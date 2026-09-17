@@ -34,7 +34,7 @@ typedef struct DeferFrame DeferFrame;
 struct DeferFrame {
 	Node* stmts[MaxDeferStmt];
 	int stmts_len;
-	int block;
+	Node* scope;
 };
 
 /*
@@ -98,7 +98,7 @@ static void emit_defers_frame(Compiler* c, int fi);
 static void pop_defer_frame(Compiler* c);
 static void emit_defers_until(Compiler* c, int target);
 static void emit_all_defers(Compiler* c);
-static void push_defer_frame(int block);
+static void push_defer_frame(Node* scope);
 static void add_defer(Compiler* c, Node* stmt);
 static int inline_eligible(Symbol* s);
 static void register_inline_sites(Compiler* c, Node* n);
@@ -2214,13 +2214,13 @@ poploop(void) {
 		loops_len--;
 }
 
-// One defer stack frame per compound statement; block id used by goto-out.
+// One defer stack frame per compound statement.
 static void
-push_defer_frame(int block) {
+push_defer_frame(Node* scope) {
 	if (defers_len >= MaxDefer)
 		return;
 	deferstk[defers_len].stmts_len = 0;
-	deferstk[defers_len].block = block;
+	deferstk[defers_len].scope = scope;
 	defers_len++;
 }
 
@@ -2273,13 +2273,25 @@ emit_all_defers(Compiler* c) {
 	emit_defers_until(c, 0);
 }
 
-// Emit defer frames that would be skipped by a forward goto across blocks.
+// True when ancestor is scope itself or one of its lexical parents.
+static int
+scope_contains(Node* ancestor, Node* scope) {
+	for (; scope; scope = scope->scope)
+		if (scope == ancestor)
+			return 1;
+	return 0;
+}
+
+// Emit defer frames belonging to scopes exited by a goto.
 static void
-emit_defers_for_goto(Compiler* c, int label_block) {
+emit_defers_for_goto(Compiler* c, Node* label_scope) {
 	int i;
 
-	for (i = defers_len - 1; i >= 0 && deferstk[i].block > label_block; i--)
+	for (i = defers_len - 1; i >= 0; i--) {
+		if (label_scope && scope_contains(deferstk[i].scope, label_scope))
+			break;
 		emit_defers_frame(c, i);
+	}
 }
 
 // Branch on a scalar condition without materializing a bool temporary when possible.
@@ -2515,7 +2527,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		return 0;
 	case NdBlock:
 		defer_base = defers_len;
-		push_defer_frame((int)n->int_val);
+		push_defer_frame(n);
 		fallen = 0;
 		for (i = 0; i < n->children_len; i++) {
 			if (n->children[i]->kind == NdDefer)
@@ -2663,7 +2675,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 		return 1;
 	case NdGoto:
 		if (n->symbol)
-			emit_defers_for_goto(c, 0);
+			emit_defers_for_goto(c, n->symbol->label_scope);
 		if (n->symbol) {
 			if (n->symbol->offset == 0)
 				n->symbol->offset = newlbl();

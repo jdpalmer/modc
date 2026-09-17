@@ -251,6 +251,7 @@ struct Symbol {
 	int emitted;
 	int is_overload;
 	int is_method;	 /* (T *r).name — linkname pkg_t_name */
+	Node* label_scope; /* lexical block containing a label */
 	Type* recv_type; /* receiver type as written (T *) */
 	char* recv_tag;	 /* struct tag for method lookup */
 	int array_param;	 /* parameter written as array; type already a pointer */
@@ -364,6 +365,7 @@ struct Node {
 	int64_t int_val; /* literal, string-pool offset, block id, case value, … */
 	char* s;
 	Node *a, *b, *c;
+	Node* scope;	 /* containing lexical block; for NdBlock, its parent */
 	Node** children;
 	int children_len;
 	Initializer* init;
@@ -428,6 +430,7 @@ struct Compiler {
 	int symbol_tab_cap;  /* power-of-two capacity; 0 = empty */
 	int symbols_len;
 	int block;
+	Node* current_scope;
 
 	Node** funcs;
 	int funcs_len, funcs_cap;

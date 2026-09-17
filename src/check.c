@@ -688,6 +688,7 @@ check_falloff_func(Compiler* c, Node* fn) {
 enum { GEDecl = 1,
        GELabel,
        GEGoto,
+       GEDefer,
        GEMax = 512 };
 
 typedef struct GEvent GEvent;
@@ -724,6 +725,9 @@ ge_walk(Node* n, GEvent* ev, int* nev) {
 	case NdGoto:
 		ge_add(ev, nev, GEGoto, n);
 		return;
+	case NdDefer:
+		ge_add(ev, nev, GEDefer, n);
+		return;
 	case NdBlock:
 		for (i = 0; i < n->children_len; i++)
 			ge_walk(n->children[i], ev, nev);
@@ -749,9 +753,6 @@ ge_walk(Node* n, GEvent* ev, int* nev) {
 		ge_walk(n->a, ev, nev);
 		ge_walk(n->b, ev, nev);
 		return;
-	case NdDefer:
-		ge_walk(n->a, ev, nev);
-		return;
 	default:
 		ge_walk(n->a, ev, nev);
 		ge_walk(n->b, ev, nev);
@@ -762,7 +763,16 @@ ge_walk(Node* n, GEvent* ev, int* nev) {
 	}
 }
 
-// Reject forward gotos that skip over local declarations (C restriction).
+// True when ancestor is scope itself or one of its lexical parents.
+static int
+scope_contains(Node* ancestor, Node* scope) {
+	for (; scope; scope = scope->scope)
+		if (scope == ancestor)
+			return 1;
+	return 0;
+}
+
+// Reject gotos that enter scopes or skip declarations/defer registration.
 static void
 check_goto_over_decl(Compiler* c, Node* fn) {
 	GEvent ev[GEMax];
@@ -790,9 +800,20 @@ check_goto_over_decl(Compiler* c, Node* fn) {
 				break;
 			}
 		}
-		if (lab == NULL || j <= i)
-			continue; /* unknown or backward goto */
+		if (lab == NULL)
+			continue;
+		if (!scope_contains(lab->scope, g->scope)) {
+			error_at(c, g->span, "goto enters a different lexical scope");
+			continue;
+		}
+		if (j <= i)
+			continue; /* backward goto */
 		for (k = i + 1; k < j; k++) {
+			if (ev[k].kind == GEDefer &&
+			    scope_contains(ev[k].n->scope, lab->scope)) {
+				error_at(c, g->span, "goto jumps over a defer");
+				break;
+			}
 			if (ev[k].kind != GEDecl)
 				continue;
 			d = ev[k].n;
