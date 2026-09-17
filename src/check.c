@@ -793,6 +793,10 @@ check_goto_over_decl(Compiler* c, Node* fn) {
 		name = g->s;
 		if (name == NULL)
 			continue;
+		if (g->symbol == NULL || !g->symbol->defined) {
+			error_at(c, g->span, "goto references undefined label '%s'", name);
+			continue;
+		}
 		lab = NULL;
 		for (j = 0; j < nev; j++) {
 			if (ev[j].kind == GELabel && ev[j].n->s && strcmp(ev[j].n->s, name) == 0) {

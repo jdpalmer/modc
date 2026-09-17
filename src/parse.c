@@ -3166,8 +3166,13 @@ parse_stmt(Compiler* c) {
 		t = take(c);
 		take(c); /* : */
 		s = symbol_define(c, t->s, SkLabel, NULL, StNone, t->span);
-		s->defined = 1;
-		s->label_scope = c->current_scope;
+		if (s->defined)
+			error_at(c, t->span, "duplicate label '%s'", t->s);
+		else {
+			s->defined = 1;
+			s->label_scope = c->current_scope;
+			s->span = t->span;
+		}
 		n = node(NdLabel, sp);
 		n->s = t->s;
 		n->symbol = s;

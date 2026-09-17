@@ -28,3 +28,19 @@ int decl_before_goto() {
 	goto out;
 	out: return x;
 }
+
+int label_one() {
+	goto done;
+	done: return 1;
+}
+
+int label_two() {
+	goto done;
+	done: return 2;
+}
+
+int label_namespace() {
+	int done = 3;
+	goto done;
+	done: return done;
+}

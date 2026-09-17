@@ -88,7 +88,8 @@ Symbol* symbol_lookup(Compiler* c, const char* name) {
 		return NULL;
 	i = str_hash(name) & (unsigned)(c->symbol_tab_cap - 1);
 	for (s = c->symbol_tab[i]; s; s = s->hash_next) {
-		if (s->hidden || s->dead || s->is_method || strcmp(s->name, name) != 0)
+		if (s->hidden || s->dead || s->is_method || s->kind == SkLabel ||
+		    strcmp(s->name, name) != 0)
 			continue;
 		if (!symbol_visible(c, s))
 			continue;
@@ -205,7 +206,8 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 		if (c->symbol_tab_cap) {
 			unsigned i = str_hash(name) & (unsigned)(c->symbol_tab_cap - 1);
 			for (s = c->symbol_tab[i]; s; s = s->hash_next) {
-				if (s->kind == SkLabel && strcmp(s->name, name) == 0) {
+				if (s->kind == SkLabel && s->owner == c->current_fn &&
+				    strcmp(s->name, name) == 0) {
 					s->block = 0;
 					return s;
 				}
@@ -219,6 +221,7 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 		s->type = t;
 		s->storage = storage;
 		s->block = 0;
+		s->owner = c->current_fn;
 		s->span = sp;
 		s->shadow = symbol_lookup(c, name);
 		symbol_set_home(c, s, sp);
