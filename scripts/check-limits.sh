@@ -105,3 +105,15 @@ if "$MODC" check "$TMP/loops33.mc" >"$TMP/loops33.out" 2>&1; then
 	exit 1
 fi
 grep -q "control-flow nesting exceeds implementation limit of 32" "$TMP/loops33.out"
+
+awk 'BEGIN {
+	printf "#pragma modc c_sources("
+	for (i = 0; i < 1024; i++) printf "a"
+	print ".c)"
+	print "int main() { return 0; }"
+}' > "$TMP/csource_long.mc"
+if "$MODC" check "$TMP/csource_long.mc" >"$TMP/csource_long.out" 2>&1; then
+	echo "expected oversized c_sources path to fail" >&2
+	exit 1
+fi
+grep -q "c_sources path exceeds implementation limit of 1023 bytes" "$TMP/csource_long.out"

@@ -2055,9 +2055,10 @@ skipping_now(int* st, int nsp) {
 
 // Parse one c_sources path operand from a #pragma modc directive.
 static char*
-pragma_collect_csource(Tok* src, int src_files_len, int* i) {
+pragma_collect_csource(Compiler* c, Tok* src, int src_files_len, int* i) {
 	char buf[1024];
-	int off;
+	size_t off, n;
+	Tok* t;
 
 	if (*i >= src_files_len)
 		return NULL;
@@ -2068,26 +2069,61 @@ pragma_collect_csource(Tok* src, int src_files_len, int* i) {
 		return path;
 	}
 	off = 0;
+	buf[0] = 0;
 	while (*i < src_files_len) {
-		Tok* t = &src[*i];
+		t = &src[*i];
 
 		if (t->kind == TkPunct && (t->punct == PnRparen || t->punct == PnComma))
 			break;
-		if (t->kind == TkIdent)
-			off += snprintf(buf + off, sizeof(buf) - (size_t)off, "%s", t->s);
-		else if (t->kind == TkPunct && t->punct == PnSlash) {
-			if (off < (int)sizeof(buf))
-				buf[off++] = '/';
+		if (t->kind == TkIdent) {
+			n = strlen(t->s);
+			if (n >= sizeof(buf) - off) {
+				error_tok(c, t, "c_sources path exceeds implementation limit of %zu bytes",
+					  sizeof(buf) - 1);
+				while (*i < src_files_len &&
+				       src[*i].kind != TkNewline &&
+				       !(src[*i].kind == TkPunct &&
+					 (src[*i].punct == PnComma ||
+					  src[*i].punct == PnRparen)))
+					(*i)++;
+				return NULL;
+			}
+			memcpy(buf + off, t->s, n);
+			off += n;
+			buf[off] = 0;
+		} else if (t->kind == TkPunct && t->punct == PnSlash) {
+			if (off + 1 >= sizeof(buf))
+				goto too_long;
+			buf[off++] = '/';
+			buf[off] = 0;
 		} else if (t->kind == TkPunct && t->punct == PnDot) {
-			if (off < (int)sizeof(buf))
-				buf[off++] = '.';
-		} else
-			break;
-		if (off >= (int)sizeof(buf))
-			break;
+			if (off + 1 >= sizeof(buf))
+				goto too_long;
+			buf[off++] = '.';
+			buf[off] = 0;
+		} else {
+			error_tok(c, t, "invalid token in c_sources path");
+			while (*i < src_files_len &&
+			       src[*i].kind != TkNewline &&
+			       !(src[*i].kind == TkPunct &&
+				 (src[*i].punct == PnComma ||
+				  src[*i].punct == PnRparen)))
+				(*i)++;
+			return NULL;
+		}
 		(*i)++;
 	}
 	return off > 0 ? xstrdup(buf) : NULL;
+
+too_long:
+	error_tok(c, t, "c_sources path exceeds implementation limit of %zu bytes",
+		  sizeof(buf) - 1);
+	while (*i < src_files_len &&
+	       src[*i].kind != TkNewline &&
+	       !(src[*i].kind == TkPunct &&
+		 (src[*i].punct == PnComma || src[*i].punct == PnRparen)))
+		(*i)++;
+	return NULL;
 }
 
 // Main preprocessor pass: directives, conditionals, includes, and macro expansion.
@@ -2270,25 +2306,34 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 								i++;
 						}
 					} else if (i < src_files_len && ident_is(&src[i], "c_sources")) {
+						Tok* pragma_tok;
+
+						pragma_tok = &src[i];
 						i++;
 						if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnLparen) {
 							i++;
 							while (i < src_files_len && !(src[i].kind == TkPunct && src[i].punct == PnRparen)) {
 								char* path;
 
+								if (src[i].kind == TkNewline || src[i].kind == TkEof) {
+									error_tok(c, pragma_tok, "unterminated c_sources pragma");
+									break;
+								}
 								if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnComma) {
 									i++;
 									continue;
 								}
-								path = pragma_collect_csource(src, src_files_len, &i);
+								path = pragma_collect_csource(c, src, src_files_len, &i);
 								if (path) {
 									pkg_add_csource(c, c->infile, path);
 									free(path);
 								}
 							}
-							if (i < src_files_len)
+							if (i < src_files_len && src[i].kind == TkPunct &&
+							    src[i].punct == PnRparen)
 								i++;
-						}
+						} else
+							error_tok(c, pragma_tok, "expected '(' after c_sources");
 					}
 				}
 				skip_nl(src, src_files_len, &i);
