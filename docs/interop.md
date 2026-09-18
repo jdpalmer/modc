@@ -81,9 +81,35 @@ constness. See [const.md](const.md).
 
 Calls to the hosted `printf` / `fprintf` / `sprintf` / `snprintf` and
 `scanf` / `fscanf` / `sscanf` family check a **string-literal** format for
-arity and argument types. Non-literal formats are not checked.
+arity and argument types. Non-literal formats are not checked or rewritten.
 
-For printing, `%s` with a `char[..]` or `char[N]` argument is rewritten to
-`%.*s` with `len` and `ptr` so the length is preserved (views need not be
-NUL-terminated). Simple lowers: `printf("…\n")` → `puts`, `printf("%c", x)` →
-`putchar`. Scanf `%s` still expects a mutable `char *` (not `char[..]`).
+### `%s` and `char[..]`
+
+For a literal format, a **bare** `%s` with a `char[..]` argument is rewritten
+to `%.*s` with `(int)len(...)` and `ptr(...)`. The view need not be
+NUL-terminated (path slices, `os_env`, `path_join` results, and so on).
+
+Flags, width, or precision on that conversion are **rejected** (for example
+`%-20s`, `%.10s`, `%*s` with a `char[..]`). Use bare `%s` only. A fixed
+`char[N]` is not rewritten that way: it decays to a pointer and keeps the
+conversion (classic NUL-terminated C string). Prefer a `char[..]` with the
+real length when the buffer is only partially filled.
+
+Simple lowers: `printf("…\n")` → `puts`, `printf("%c", x)` → `putchar`.
+
+### Caveats
+
+1. **Literal formats only.** A non-literal format is neither checked nor
+   rewritten. Passing `char[..]` then behaves like a decayed / aggregate
+   vararg — do not rely on `%s` for unterminated views.
+2. **Embedded NULs.** `%.*s` prints at most `len` bytes but still stops at
+   the first `'\0'`. Length-aware is not binary-safe.
+3. **`len` is cast to `int`.** Views larger than `INT_MAX` would truncate the
+   printed length (irrelevant for paths; relevant for huge buffers).
+4. **Empty / null views.** `len == 0` is fine conceptually; some libcs are
+   picky about `ptr == NULL` even with precision 0. Guarding `ptr != NULL`
+   remains wise.
+5. **Not scanf.** `scanf` `%s` still wants a mutable `char *`, not `char[..]`.
+6. **Other C string APIs are unchanged.** `strlen` / `strcmp` / etc. still
+   need a real C string. Do not generalize “`%s` is length-safe” to the rest
+   of libc.

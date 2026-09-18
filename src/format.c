@@ -1,8 +1,9 @@
 /*
  * printf/scanf format checking and printf-family lowering.
  *
- * Literal formats only. %s with char[..]/char[N] rewrites to %.*s + len + ptr
- * (safe length-aware print). Simple printf("…\n") → puts, printf("%c", x) → putchar.
+ * Literal formats only. Bare %s with char[..] rewrites to %.*s + len + ptr.
+ * Fixed char[N] decays to a pointer (NUL C string). Non-bare %s with char[..]
+ * is an error. printf("…\n") → puts; printf("%c", x) → putchar.
  */
 #include "ast.h"
 
@@ -64,6 +65,20 @@ is_char_view(Type* t) {
 		return 1;
 	return 0;
 }
+
+static int
+is_ranged_char(Type* t) {
+	return t && is_ranged(t) && is_char_elem(t->base);
+}
+
+/* True when the conversion text is exactly "%s" (no flags/width/precision/length). */
+static int
+is_bare_s(const char* s, int start, int end, int star_w, int star_p, int len_mod,
+	  char conv) {
+	return conv == 's' && !star_w && !star_p && len_mod == 0 && end - start == 2 &&
+	       s[start] == '%' && s[start + 1] == 's';
+}
+
 
 static int
 is_char_ptr_ty(Compiler* c, Type* t) {
@@ -533,9 +548,24 @@ check_and_rewrite(Compiler* c, Node* call, Type* ft, const FmtEnt* ent, Node* fm
 					error_at(c, sp, "too few arguments for format");
 					return;
 				}
-				if (conv == 's' && is_char_view(call->children[ai]->type)) {
+				if (conv == 's' && is_ranged_char(call->children[ai]->type)) {
 					Node *len_n, *ptr_n;
 
+					if (!is_bare_s(s, start, i, star_w, star_p, len_mod,
+						       conv)) {
+						error_at(c, call->children[ai]->span,
+							 "char[..] with %%s requires a bare \"%%s\" "
+							 "(no flags, width, or precision); "
+							 "it is rewritten to %%.*s");
+						return;
+					}
+					/* Discard any * width/precision already queued — bare
+					 * %s has none; still reject if parse claimed stars. */
+					if (star_w || star_p) {
+						error_at(c, call->children[ai]->span,
+							 "char[..] with %%s requires a bare \"%%s\"");
+						return;
+					}
 					/* Rewrite this conversion to %.*s */
 					if (nf + 4 >= (int)sizeof(newfmt)) {
 						error_at(c, sp, "format string is too long");
@@ -555,6 +585,23 @@ check_and_rewrite(Compiler* c, Node* call, Type* ft, const FmtEnt* ent, Node* fm
 							  call->children[ai]);
 					new_args[nnew++] = len_n;
 					new_args[nnew++] = ptr_n;
+					ai++;
+					changed = 1;
+				} else if (conv == 's' && is_array(call->children[ai]->type) &&
+					   is_char_elem(call->children[ai]->type->base)) {
+					/* Fixed char[N]: decay to pointer; keep conversion
+					 * (NUL-terminated C string). Do not %.*s with N. */
+					Node* p;
+
+					while (start < i && nf < (int)sizeof(newfmt) - 1)
+						newfmt[nf++] = s[start++];
+					p = synth_ptr(c, call->children[ai]->span,
+						      call->children[ai]);
+					if (nnew >= MaxParams) {
+						error_at(c, sp, "too many format arguments");
+						return;
+					}
+					new_args[nnew++] = p;
 					ai++;
 					changed = 1;
 				} else {
