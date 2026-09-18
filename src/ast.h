@@ -589,6 +589,7 @@ void check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count);
 void check_sign_compare(Compiler* c, Span sp, Node* a, Node* b);
 void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len,
 		     int overload_call);
+void check_format_call(Compiler* c, Node* call, Type* ft);
 const char* type_name(Type* t);
 Type* promote(Compiler* c, Type* t);
 char qbe_class(Type* t); /* 'w'/'l'/'s'/'d' or '@' aggregate */

@@ -76,3 +76,14 @@ User `.mc` source and headers both spell `const` (and user source may use
 `<string.h>` / `<stdlib.h>` search APIs (`strchr`, `strstr`, `memchr`,
 `bsearch`, …) are declared with `const?` so one libc symbol keeps call-site
 constness. See [const.md](const.md).
+
+## Printf / scanf formats
+
+Calls to the hosted `printf` / `fprintf` / `sprintf` / `snprintf` and
+`scanf` / `fscanf` / `sscanf` family check a **string-literal** format for
+arity and argument types. Non-literal formats are not checked.
+
+For printing, `%s` with a `char[..]` or `char[N]` argument is rewritten to
+`%.*s` with `len` and `ptr` so the length is preserved (views need not be
+NUL-terminated). Simple lowers: `printf("…\n")` → `puts`, `printf("%c", x)` →
+`putchar`. Scanf `%s` still expects a mutable `char *` (not `char[..]`).

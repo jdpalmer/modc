@@ -11,6 +11,7 @@ test/const_hdr_ok.mc
 test/const_readonly_ret.mc
 test/const_ok.mc
 test/const_strchr.mc
+test/format_ok.mc
 test/attr_hdr.mc
 test/asm_label_hdr.mc
 test/unseq_hdr.mc

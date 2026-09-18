@@ -2067,6 +2067,7 @@ type_expr_call(Compiler* c, Node* n) {
 					n->children[i] = type_expr(c, n->children[i]);
 			check_call_args(c, n->span, ft, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
+			check_format_call(c, n, ft);
 		}
 		n->type = instantiate_poly_return(c, ft, n->children, n->children_len);
 	} else if (ft && is_ptr(ft) && is_func(ft->base)) {
@@ -2076,6 +2077,7 @@ type_expr_call(Compiler* c, Node* n) {
 					n->children[i] = type_expr(c, n->children[i]);
 			check_call_args(c, n->span, ft->base, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
+			check_format_call(c, n, ft->base);
 		}
 		n->type = instantiate_poly_return(c, ft->base, n->children, n->children_len);
 	} else
