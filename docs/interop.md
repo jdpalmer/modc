@@ -72,5 +72,7 @@ During compilation, the driver automatically injects target platform macros such
 
 User `.mc` source and headers both spell `const` (and user source may use
 `const?` for passthrough). Header `const T *` maps to the same
-`Type.is_readonly` as user `const`. String literals are const. See
-[const.md](const.md).
+`Type.is_readonly` as user `const`. String literals are const. Host
+`<string.h>` / `<stdlib.h>` search APIs (`strchr`, `strstr`, `memchr`,
+`bsearch`, …) are declared with `const?` so one libc symbol keeps call-site
+constness. See [const.md](const.md).

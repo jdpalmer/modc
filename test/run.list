@@ -60,6 +60,7 @@ test/shadow_hdr.mc
 test/const_hdr_ok.mc
 test/const_readonly_ret.mc
 test/const_ok.mc
+test/const_strchr.mc
 test/autoinline.mc
 test/autoinline_decl_init.mc
 test/autoinline_many.mc

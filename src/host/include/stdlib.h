@@ -59,7 +59,8 @@ int unsetenv(const char *name);
 void quick_exit(int status);
 int system(const char *command);
 
-void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
+/* Returns a pointer into base; const? preserves call-site constness. */
+const? void *bsearch(const void *key, const? void *base, size_t nmemb, size_t size,
     int (*compar)(const void *, const void *));
 void qsort(void *base, size_t nmemb, size_t size,
     int (*compar)(const void *, const void *));
