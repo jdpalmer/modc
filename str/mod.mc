@@ -9,9 +9,9 @@
 // Semantic NULL (documented, not bugs):
 //   str_from_cstr(NULL) and str_eq_cstr(a, NULL) treat NULL C strings as empty.
 //
-// API: char[..] / str_* — read, slice, compare, split, trim; *_cstr reads char*.
-//      Prefer char[..] / non-*_cstr for string literals (str_eq(s, "x"));
-//      str_from_cstr / *_cstr are for foreign NUL-terminated char*.
+// API: const char[..] / str_* — read, slice, compare, split, trim; *_cstr reads const char*.
+//      Prefer const char[..] / non-*_cstr for string literals (str_eq(s, "x"));
+//      str_from_cstr / *_cstr are for foreign NUL-terminated const char*.
 //      cstr_* — write into caller char[N] (NUL-terminated C boundary).
 //
 // Export: cstr_write(buf, view) on fixed char[N]; cstr_zlen(buf) / cstr_reset(buf) same.
@@ -34,7 +34,7 @@ static char str_byte_tolower(char c) {
 }
 
 // True when c appears in the delimiter/view set.
-static bool str_byte_in(char[..] set, char c) {
+static bool str_byte_in(const char[..] set, char c) {
 	for (size_t i = 0; i < len(set); i++) {
 		if (set[i] == c) {
 			return true;
@@ -54,25 +54,25 @@ char[..] str_empty() {
 }
 
 // View over [p, p+n); p may be NULL only when n is 0.
-char[..] str_from_bytes(char* p, size_t n) {
-	return ranged(p, n);
+char[..] str_from_bytes(const char *p, size_t n) {
+	return ranged((char *)p, n);
 }
 
 // View over a NUL-terminated C string; NULL yields empty.
-char[..] str_from_cstr(char* p) {
+char[..] str_from_cstr(const char *p) {
 	if (p == NULL) {
 		return str_empty();
 	}
-	return ranged(p, strlen(p));
+	return ranged((char *)p, strlen(p));
 }
 
 // True when the view has length zero.
-bool str_is_empty(char[..] s) {
+bool str_is_empty(const char[..] s) {
 	return len(s) == 0;
 }
 
 // Byte-wise equality of two views.
-bool str_eq(char[..] a, char[..] b) {
+bool str_eq(const char[..] a, const char[..] b) {
 	size_t n = len(a);
 	if (n != len(b)) {
 		return false;
@@ -81,7 +81,7 @@ bool str_eq(char[..] a, char[..] b) {
 }
 
 // Equality against a NUL-terminated C string.
-bool str_eq_cstr(char[..] a, char* z) {
+bool str_eq_cstr(const char[..] a, const char *z) {
 	if (z == NULL) {
 		return len(a) == 0;
 	}
@@ -93,7 +93,7 @@ bool str_eq_cstr(char[..] a, char* z) {
 }
 
 // memcmp-style ordering; shorter view sorts first when prefixes match.
-int str_cmp(char[..] a, char[..] b) {
+int str_cmp(const char[..] a, const char[..] b) {
 	size_t n = len(a);
 	if (len(b) < n) {
 		n = len(b);
@@ -114,7 +114,7 @@ int str_cmp(char[..] a, char[..] b) {
 }
 
 // Case-insensitive ASCII byte compare; shorter view sorts first when prefixes match.
-int str_icmp(char[..] a, char[..] b) {
+int str_icmp(const char[..] a, const char[..] b) {
 	size_t n = len(a);
 	if (len(b) < n) {
 		n = len(b);
@@ -136,7 +136,7 @@ int str_icmp(char[..] a, char[..] b) {
 }
 
 // True when s begins with prefix.
-bool str_starts_with(char[..] s, char[..] prefix) {
+bool str_starts_with(const char[..] s, const char[..] prefix) {
 	size_t n = len(prefix);
 	if (n > len(s)) {
 		return false;
@@ -145,12 +145,12 @@ bool str_starts_with(char[..] s, char[..] prefix) {
 }
 
 // str_starts_with against a C string.
-bool str_starts_with_cstr(char[..] s, char* prefix) {
+bool str_starts_with_cstr(const char[..] s, const char *prefix) {
 	return str_starts_with(s, str_from_cstr(prefix));
 }
 
 // True when s ends with suffix.
-bool str_ends_with(char[..] s, char[..] suffix) {
+bool str_ends_with(const char[..] s, const char[..] suffix) {
 	size_t n = len(suffix);
 	if (n > len(s)) {
 		return false;
@@ -159,7 +159,7 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 }
 
 // First occurrence of needle in hay; (false, empty) when missing.
-(bool, char[..]) str_find(char[..] hay, char[..] needle) {
+(bool, const? char[..]) str_find(const? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -177,7 +177,7 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 }
 
 // Last occurrence of needle in hay.
-(bool, char[..]) str_rfind(char[..] hay, char[..] needle) {
+(bool, const? char[..]) str_rfind(const? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -201,7 +201,7 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 }
 
 // Case-insensitive forward search.
-(bool, char[..]) str_ifind(char[..] hay, char[..] needle) {
+(bool, const? char[..]) str_ifind(const? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -228,7 +228,7 @@ bool str_ends_with(char[..] s, char[..] suffix) {
 }
 
 // Case-insensitive reverse search.
-(bool, char[..]) str_irfind(char[..] hay, char[..] needle) {
+(bool, const? char[..]) str_irfind(const? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -292,7 +292,7 @@ overload size_t cstr_zlen(char[..] dst) {
 
 // Write view into dst (strlcpy-style). Always NUL-terminates when cap > 0.
 // cap == 0 or dst == NULL: sizing-only (no write). Returns len(src).
-overload size_t cstr_write(char dst[], char[..] src, size_t cap) {
+overload size_t cstr_write(char dst[], const char[..] src, size_t cap) {
 	size_t n = len(src);
 	if (cap == 0 || dst == NULL) {
 		return n;
@@ -310,12 +310,12 @@ overload size_t cstr_write(char dst[], char[..] src, size_t cap) {
 }
 
 // Write view into fixed char[N]; room is cap(dst).
-overload size_t cstr_write(char[..] dst, char[..] src) {
+overload size_t cstr_write(char[..] dst, const char[..] src) {
 	return cstr_write(ptr(dst), src, cap(dst));
 }
 
 // Split at the first byte in delims; no delimiter → (s, empty).
-(char[..], char[..]) str_split_once(char[..] s, char[..] delims) {
+(const? char[..], const? char[..]) str_split_once(const? char[..] s, const char[..] delims) {
 	for (size_t i = 0; i < len(s); i++) {
 		if (str_byte_in(delims, s[i])) {
 			return (s[0 .. i], s[(i + 1) ..]);
@@ -325,7 +325,7 @@ overload size_t cstr_write(char[..] dst, char[..] src) {
 }
 
 // Trim leading and trailing bytes found in chars.
-char[..] str_trim_set(char[..] s, char[..] chars) {
+const? char[..] str_trim_set(const? char[..] s, const char[..] chars) {
 	size_t lo = 0;
 	while (lo < len(s) && str_byte_in(chars, s[lo])) {
 		lo = lo + 1;
@@ -343,7 +343,7 @@ char[..] str_trim_set(char[..] s, char[..] chars) {
 }
 
 // Trim leading ASCII whitespace.
-char[..] str_ltrim(char[..] s) {
+const? char[..] str_ltrim(const? char[..] s) {
 	size_t i = 0;
 	while (i < len(s) && str_is_space(s[i])) {
 		i = i + 1;
@@ -352,7 +352,7 @@ char[..] str_ltrim(char[..] s) {
 }
 
 // Trim trailing ASCII whitespace.
-char[..] str_rtrim(char[..] s) {
+const? char[..] str_rtrim(const? char[..] s) {
 	size_t n = len(s);
 	while (n != 0 && str_is_space(s[n - 1])) {
 		n = n - 1;
@@ -361,12 +361,12 @@ char[..] str_rtrim(char[..] s) {
 }
 
 // Trim leading and trailing ASCII whitespace.
-char[..] str_trim(char[..] s) {
+const? char[..] str_trim(const? char[..] s) {
 	return str_rtrim(str_ltrim(s));
 }
 
 // Strip one trailing LF or CRLF.
-char[..] str_chomp(char[..] s) {
+const? char[..] str_chomp(const? char[..] s) {
 	size_t n = len(s);
 	if (n != 0 && s[n - 1] == '\n') {
 		n = n - 1;
@@ -378,7 +378,7 @@ char[..] str_chomp(char[..] s) {
 }
 
 // Parse base-N integer; optional leading + or -.
-(bool, int64_t) str_to_long(char[..] s, int base) {
+(bool, int64_t) str_to_long(const char[..] s, int base) {
 	if (base < 2 || base > 36 || len(s) == 0) {
 		return (false, 0);
 	}

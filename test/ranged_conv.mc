@@ -18,7 +18,7 @@ int conv_array() {
 }
 
 int conv_string() {
-	char[..] s = { 0 };
+	const char[..] s = { 0 };
 	s = "ab";
 	return (int)len(s);
 }

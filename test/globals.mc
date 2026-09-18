@@ -44,13 +44,13 @@ int global_floats() {
 }
 
 int first_char() {
-	char* p = { 0 };
+	const char *p = { 0 };
 	p = "hi";
 	return p[0];
 }
 
 int str_len3() {
-	char* p = { 0 };
+	const char *p = { 0 };
 	p = "abc";
 	return p[0] + p[1] + p[2];
 }

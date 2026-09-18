@@ -214,7 +214,8 @@ struct Type {
 	int laid_out;
 	int is_ranged;	 /* ranged array T[..]; base is element type */
 	int is_tuple;	 /* multi-return anonymous struct */
-	int is_readonly; /* TyPtr: pointee read-only (header const T *) */
+	int is_readonly; /* TyPtr: pointee read-only; ranged/array: element string-const */
+	int is_poly;	 /* const? — call-site binds with arg constness; body treats as const */
 	int emit_id;	 /* emit aggregate id; 0 = not yet assigned */
 	Type* next;
 };
@@ -371,7 +372,6 @@ struct Node {
 	Initializer* init;
 	int is_lvalue;
 	int paren;	  /* wrapped in (…); assign-in-condition rules */
-	int is_immutable; /* Auto-const: string literal provenance */
 	int is_char_lit;  /* NdLit from '…' character constant */
 	int is_synth;	  /* compiler-built node (e.g. ranged→pointer decay) */
 	int cast_checked; /* unnecessary-cast diagnostic already emitted */
@@ -552,6 +552,8 @@ Type* type_array(Compiler* c, Type* base, int64_t len);
 Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va);
 Type* type_struct(Compiler* c, int kind, char* tag, Span sp, int storage);
 Type* type_ranged(Compiler* c, Type* elem); /* interned ranged array T[..] */
+Type* type_ranged_qual(Compiler* c, Type* elem, int readonly); /* const T[..] when readonly */
+Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly); /* const? when poly */
 Type* type_tuple(Compiler* c, Type** elts, int n);
 void type_layout(Compiler* c, Type* t);
 void type_layout_pending(Compiler* c); /* finish aggregates deferred across files */
@@ -572,7 +574,6 @@ int is_tuple(Type* t);
 int is_signed_int(Type* t);
 int is_null_expr(Node* n);
 int is_void_ptr(Type* t);
-int expr_is_immutable(Node* n);
 Type* decay(Compiler* c, Type* t);
 Type* usual_arith(Compiler* c, Type* a, Type* b);
 int type_eq(Type* a, Type* b);

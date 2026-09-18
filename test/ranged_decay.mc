@@ -1,11 +1,11 @@
 #include <string.h>
 
-void take_ranged(char[..] x) {
+void take_ranged(const char[..] x) {
 	(void)x;
 }
 
 int strlen_local() {
-	char[..] name = { 0 };
+	const char[..] name = { 0 };
 	int n = { 0 };
 	name = "James";
 	n = (int)strlen(name);
@@ -20,7 +20,7 @@ int strlen_temp() {
 }
 
 int pass_ranged() {
-	char[..] name = { 0 };
+	const char[..] name = { 0 };
 	name = "James";
 	take_ranged(name);
 	take_ranged("Isaac");

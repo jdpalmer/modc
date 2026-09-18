@@ -20,7 +20,7 @@ Classification is purely mechanical: if a file is a root compile translation uni
 | Topic                     | Source                                               | Headers                               |
 | ------------------------- | ---------------------------------------------------- | ------------------------------------- |
 | Field access              | Dot operator only (p.x)                              | Arrow allowed (p->x)                  |
-| Qualifiers and Specifiers | const, volatile, restrict, register, inline rejected | Allowed                               |
+| Qualifiers and Specifiers | `const` / `const?` allowed; volatile, restrict, register rejected | Allowed                               |
 | Integer Types             | Fixed-width types required (int64_t)                 | Host ABI long / long long permitted   |
 | Declarations              | One declaration per statement                        | Multi-declarators allowed (int a, b;) |
 | Conditional Assignment    | Requires explicit parenthesization ((x = ...))       | Standard C rules                      |
@@ -68,6 +68,9 @@ stubs (`unistd.h`, `windows.h`, …), not in the package.
 
 During compilation, the driver automatically injects target platform macros such as `__APPLE__`, `_WIN32`, and relevant architecture flags, though it intentionally omits `__GNUC__` to suppress heavy attribute macros. When targeting Windows, keep in mind that the object file format (COFF/PE) and the calling convention (Microsoft x64 via QBE `amd64_win`) operate as distinct layers; linkers cannot automatically rewrite SysV call sequences into Win64 ABI calls.
 
-## Auto-const Across the Boundary
+## Const Across the Boundary
 
-User `.mc` source code cannot spell the `const` keyword. When importing standard C headers, `const T *` parameters and return values are preserved internally as `READONLY` to ensure string literals and immutability guarantees remain safe across boundaries. See [auto-const.md](auto-const.md).
+User `.mc` source and headers both spell `const` (and user source may use
+`const?` for passthrough). Header `const T *` maps to the same
+`Type.is_readonly` as user `const`. String literals are const. See
+[const.md](const.md).

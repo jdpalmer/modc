@@ -1,12 +1,12 @@
-#include "autoconst_hdr.h"
+#include "const_hdr.h"
 
-static void sink(char* p) {
+static void sink(const char *p) {
 	(void)p;
 }
 
-int autoconst_ok() {
+int const_hdr_ok() {
 	char buf[8] = { 0 };
-	char* p = { 0 };
+	char *p = { 0 };
 	if (hdr_strlen("hi") != 2) {
 		return 1;
 	}

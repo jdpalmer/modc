@@ -23,7 +23,7 @@ Start with [Installation](installation.md) and the [Quickstart](quickstart.md).
 | [Defer](defer.md) | Block-scoped cleanup |
 | [Auto](auto.md) | Local type inference and multi-return |
 | [Arrays](arrays.md) | Fixed, open, and ranged arrays |
-| [Auto-const](auto-const.md) | Provenance-based immutability without `const` |
+| [Const](const.md) | `const` / `const?` / const string literals |
 
 ## Packages and tooling
 
@@ -40,3 +40,5 @@ Start with [Installation](installation.md) and the [Quickstart](quickstart.md).
 | Document | Description |
 | -------- | ----------- |
 | [Architecture](architecture.md) | Compiler pipeline and layout of `src/` |
+| [Debt](debt.md) | Dual C-header dialect cost / LOC estimate (internal) |
+| [Roadmap](roadmap.md) | Working plan (internal; do not link from user docs) |

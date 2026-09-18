@@ -83,7 +83,7 @@ void (Arena* a).reset() {
 }
 
 // Copy a view into the arena.
-(bool, char[..]) (Arena* a).copy(char[..] s) {
+(bool, char[..]) (Arena* a).copy(const char[..] s) {
 	size_t n = { 0 };
 	char* p = { 0 };
 	n = len(s);
@@ -99,7 +99,7 @@ void (Arena* a).reset() {
 }
 
 // Append s onto cur; copies into the arena. Returns a new view (assign it).
-(bool, char[..]) (Arena* a).append(char[..] cur, char[..] s) {
+(bool, char[..]) (Arena* a).append(char[..] cur, const char[..] s) {
 	size_t cn = { 0 };
 	size_t n = { 0 };
 	size_t newlen = { 0 };
@@ -135,7 +135,7 @@ void (Arena* a).reset() {
 }
 
 // Join parts with sep into the arena.
-(bool, char[..]) (Arena* a).join(char[..] sep, char[..]* parts, size_t nparts) {
+(bool, char[..]) (Arena* a).join(const char[..] sep, const char[..]* parts, size_t nparts) {
 	char[..] out = { 0 };
 	size_t i = { 0 };
 	out = str_empty();
@@ -159,7 +159,7 @@ void (Arena* a).reset() {
 }
 
 // Replace every occurrence of old with new.
-(bool, char[..]) (Arena* a).replace(char[..] s, char[..] old, char[..] new) {
+(bool, char[..]) (Arena* a).replace(const char[..] s, const char[..] old, const char[..] new) {
 	char[..] out = { 0 };
 	size_t i = { 0 };
 	if (len(old) == 0) {
@@ -168,7 +168,7 @@ void (Arena* a).reset() {
 	out = str_empty();
 	i = 0;
 	while (i < len(s)) {
-		char[..] tail = s[i ..];
+		const char[..] tail = s[i ..];
 		auto (ok, hit) = str_find(tail, old);
 		size_t off = { 0 };
 		if (!ok) {
@@ -199,7 +199,7 @@ void (Arena* a).reset() {
 }
 
 // NUL-terminated copy of s in the arena (C boundary).
-char* (Arena* a).z(char[..] s) {
+char* (Arena* a).z(const char[..] s) {
 	size_t n = { 0 };
 	char* p = { 0 };
 	n = len(s);

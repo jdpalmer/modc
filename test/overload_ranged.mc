@@ -1,7 +1,7 @@
 #include <stddef.h>
 #include <string.h>
 
-overload size_t write_cap(char dst[], char[..] src, size_t cap) {
+overload size_t write_cap(char dst[], const char[..] src, size_t cap) {
 	size_t n = { 0 };
 	n = len(src);
 	if (cap == 0 || dst == NULL) {
@@ -19,7 +19,7 @@ overload size_t write_cap(char dst[], char[..] src, size_t cap) {
 	return n;
 }
 
-overload size_t write_buf(char[..] dst, char[..] src) {
+overload size_t write_buf(char[..] dst, const char[..] src) {
 	return write_cap(ptr(dst), src, cap(dst));
 }
 
@@ -29,7 +29,7 @@ overload void take_int(int[..] x) {
 
 int test_fixed() {
 	char buf[8] = { 0 };
-	char[..] s = { 0 };
+	const char[..] s = { 0 };
 	s = "hi";
 	if (write_buf(buf, s) != 2) {
 		return 1;

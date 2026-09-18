@@ -16,7 +16,7 @@
 
 * An **auto-dot** dereference system (no more arrows!)
 
-* An **auto-const** system that automatically tracks const-ness across function calls without `const` annotations
+* C-style **`const`** / **`const?`** (including const string literals and `const char[..]`) on read-only and passthrough APIs
 
 * An **auto-inline** system that automatically inlines functions without `inline` annotations
 

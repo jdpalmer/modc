@@ -51,7 +51,7 @@ int test_append() {
 		return 4;
 	}
 	{
-		char[..] sub = { 0 };
+		const char[..] sub = { 0 };
 		sub = s[0 .. 5];
 		if (!str_eq(sub, "hello")) {
 			return 5;
@@ -87,7 +87,7 @@ int test_append() {
 int test_join() {
 	Arena a = { 0 };
 	char buf[32] = { 0 };
-	char[..] parts[3] = { 0 };
+	const char[..] parts[3] = { 0 };
 	char[..] out = { 0 };
 	bool ok = { 0 };
 	parts[0] = "a";

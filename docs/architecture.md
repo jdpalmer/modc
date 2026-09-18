@@ -50,7 +50,7 @@ stitched units once, then emit per-package objects when caching. See
 | [host/include/](../src/host/include/) | Hosted C stubs for `#include` interop |
 
 Larger frontend files (`parse`, `emit`, `pp`, `check`) stay one phase per file,
-with section banners and prefixes (`da_`, `ac_`, `ir_`, and so on). Prefer
+with section banners and prefixes (`da_`, and so on). Prefer
 splitting only when a stable seam appears.
 
 ## Core object: `Compiler`

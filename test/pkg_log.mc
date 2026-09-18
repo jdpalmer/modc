@@ -1,4 +1,4 @@
-void log_info(char* msg) {
+void log_info(const char *msg) {
 	(void)msg;
 }
 

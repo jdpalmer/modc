@@ -297,7 +297,7 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Single Declarations**: Multiple variable declarations on a single line (such as `int a, b;`) are prohibited, with an exception for tuple destructuring syntax.
 
-- **Modernized Type System**: Variable-length arrays (VLAs), digraphs, trigraphs, comma operators, leading-zero octal literals, and bit-fields are disabled. Explicit qualifiers like `const`, `volatile`, `restrict`, `register`, and `inline` are omitted from user source types.
+- **Modernized Type System**: Variable-length arrays (VLAs), digraphs, trigraphs, comma operators, leading-zero octal literals, and bit-fields are disabled. Explicit `volatile`, `restrict`, and `register` are omitted from user source types. Pointee `const` / `const?` are allowed (see [const.md](const.md)); `inline` remains an auto-inline hint rather than a storage-class keyword.
 
 - **Condition Assignment Safety**: Assignments within conditional expressions are rejected unless explicitly wrapped in parentheses (`if ((x = 0))` is allowed; `if (x = 0)` is a compile-time error).
 
@@ -329,7 +329,7 @@ When writing or generating %C code, adhere to the following dialect conventions 
 
 - **Control Flow and Layout**: Write one declaration or statement per line, and always wrap control-flow bodies (`if`, `else`, `for`, `while`) in explicit braces `{}`.
 
-- **Syntax Restrictions**: Maintain strict dialect boundaries. Do not introduce features or syntax borrowed from C++, Rust, or Go, such as templates, the `->` operator in user code, multiple variable declarators on one line, or routine `const` annotations on local variables.
+- **Syntax Restrictions**: Maintain strict dialect boundaries. Do not introduce features or syntax borrowed from C++, Rust, or Go, such as templates, the `->` operator in user code, or multiple variable declarators on one line. Use `const` / `const?` where string and pointer contracts need them (see [const.md](const.md)).
 
 ### Package Dependencies and Verification
 

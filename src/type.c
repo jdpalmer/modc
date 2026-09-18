@@ -143,24 +143,32 @@ Type* type_struct(Compiler* c, int kind, char* tag, Span sp, int storage) {
 // Interned {ptr,len,cap} struct for T[..]; one ranged Type per element type.
 // len is the initialized window; cap is addressable elements from ptr (len <= cap).
 // Views (literals, subranges, T[N]→T[..]) set len == cap. Spare room is not inherited.
-Type* type_ranged(Compiler* c, Type* elem) {
+// readonly: const T[..] — element/string const (rebind header OK; no element stores).
+// poly: const? T[..] — call-site binds constness; body treats as const.
+Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly) {
 	Type* t;
 	Field *ptr, *len, *cap;
 	static int next;
 
 	if (elem == NULL)
 		elem = c->type_void;
+	readonly = readonly ? 1 : 0;
+	poly = poly ? 1 : 0;
 	for (t = c->type_list; t; t = t->next)
-		if (t->is_ranged && type_eq(t->base, elem))
+		if (t->is_ranged && t->is_readonly == readonly && t->is_poly == poly && type_eq(t->base, elem))
 			return t;
 	t = type_new(c, TyStruct);
 	t->is_ranged = 1;
+	t->is_readonly = readonly;
+	t->is_poly = poly;
 	t->base = elem;
 	t->tag = xmalloc(32);
 	snprintf(t->tag, 32, "__Ranged%d", next++);
 	ptr = xmalloc(sizeof(*ptr));
 	ptr->name = xstrdup("ptr");
 	ptr->type = type_ptr(c, elem);
+	if (readonly || poly)
+		ptr->type->is_readonly = 1;
 	len = xmalloc(sizeof(*len));
 	len->name = xstrdup("len");
 	len->type = c->type_ullong; /* size_t */
@@ -172,6 +180,14 @@ Type* type_ranged(Compiler* c, Type* elem) {
 	t->fields = ptr;
 	type_layout(c, t);
 	return t;
+}
+
+Type* type_ranged_qual(Compiler* c, Type* elem, int readonly) {
+	return type_ranged_full(c, elem, readonly, 0);
+}
+
+Type* type_ranged(Compiler* c, Type* elem) {
+	return type_ranged_full(c, elem, 0, 0);
 }
 
 // True when t is a tuple with exactly these element types in order.
@@ -443,10 +459,16 @@ int is_signed_int(Type* t) {
 
 // Array→pointer and function→pointer decay; other types are unchanged.
 Type* decay(Compiler* c, Type* t) {
+	Type* p;
+
 	if (t == NULL)
 		return t;
-	if (t->kind == TyArray)
-		return type_ptr(c, t->base);
+	if (t->kind == TyArray) {
+		p = type_ptr(c, t->base);
+		if (t->is_readonly)
+			p->is_readonly = 1;
+		return p;
+	}
 	if (t->kind == TyFunc)
 		return type_ptr(c, t);
 	return t;
@@ -720,30 +742,52 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 
 	if (dst == NULL || src == NULL)
 		return 1;
-	if (type_eq(dst, src))
-		return 1;
 	to = dst;
 	from = src;
+	/* type_eq ignores is_readonly — still reject const→mutable (unless dst is const?). */
+	if (type_eq(dst, src)) {
+		if ((is_ptr(dst) || is_ranged(dst)) && src->is_readonly && !dst->is_readonly && !dst->is_poly)
+			return 0;
+		return 1;
+	}
 	if (is_array(to) && is_array(from) && type_eq(to->base, from->base)) {
 		if (to->len < 0 || from->len < 0 || to->len == from->len)
 			return 1;
 		return 0;
 	}
 	from = decay(c, src);
-	if (is_array(src) && is_ptr(to) && type_eq(src->base, to->base))
+	if (is_array(src) && is_ptr(to) && type_eq(src->base, to->base)) {
+		/* const char[] → char * needs a cast; → const char * OK */
+		if (src->is_readonly && !to->is_readonly && !to->is_poly)
+			return 0;
 		return 1;
+	}
 	if (is_null_expr(expr) && is_ptr(to))
 		return 1;
 	if (is_ptr(to) && is_ptr(from)) {
-		if (type_eq(to->base, from->base))
+		if (type_eq(to->base, from->base)) {
+			if (to->is_poly)
+				return 1;
+			/* mutable → const OK; const → mutable needs a cast */
+			if (from->is_readonly && !to->is_readonly)
+				return 0;
 			return 1;
-		if (is_void_ptr(to) || is_void_ptr(from))
+		}
+		if (is_void_ptr(to) || is_void_ptr(from)) {
+			if (from->is_readonly && !to->is_readonly && !is_void_ptr(to) && !to->is_poly)
+				return 0;
 			return 1;
-		if (is_aggr(from->base) && is_aggr(to->base) && anon_embed_offset(from->base, to->base, NULL) == 1)
+		}
+		if (is_aggr(from->base) && is_aggr(to->base) && anon_embed_offset(from->base, to->base, NULL) == 1) {
+			if (to->is_poly)
+				return 1;
+			if (from->is_readonly && !to->is_readonly)
+				return 0;
 			return 1;
+		}
 		return 0;
 	}
-	if (is_aggr(to) && is_aggr(from)) {
+	if (is_aggr(to) && is_aggr(from) && !is_ranged(to) && !is_ranged(from)) {
 		if (type_eq(to, from))
 			return 1;
 		if (anon_embed_offset(from, to, NULL) == 1)
@@ -755,15 +799,32 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 			return 0;
 		return 1;
 	}
-	if (is_ranged(to) && is_ranged(from) && type_eq(to, from))
+	if (is_ranged(to) && is_ranged(from) && to->base && from->base && type_eq(to->base, from->base)) {
+		if (to->is_poly)
+			return 1;
+		if (from->is_readonly && !to->is_readonly)
+			return 0;
 		return 1;
-	if (is_ranged(to) && is_array(src) && src->len >= 0 && to->base && type_eq(to->base, src->base))
+	}
+	if (is_ranged(to) && is_array(src) && src->len >= 0 && to->base && type_eq(to->base, src->base)) {
+		if (src->is_readonly && !to->is_readonly && !to->is_poly)
+			return 0;
 		return 1;
-	if (is_ranged(to) && expr && expr->kind == NdStr && to->base && (to->base->kind == TyChar || to->base->kind == TyUChar))
+	}
+	if (is_ranged(to) && expr && expr->kind == NdStr && to->base && (to->base->kind == TyChar || to->base->kind == TyUChar)) {
+		/* String literals are const — only const / const? char[..] */
+		if (!to->is_readonly && !to->is_poly)
+			return 0;
 		return 1;
+	}
 	if (is_ptr(to) && is_ranged(from) && from->base &&
-	    (type_eq(to->base, from->base) || to->base->kind == TyVoid))
+	    (type_eq(to->base, from->base) || to->base->kind == TyVoid)) {
+		if (to->is_poly)
+			return 1;
+		if (from->is_readonly && !to->is_readonly && to->base->kind != TyVoid)
+			return 0;
 		return 1;
+	}
 	if (is_arith(to) && is_arith(from)) {
 		if (to->kind == TyDouble)
 			return 1;
@@ -948,18 +1009,20 @@ Node* maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 		return src;
 	if (!is_ranged(dst))
 		return src;
-	if (is_ranged(src->type) && type_eq(dst, src->type))
+	if (is_ranged(src->type) && src->type->base && dst->base && type_eq(dst->base, src->type->base))
 		return src;
 	if (is_array(src->type) && src->type->len >= 0 && dst->base && type_eq(dst->base, src->type->base)) {
 		call = node1(NdCall, src->span, mk_builtin_name(c, src->span, "ranged"));
 		node_add(call, src);
-		call->type = type_ranged(c, src->type->base);
+		call->type = type_ranged_qual(c, src->type->base,
+					     dst->is_readonly || src->type->is_readonly);
 		return call;
 	}
 	if (src->kind == NdStr && dst->base && (dst->base->kind == TyChar || dst->base->kind == TyUChar)) {
 		call = node1(NdCall, src->span, mk_builtin_name(c, src->span, "ranged"));
 		node_add(call, src);
-		call->type = type_ranged(c, dst->base);
+		/* Literals are const strings */
+		call->type = type_ranged_qual(c, dst->base, 1);
 		return call;
 	}
 	return src;
@@ -982,6 +1045,8 @@ Node* maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 	d->a = src;
 	d->s = "ptr";
 	d->type = type_ptr(c, src->type->base);
+	if (src->type->is_readonly)
+		d->type->is_readonly = 1;
 	if (dst->base->kind == TyVoid)
 		d->type = dst;
 	d->int_val = 0;
@@ -1141,16 +1206,6 @@ void check_sign_compare(Compiler* c, Span sp, Node* a, Node* b) {
 	error_at(c, sp, "comparison between signed and unsigned integers");
 }
 
-// Peel comma expressions; true if the value is marked immutable.
-int
-expr_is_immutable(Node* n) {
-	if (n == NULL)
-		return 0;
-	if (n->kind == NdComma)
-		return expr_is_immutable(n->b);
-	return n->is_immutable;
-}
-
 // Apply implicit conversions and arity checks for a direct function call.
 void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len,
 		     int overload_call) {
@@ -1185,8 +1240,7 @@ void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len,
 			check_implicit_conv(c, sp, fn->params[i], args[i]);
 		}
 	}
-	/* Auto-const IMMUTABLE→mutable checks run in type_check_unit after
-	 * READONLY inference (v2), not here during parse. */
+	/* Const discard (const T * → T *) is rejected in conv_implicit_ok. */
 	(void)need;
 }
 
@@ -1654,6 +1708,7 @@ void mark_symbol_used(Node* n);
 
 // Type-check a call: overload resolution, builtins, method calls, and argument checking.
 static Node* type_expr_call(Compiler* c, Node* n);
+static Type* instantiate_poly_return(Compiler* c, Type* ft, Node** args, int nargs);
 
 // Rewrite a method call into an ordinary call with receiver as first arg.
 static Node*
@@ -1692,6 +1747,80 @@ lower_method_call(Compiler* c, Node* n) {
 	for (i = 0; i < n->children_len; i++)
 		node_add(call, n->children[i]);
 	return type_expr_call(c, call);
+}
+
+// True when an argument carries const string/pointer/view qualification.
+static int
+arg_provides_const(Compiler* c, Node* arg) {
+	Type* t;
+
+	if (arg == NULL || arg->type == NULL)
+		return 0;
+	if (arg->kind == NdStr)
+		return 1;
+	t = arg->type;
+	if (is_array(t) && t->is_readonly)
+		return 1;
+	if (is_ranged(t) && (t->is_readonly || t->is_poly))
+		return 1;
+	t = decay(c, t);
+	if (is_ptr(t) && (t->is_readonly || t->is_poly))
+		return 1;
+	return 0;
+}
+
+// Bind const? return type from poly parameter argument constness.
+static Type*
+instantiate_poly_return(Compiler* c, Type* ft, Node** args, int nargs) {
+	Type* ret;
+	int i, as_const, saw_poly;
+
+	if (ft == NULL || !is_func(ft))
+		return ft ? ft->base : NULL;
+	ret = ft->base;
+	if (ret == NULL || !ret->is_poly)
+		return ret;
+	as_const = 0;
+	saw_poly = 0;
+	for (i = 0; i < ft->params_len && i < nargs; i++) {
+		if (ft->params[i] == NULL || !ft->params[i]->is_poly)
+			continue;
+		saw_poly = 1;
+		if (arg_provides_const(c, args[i]))
+			as_const = 1;
+	}
+	if (!saw_poly)
+		return ret;
+	if (is_ptr(ret)) {
+		Type* p = type_ptr(c, ret->base);
+
+		p->is_readonly = as_const;
+		return p;
+	}
+	if (is_ranged(ret))
+		return type_ranged_qual(c, ret->base, as_const);
+	if (is_tuple(ret)) {
+		Type* elts[16];
+		Field* f;
+		int n;
+
+		n = 0;
+		for (f = ret->fields; f && n < 16; f = f->next) {
+			if (f->type && f->type->is_poly) {
+				if (is_ptr(f->type)) {
+					elts[n] = type_ptr(c, f->type->base);
+					elts[n]->is_readonly = as_const;
+				} else if (is_ranged(f->type))
+					elts[n] = type_ranged_qual(c, f->type->base, as_const);
+				else
+					elts[n] = f->type;
+			} else
+				elts[n] = f->type;
+			n++;
+		}
+		return type_tuple(c, elts, n);
+	}
+	return ret;
 }
 
 // Type-check a call: overload resolution, builtins, methods, and arguments.
@@ -1898,10 +2027,14 @@ type_expr_call(Compiler* c, Node* n) {
 		lt = x ? x->type : NULL;
 		if (is_ranged(lt) && lt->base) {
 			n->type = type_ptr(c, lt->base);
+			if (lt->is_readonly || lt->is_poly)
+				n->type->is_readonly = 1;
 			return n;
 		}
 		if (is_array(lt) && lt->base) {
 			n->type = type_ptr(c, lt->base);
+			if (lt->is_readonly)
+				n->type->is_readonly = 1;
 			return n;
 		}
 		{
@@ -1935,7 +2068,7 @@ type_expr_call(Compiler* c, Node* n) {
 			check_call_args(c, n->span, ft, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
 		}
-		n->type = ft->base;
+		n->type = instantiate_poly_return(c, ft, n->children, n->children_len);
 	} else if (ft && is_ptr(ft) && is_func(ft->base)) {
 		if (n->type == NULL) {
 			for (i = 0; i < n->children_len; i++)
@@ -1944,7 +2077,7 @@ type_expr_call(Compiler* c, Node* n) {
 			check_call_args(c, n->span, ft->base, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
 		}
-		n->type = ft->base->base;
+		n->type = instantiate_poly_return(c, ft->base, n->children, n->children_len);
 	} else
 		n->type = c->type_int;
 	return n;
@@ -2070,7 +2203,7 @@ type_expr_bin(Compiler* c, Node* n) {
 	return n;
 }
 
-// True when an lvalue is reached through a readonly pointer.
+// True when an lvalue is reached through a readonly pointer or const ranged view.
 static int
 readonly_lvalue(Node* n) {
 	Type* t;
@@ -2079,19 +2212,22 @@ readonly_lvalue(Node* n) {
 		return 0;
 	if (n->kind == NdDeref) {
 		t = n->a ? n->a->type : NULL;
-		return t && is_ptr(t) && t->is_readonly;
+		return t && is_ptr(t) && (t->is_readonly || t->is_poly);
 	}
 	if (n->kind == NdIndex) {
 		t = n->a ? n->a->type : NULL;
-		if (t && is_ptr(t) && t->is_readonly)
+		if (t && is_ptr(t) && (t->is_readonly || t->is_poly))
+			return 1;
+		if (t && is_ranged(t) && (t->is_readonly || t->is_poly))
 			return 1;
 		t = n->b ? n->b->type : NULL;
-		return t && is_ptr(t) && t->is_readonly;
+		return t && is_ptr(t) && (t->is_readonly || t->is_poly);
 	}
 	if (n->kind == NdDot || n->kind == NdArrow) {
 		t = n->a ? n->a->type : NULL;
-		if (t && is_ptr(t) && t->is_readonly)
+		if (t && is_ptr(t) && (t->is_readonly || t->is_poly))
 			return 1;
+		/* const char[..].ptr is a const char * — writing *p is caught via ptr type */
 		return readonly_lvalue(n->a);
 	}
 	if (n->kind == NdComma)
@@ -2221,7 +2357,6 @@ Node* type_expr(Compiler* c, Node* n) {
 	case NdLit:
 		return n;
 	case NdStr:
-		n->is_immutable = 1;
 		n->is_lvalue = 1;
 		return n;
 	case NdName:
@@ -2252,15 +2387,6 @@ Node* type_expr(Compiler* c, Node* n) {
 			n->a = apply_implicit_conversions(c, n->type, n->a);
 		if (n->type && n->type->kind == TyVoid)
 			return n;
-		/* Auto-const escape: cast to non-readonly pointer strips IMMUTABLE. */
-		if (n->a && expr_is_immutable(n->a)) {
-			if (n->type && is_ptr(n->type) && n->type->is_readonly)
-				n->is_immutable = 1;
-			else if (n->type && is_ptr(n->type))
-				n->is_immutable = 0;
-			else
-				n->is_immutable = 1;
-		}
 		return n;
 	case NdAddr:
 		nk = n->type == NULL;
@@ -2407,7 +2533,8 @@ Node* type_expr(Compiler* c, Node* n) {
 			error_at(c, n->c->span, "subrange bound must be an integer");
 		if (n->b && n->c && eval_const(c, n->b, &lo) && eval_const(c, n->c, &hi) && lo > hi)
 			error_at(c, n->span, "subrange start greater than end");
-		n->type = type_ranged(c, elem);
+		n->type = type_ranged_qual(c, elem, (is_ranged(lt) && (lt->is_readonly || lt->is_poly)) ||
+							 (is_array(lt) && lt->is_readonly));
 		n->is_lvalue = 0;
 		return n;
 	}

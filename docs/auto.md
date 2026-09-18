@@ -10,7 +10,7 @@ The `auto` keyword applies strictly to initialized local variables. The variable
 auto n = 3;           /* int */
 auto p = malloc(8);   /* void * */
 auto q = 1.0;         /* double */
-auto s = "hi";        /* char * (decay); IMMUTABLE; see auto-const */
+auto s = "hi";        /* const char * (decay); see const.md */
 auto cloud = ranged(particles, 100);  /* Particle[..] */
 ```
 

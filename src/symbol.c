@@ -680,12 +680,19 @@ static int
 overload_ranged_score(Type* param, Type* argty, Node* expr) {
 	if (param == NULL || argty == NULL)
 		return 0;
-	if (is_ranged(param) && is_ranged(argty) && type_eq(param, argty))
+	if (is_ranged(param) && is_ranged(argty) && param->base && argty->base &&
+	    type_eq(param->base, argty->base)) {
+		if (argty->is_readonly && !param->is_readonly)
+			return 0;
 		return 2;
+	}
 	if (is_ranged(param) && is_array(argty) && argty->len >= 0 && param->base && type_eq(param->base, argty->base))
 		return 1;
-	if (is_ranged(param) && expr && expr->kind == NdStr && param->base && (param->base->kind == TyChar || param->base->kind == TyUChar))
+	if (is_ranged(param) && expr && expr->kind == NdStr && param->base && (param->base->kind == TyChar || param->base->kind == TyUChar)) {
+		if (!param->is_readonly && !param->is_poly)
+			return 0;
 		return 1;
+	}
 	return 0;
 }
 

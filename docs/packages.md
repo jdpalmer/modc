@@ -1,6 +1,6 @@
 # %C packages
 
-%C seamlessly interoperates with ordinary C libraries and headers while offering a source packaging system built around `.mc` file directories and the `import` keyword. Packages support the full %C language dialect—including auto-const, auto-inline, and methods—and mix cleanly with C headers and prebuilt binary libraries.
+%C seamlessly interoperates with ordinary C libraries and headers while offering a source packaging system built around `.mc` file directories and the `import` keyword. Packages support the full %C language dialect—including `const`, auto-inline, and methods—and mix cleanly with C headers and prebuilt binary libraries.
 
 Declare third-party dependencies in `modc.ini`, fetch them with `modc vendor`, and bring them into scope using `import`.
 
@@ -129,10 +129,10 @@ header fields. Custom owning types may keep their own `ptr` / `len` / `cap` and
 project views the same way.
 
 ```c
-(bool, char[..]) (Arena* a).copy(char[..] s);
-(bool, char[..]) (Arena* a).append(char[..] cur, char[..] s);
+(bool, char[..]) (Arena* a).copy(const char[..] s);
+(bool, char[..]) (Arena* a).append(char[..] cur, const char[..] s);
 (bool, char[..]) (Arena* a).append_byte(char[..] cur, char c);
-(bool, char[..]) (Arena* a).join(char[..] sep, char[..]* parts, size_t nparts);
+(bool, char[..]) (Arena* a).join(const char[..] sep, const char[..]* parts, size_t nparts);
 ```
 
 ```c
@@ -163,7 +163,7 @@ str_eq(out, "part");
 
 Mutator operations should be methods on pointer types (`T *`), whereas readers accept values (`str_eq(s, ...)`). See `arena/mod.mc` and `test/arena_pkg.mc` for canonical examples.
 
-For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `char[..]`: `char[..] s = "..."` or pass `"..."` into APIs that take `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, view)` or `a.z(view)` for NUL-terminated copies. See [quickstart.md](quickstart.md) and [arrays.md](arrays.md).
+For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, view)` or `a.z(view)` for NUL-terminated copies. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
 
 ## How imports resolve
 

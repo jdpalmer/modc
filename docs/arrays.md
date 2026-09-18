@@ -59,20 +59,21 @@ capacity `n`. To grow length into spare capacity, assign a new view
 ```c
 int a[4] = {0};
 int[..] s = {0};
-char[..] line = {0};
+const char[..] line = {0};
 
 s = a;                  /* implicit at ranged sites; len == cap == 4 */
 s = ranged(a, 2);       /* pointer + count; len == cap == 2 */
 s = ranged(a, 0, 4);    /* empty scratch over a; len 0, cap 4 */
 s = a[1..3];            /* subrange; end exclusive; len == cap */
 s = a[2..];             /* open end through len(a) */
-line = "James";         /* char[..] only; NUL excluded from len and cap */
+line = "James";         /* requires const char[..]; NUL excluded from len and cap */
 ```
 
-Assigning a string literal to `char[..]` sets length and capacity to the byte
+Assigning a string literal to `const char[..]` sets length and capacity to the byte
 length of the text **excluding** the trailing NUL terminator. However, the
 backing read-only memory retains the NUL byte, preserving compatibility with
-standard C APIs.
+standard C APIs. Mutable `char[..]` cannot bind a literal without a cast; use
+`char buf[] = "..."` to copy into a mutable array. See [const.md](const.md).
 
 ### Implicit conversions
 
@@ -81,7 +82,7 @@ Implicit conversions apply predictably based on whether the target expects a ran
 At ranged-typed parameters and assignments:
 
 - `T[N]` → `T[..]`
-- `"text"` → `char[..]` (NUL excluded)
+- `"text"` → `const char[..]` (NUL excluded; needs `const` / `const?` sink)
 
 At pointer-typed parameters and assignments (C boundary):
 
@@ -163,32 +164,29 @@ overload int range_at(Triple t, size_t i) {
 
 See `test/range_for.mc` and `test/range_hooks.mc`. Overload rules are in [methods.md](methods.md).
 
-## Auto-Const Mutability Tracking
+## Const and string views
 
-Auto-const enforces write safety across array views by tracking string literal provenance. Storing through a pointer or ranged view backed by immutable memory triggers a compile-time error:
-
-```c
-char *s = "James";
-s[0] = 'x';            /* Error: Mutation through immutable pointer */
-
-char[..] name = "James";
-name[0] = 'x';         /* Error: Mutation through immutable ranged view */
-```
-
-Conversely, ranged views created over mutable memory remain writable:
+Prefer `const char[..]` for read-only views. Stores through `const` are errors;
+rebind of the view header is allowed. String literals require a `const` /
+`const?` sink (or a mutable array copy via `char buf[] = "..."`):
 
 ```c
+const char[..] name = "James";
+name[0] = 'x';         /* Error: not a modifiable lvalue */
+
+char *p = "James";     /* Error: literal is const */
+const char *q = "James";
+
 char buf[8] = {0};
 char[..] view = {0};
-
-buf[0] = 'a';
 view = buf;
 view[0] = 'x';          /* ok: mutates buf[0] */
 ```
 
-Attempting to pass a literal-backed `char[..]` to a function expecting a mutable `char *` parameter is caught by auto-const analysis regardless of whether `name` or `ptr(name)` is supplied.
+Passthrough APIs use `const?` so a mutable argument stays mutable at the
+result. See [const.md](const.md).
 
-For string literals, prefer `char[..]` rather than wrapping with `str_from_cstr`. Bind `char[..] s = "..."` or pass `"..."` where a `char[..]` parameter is expected. Use `str_eq(a, "x")` and `str_starts_with(s, "pre")` (and other non-`*_cstr` helpers); reserve `str_from_cstr` / `*_cstr` for foreign NUL-terminated `char *` values. See [packages.md](packages.md) and `str/mod.mc`.
+For string literals, prefer `const char[..]` rather than wrapping with `str_from_cstr`. Pass `"..."` where a `const` / `const?` `char[..]` parameter is expected. Use `str_eq(a, "x")` and `str_starts_with(s, "pre")`; reserve `str_from_cstr` / `*_cstr` for foreign NUL-terminated `const char *` values. See [packages.md](packages.md) and `str/mod.mc`.
 
 ## Quick Reference
 
@@ -197,8 +195,8 @@ For string literals, prefer `char[..]` rather than wrapping with `str_from_cstr`
 | **Stack Allocation**                         | Fixed array `T[N]`                                    |
 | **Unbounded C API Boundary**                 | Open array `T[]` or raw pointer `T *`                 |
 | **Safe Pointer + Length Pair**               | Opaque `T[..]`, `ranged(p, n)`, `ranged(p, len, cap)`, `len()` / `cap()` / `ptr()` |
-| **C String Integration (`strlen`/`printf`)** | `char[..]` (decays to `ptr(s)`; verify NUL termination) |
-| **Literal Text Management**                  | `char[..] = "..."` (prefer over `str_from_cstr("...")`); auto-const tracks immutability |
+| **C String Integration (`strlen`/`printf`)** | `const char[..]` / `char[..]` (decays to `ptr(s)`; verify NUL termination) |
+| **Literal Text Management**                  | `const char[..] = "..."` or `char buf[] = "..."`; `const?` for passthrough |
 | **Subrange Slicing**                         | Syntax forms `s[lo..hi]`, `s[lo..]`, or `s[..hi]`     |
 
 

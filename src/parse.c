@@ -11,8 +11,9 @@
 
 static int switch_depth;
 static int loop_depth;
-/* Header `const` before a declarator: apply is_readonly to the first pointer level. */
+/* `const` / `const?` before a declarator: apply to the first pointer / ranged level. */
 static int pending_pointee_const;
+static int pending_poly;
 
 // Current token; never advances. Past EOF, returns the final TkEof.
 Tok* peek(Compiler* c) {
@@ -593,6 +594,7 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	Span signed_sp, unsigned_sp, long_sp;
 
 	pending_pointee_const = 0;
+	pending_poly = 0;
 	*storage = StNone;
 	*saw_type = 0;
 	nlong = nshort = nsigned = nunsigned = 0;
@@ -621,12 +623,9 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 		if (eatkw(c, KwAuto))
 			error_tok(c, peek(c), "auto is only for initialized locals (auto x = expr)");
 		if (atkw(c, KwConst)) {
-			Tok* ct;
-
-			ct = peek(c);
 			take(c);
-			if (user_source(c, ct->span))
-				error_at(c, ct->span, "const is not used in %%C (allowed in headers)");
+			if (eat(c, PnQuestion))
+				pending_poly = 1;
 			else
 				pending_pointee_const = 1;
 			continue;
@@ -868,9 +867,13 @@ parse_param_list(Compiler* c, Type* ret) {
 				if (user_source(c, psp) && ty->len >= 0)
 					fixed_len[n] = ty->len;
 				ty = type_ptr(c, ty->base);
-				if (pending_pointee_const) {
-					ty->is_readonly = 1;
+				if (pending_pointee_const || pending_poly) {
+					if (pending_pointee_const)
+						ty->is_readonly = 1;
+					if (pending_poly)
+						ty->is_poly = 1;
 					pending_pointee_const = 0;
+					pending_poly = 0;
 				}
 			} else if (is_func(ty))
 				ty = type_ptr(c, ty);
@@ -881,9 +884,8 @@ parse_param_list(Compiler* c, Type* ret) {
 			error_at(c, psp, "function declarations are limited to %d parameters",
 				 MaxParams);
 			too_many = 1;
-			if (pending_pointee_const) {
-				pending_pointee_const = 0;
-			}
+			pending_pointee_const = 0;
+			pending_poly = 0;
 		}
 		if (eat(c, PnComma))
 			continue;
@@ -909,8 +911,14 @@ parse_suffix(Compiler* c, Type* base) {
 
 	if (eat(c, PnLbrack)) {
 		if (eat(c, PnDotDot)) {
+			int ro, poly;
+
 			expect(c, PnRbrack, "']'");
-			base = type_ranged(c, base);
+			ro = pending_pointee_const;
+			poly = pending_poly;
+			pending_pointee_const = 0;
+			pending_poly = 0;
+			base = type_ranged_full(c, base, ro, poly);
 			base = parse_pointers(c, base);
 			return parse_suffix(c, base);
 		}
@@ -956,9 +964,13 @@ parse_pointers(Compiler* c, Type* base) {
 		       eat_c_reject_kw(c, KwRestrict, "restrict"))
 			;
 		base = type_ptr(c, base);
-		if (pending_pointee_const) {
-			base->is_readonly = 1;
+		if (pending_pointee_const || pending_poly) {
+			if (pending_pointee_const)
+				base->is_readonly = 1;
+			if (pending_poly)
+				base->is_poly = 1;
 			pending_pointee_const = 0;
+			pending_poly = 0;
 		}
 	}
 	return base;
@@ -980,9 +992,11 @@ parse_declarator(Compiler* c, Type* base, char** name, int abstract) {
 		{
 			char* dummy = NULL;
 			int save_pc = pending_pointee_const;
+			int save_poly = pending_poly;
 
 			parse_declarator(c, dummy_type(c), &dummy, 1);
 			pending_pointee_const = save_pc;
+			pending_poly = save_poly;
 		}
 		expect(c, PnRparen, "')'");
 		ty = parse_suffix(c, base);
@@ -1030,7 +1044,7 @@ parse_typename(Compiler* c) {
 // Probe whether '(' begins a tuple type (multi-type parenthesized list).
 static int
 peek_tuple_type(Compiler* c) {
-	int save, r, n, save_pc;
+	int save, r, n, save_pc, save_poly;
 	int storage, saw;
 	Type *base, *ty;
 	char* dummy;
@@ -1039,6 +1053,7 @@ peek_tuple_type(Compiler* c) {
 		return 0;
 	save = c->pos;
 	save_pc = pending_pointee_const;
+	save_poly = pending_poly;
 	take(c);
 	n = 0;
 	r = 0;
@@ -1048,12 +1063,14 @@ peek_tuple_type(Compiler* c) {
 		if (!is_typename(c) && !atkw(c, KwVoid)) {
 			c->pos = save;
 			pending_pointee_const = save_pc;
+			pending_poly = save_poly;
 			return 0;
 		}
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw) {
 			c->pos = save;
 			pending_pointee_const = save_pc;
+			pending_poly = save_poly;
 			return 0;
 		}
 		dummy = NULL;
@@ -1062,6 +1079,7 @@ peek_tuple_type(Compiler* c) {
 		if (peek(c)->kind == TkIdent) {
 			c->pos = save;
 			pending_pointee_const = save_pc;
+			pending_poly = save_poly;
 			return 0;
 		}
 		n++;
@@ -1072,12 +1090,14 @@ peek_tuple_type(Compiler* c) {
 	if (!at(c, PnRparen) || n == 0) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
+		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	r = peek(c)->kind == TkIdent || at(c, PnLparen);
 	c->pos = save;
 	pending_pointee_const = save_pc;
+	pending_poly = save_poly;
 	return r;
 }
 
@@ -1098,7 +1118,7 @@ parse_receiver_type(Compiler* c) {
 // True when '(' begins (T *recv).method, not a tuple return type.
 static int
 peek_method_receiver(Compiler* c) {
-	int save, save_pc;
+	int save, save_pc, save_poly;
 	Type* ty;
 
 	if (!at(c, PnLparen))
@@ -1107,43 +1127,51 @@ peek_method_receiver(Compiler* c) {
 		return 0;
 	save = c->pos;
 	save_pc = pending_pointee_const;
+	save_poly = pending_poly;
 	take(c);
 	if (!is_typename(c) && !atkw(c, KwStruct) && !atkw(c, KwUnion) && !atkw(c, KwEnum)) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
+		pending_poly = save_poly;
 		return 0;
 	}
 	ty = parse_receiver_type(c);
 	if (!is_ptr(ty)) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
+		pending_poly = save_poly;
 		return 0;
 	}
 	if (peek(c)->kind != TkIdent) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
+		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	if (!at(c, PnRparen)) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
+		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	if (!at(c, PnDot)) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
+		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	if (peek(c)->kind != TkIdent) {
 		c->pos = save;
 		pending_pointee_const = save_pc;
+		pending_poly = save_poly;
 		return 0;
 	}
 	c->pos = save;
 	pending_pointee_const = save_pc;
+	pending_poly = save_poly;
 	return 1;
 }
 
@@ -1198,8 +1226,14 @@ parse_method_ret_prefix(Compiler* c, Type* base) {
 		if (!eat(c, PnLbrack))
 			return base;
 		if (eat(c, PnDotDot)) {
+			int ro, poly;
+
 			expect(c, PnRbrack, "']'");
-			base = type_ranged(c, base);
+			ro = pending_pointee_const;
+			poly = pending_poly;
+			pending_pointee_const = 0;
+			pending_poly = 0;
+			base = type_ranged_full(c, base, ro, poly);
 			continue;
 		}
 		if (eat(c, PnRbrack)) {
@@ -1221,14 +1255,16 @@ parse_method_ret_prefix(Compiler* c, Type* base) {
 // True when the next tokens are optional * / [..] then (T *recv).method.
 static int
 peek_method_decl(Compiler* c) {
-	int save, save_pc, r;
+	int save, save_pc, save_poly, r;
 
 	save = c->pos;
 	save_pc = pending_pointee_const;
+	save_poly = pending_poly;
 	skip_method_ret_prefix(c);
 	r = peek_method_receiver(c);
 	c->pos = save;
 	pending_pointee_const = save_pc;
+	pending_poly = save_poly;
 	return r;
 }
 
@@ -1752,8 +1788,8 @@ parse_primary(Compiler* c) {
 			n->int_val = intern_str(c, acc, &nbytes);
 			/* Array bound is decoded size (incl. NUL), not source spelling. */
 			n->type = type_array(c, c->type_char, (int64_t)nbytes);
+			n->type->is_readonly = 1;
 		}
-		n->is_immutable = 1;
 		return n;
 	}
 	if (atkw(c, KwTrue) || atkw(c, KwFalse)) {
@@ -3710,7 +3746,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			else {
 				if (s->defined)
 					error_at(c, sp, "redefinition of method %s", name);
-				/* Keep prescanned Type* so earlier call sites share readonly inference. */
+				/* Keep prescanned Type* so earlier call sites share the same type. */
 				if (s->type)
 					ty = s->type;
 				else

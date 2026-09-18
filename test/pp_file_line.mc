@@ -7,7 +7,7 @@
 int file_line_tests() {
 	int a = {0};
 	int b = {0};
-	char* f = {0};
+	const char *f = {0};
 #if __LINE__ < 1
 	return 1;
 #endif

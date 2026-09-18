@@ -2,7 +2,7 @@ import "str";
 
 int test_cstr_write() {
 	char buf[32] = { 0 };
-	char[..] a = { 0 };
+	const char[..] a = { 0 };
 	a = "hello";
 	if (cstr_write(buf, a) != 5) {
 		return 1;
@@ -14,8 +14,8 @@ int test_cstr_write() {
 }
 
 int test_find() {
-	char[..] hay = { 0 };
-	char[..] needle = { 0 };
+	const char[..] hay = { 0 };
+	const char[..] needle = { 0 };
 	hay = "hello world";
 	needle = "world";
 	{
@@ -48,8 +48,8 @@ int test_find() {
 
 int test_chomp() {
 	char raw[8] = { 0 };
-	char[..] s = { 0 };
-	char[..] tok = { 0 };
+	const char[..] s = { 0 };
+	const char[..] tok = { 0 };
 	raw[0] = 'l';
 	raw[1] = 'i';
 	raw[2] = 'n';
@@ -66,8 +66,8 @@ int test_chomp() {
 
 int test_sep_trim() {
 	char line[64] = { 0 };
-	char[..] rest = { 0 };
-	char[..] tok = { 0 };
+	const char[..] rest = { 0 };
+	const char[..] tok = { 0 };
 	int n = { 0 };
 	cstr_write(line, "  foo, bar , baz  ");
 	rest = str_from_cstr(line);
@@ -116,7 +116,7 @@ int test_sep_trim() {
 }
 
 int test_cmp_prefix() {
-	char[..] s = { 0 };
+	const char[..] s = { 0 };
 	s = "Hello";
 	if (!str_starts_with(s, "He")) {
 		return 1;

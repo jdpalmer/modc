@@ -87,7 +87,7 @@ int ranged_size() {
 }
 
 int from_string() {
-	char[..] s = { 0 };
+	const char[..] s = { 0 };
 	s = "hi";
 	if (len(s) != 2 || cap(s) != 2) {
 		return 0;

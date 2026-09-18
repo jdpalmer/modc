@@ -1,4 +1,4 @@
-/* Header const retained as READONLY for Auto-const. */
+/* Header const T * maps to Type.is_readonly (same as user const). */
 
 static int
 hdr_strlen(const char *s)
