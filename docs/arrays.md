@@ -40,16 +40,17 @@ element writes through `s[i]` are fine. The language does not allocate or
 **Ownership is convention, like `char *`.** The type is not “view-only” and
 not an owning container. A `char[..]` (or `T[..]`) field or local may be:
 
-- the only handle to a `malloc` / `realloc` block (`free(ptr(s))` when done),
+- the only handle to a `malloc` / `realloc` block (`str_free(&s)` or
+  `free(ptr(s))` when done),
 - a window into stack storage, an arena region, or a caller buffer,
 - a subslice or string literal (must not free).
 
 Do not invent a parallel `{ char *p; size_t len; size_t cap }` struct to “own”
 what `char[..]` already is. Prefer storing `char[..]` in structs when you
 need length-aware text; keep `char *` for foreign NUL C boundaries, then
-convert once with `ranged` / `str_from_cstr`. Region lifetimes use
-`import "arena"` (`defer a.free()`); per-string heap is ordinary
-`malloc` + `defer free` when you need it.
+convert once with `ranged` / `str_from_cstr`. Heap growth:
+`str_dup` / `str_reserve` / `str_append` / `str_set` / `str_free` in `str`.
+Region lifetimes: `import "arena"` (`defer a.free()`).
 
 ```c
 int[..] s = {0};
@@ -217,7 +218,7 @@ For string literals, prefer `const char[..]` rather than wrapping with `str_from
 | **C String Integration (`strlen`/`printf`)** | `const char[..]` / `char[..]` (decays to `ptr(s)`; verify NUL termination) |
 | **Literal Text Management**                  | `const char[..] = "..."` or `char buf[] = "..."`; `const?` for passthrough |
 | **Subrange Slicing**                         | Syntax forms `s[lo..hi]`, `s[lo..]`, or `s[..hi]`     |
-| **Who frees the bytes**                      | Convention (like `char *`): arena, stack buf, or `free(ptr(s))` — not the type |
+| **Who frees the bytes**                      | Convention (like `char *`): `str_free` / arena / stack — not the type |
 
 
 
@@ -225,10 +226,10 @@ For string literals, prefer `const char[..]` rather than wrapping with `str_from
 
 Importing `str` (`import "str";`) provides length-aware helpers on `char[..]`:
 `cstr_write(buf, s)`, `str_split_once`, trim/chomp, compare, parse via
-`str_to_long`, and search via `str_find` / `str_ifind` (returning
-`(bool, char[..])`). Prefer `char[..]` and non-`*_cstr` APIs for literals
-(`str_eq(s, "ok")`); use `str_from_cstr` / `*_cstr` only for foreign
-`char *`. Full definitions are in `str/mod.mc`.
+`str_to_long`, search via `str_find` / `str_ifind`, and heap owners via
+`str_dup` / `str_append` / `str_free` (see `str/mod.mc`). Prefer `char[..]`
+and non-`*_cstr` APIs for literals (`str_eq(s, "ok")`); use `str_from_cstr` /
+`*_cstr` only for foreign `char *`.
 
 Importing `arena` (`import "arena";`) is bump allocation into a region.
 Methods `a.copy`, `a.join`, `a.replace`, `a.append` / `a.append_byte`

@@ -1,5 +1,7 @@
 import "str";
 
+#include <stddef.h>
+
 int test_cstr_write() {
 	char buf[32] = { 0 };
 	const char[..] a = { 0 };
@@ -171,6 +173,63 @@ int test_subview() {
 	return 0;
 }
 
+int test_heap() {
+	char[..] s = { 0 };
+	char[..] t = { 0 };
+	{
+		auto (ok, n) = str_dup("ab");
+		if (!ok || len(n) != 2 || n[0] != 'a') {
+			return 1;
+		}
+		s = n;
+	}
+	if (!str_append(&s, "cd")) {
+		str_free(&s);
+		return 2;
+	}
+	if (!str_eq(s, "abcd") || cap(s) < 4) {
+		str_free(&s);
+		return 3;
+	}
+	if (!str_append_byte(&s, '!')) {
+		str_free(&s);
+		return 4;
+	}
+	if (!str_eq(s, "abcd!")) {
+		str_free(&s);
+		return 5;
+	}
+	if (!str_set(&s, "x")) {
+		str_free(&s);
+		return 6;
+	}
+	if (!str_eq(s, "x") || !str_reserve(&s, 32) || cap(s) < 32) {
+		str_free(&s);
+		return 7;
+	}
+	if (!str_ensure_z(&s) || ptr(s)[len(s)] != 0 || len(s) != 1) {
+		str_free(&s);
+		return 8;
+	}
+	str_free(&s);
+	if (ptr(s) != NULL || len(s) != 0) {
+		return 9;
+	}
+	{
+		auto (ok, n) = str_dup(str_empty());
+		if (!ok || ptr(n) != NULL) {
+			return 10;
+		}
+	}
+	if (!str_set(&t, "hi") || !str_set(&t, t[1 .. 2]) || !str_eq(t, "i")) {
+		str_free(&t);
+		return 11;
+	}
+	str_free(&t);
+	str_free(NULL);
+	return 0;
+}
+
 int str_pkg_run() {
 	if (test_cstr_write() != 0) {
 		return 1;
@@ -189,6 +248,9 @@ int str_pkg_run() {
 	}
 	if (test_subview() != 0) {
 		return 6;
+	}
+	if (test_heap() != 0) {
+		return 7;
 	}
 	return 0;
 }

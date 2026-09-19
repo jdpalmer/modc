@@ -2,7 +2,11 @@
 //
 // char[..] is like char *: ptr+len(+cap); ownership is convention (no auto free).
 // Prefer char[..] in structs/APIs; convert foreign NUL char* once (str_from_cstr).
-// Use import "arena" for region-backed builds (defer a.free()).
+//
+// Heap-owned headers (malloc/realloc): str_dup, str_free, str_reserve, str_append,
+// str_append_byte, str_set, str_ensure_z. Only free/realloc headers these created
+// (or that you treat as malloc owners). Never str_free a literal, subslice, or
+// arena result. Region builds: import "arena" (defer a.free()).
 //
 // Preconditions (caller bugs are not swallowed):
 //   char dst[] + cap — when cap > 0, dst is writable; cap == 0 or dst == NULL is
@@ -10,6 +14,7 @@
 //
 // Semantic NULL (documented, not bugs):
 //   str_from_cstr(NULL) and str_eq_cstr(a, NULL) treat NULL C strings as empty.
+//   str_free(NULL) / mutators with NULL s are no-ops / false.
 //
 // API: const char[..] / str_* — read, slice, compare, split, trim; *_cstr reads const char*.
 //      Prefer const char[..] / non-*_cstr for string literals (str_eq(s, "x"));
@@ -25,6 +30,7 @@
 // str_icmp / str_ifind / str_irfind: ASCII case fold only (not Unicode).
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Lowercase an ASCII byte; other bytes unchanged.
@@ -56,16 +62,163 @@ char[..] str_empty() {
 }
 
 // View over [p, p+n); p may be NULL only when n is 0.
-char[..] str_from_bytes(const char *p, size_t n) {
-	return ranged((char *)p, n);
+char[..] str_from_bytes(const char* p, size_t n) {
+	return ranged((char*)p, n);
 }
 
 // View over a NUL-terminated C string; NULL yields empty.
-char[..] str_from_cstr(const char *p) {
+char[..] str_from_cstr(const char* p) {
 	if (p == NULL) {
 		return str_empty();
 	}
-	return ranged((char *)p, strlen(p));
+	return ranged((char*)p, strlen(p));
+}
+
+// Malloc a copy of src (len == cap). Empty src → empty (no alloc).
+// Caller owns the result: str_free when done. Do not str_free views into
+// literals, stack, arena, or subslices.
+(bool, char[..]) str_dup(const char[..] src) {
+	size_t n = { 0 };
+	char* p = { 0 };
+	n = len(src);
+	if (n == 0) {
+		return (true, str_empty());
+	}
+	p = malloc(n);
+	if (p == NULL) {
+		return (false, str_empty());
+	}
+	memcpy(p, ptr(src), n);
+	return (true, ranged(p, n));
+}
+
+// free(ptr(*s)) when non-NULL, then *s = empty. NULL s is a no-op.
+// Only for malloc-owned headers (str_dup / str_reserve growth / hand-owned).
+void str_free(char[..]* s) {
+	if (s == NULL) {
+		return;
+	}
+	if (ptr(*s) != NULL) {
+		free(ptr(*s));
+	}
+	*s = str_empty();
+}
+
+// Grow capacity to at least need (realloc). Length unchanged. NULL s → false.
+bool str_reserve(char[..]* s, size_t need) {
+	size_t n = { 0 };
+	size_t c = { 0 };
+	size_t nc = { 0 };
+	char* p = { 0 };
+	if (s == NULL) {
+		return false;
+	}
+	n = len(*s);
+	c = cap(*s);
+	if (need <= c) {
+		return true;
+	}
+	nc = c;
+	if (nc == 0) {
+		nc = 8;
+	}
+	while (nc < need) {
+		if (nc > (size_t) - 1 / 2) {
+			nc = need;
+			break;
+		}
+		nc = nc * 2;
+	}
+	if (nc < need) {
+		nc = need;
+	}
+	p = realloc(ptr(*s), nc);
+	if (p == NULL) {
+		return false;
+	}
+	*s = ranged(p, n, nc);
+	return true;
+}
+
+// Append extra onto *s (may realloc). NULL s → false.
+bool str_append(char[..]* s, const char[..] extra) {
+	size_t n = { 0 };
+	size_t m = { 0 };
+	size_t newlen = { 0 };
+	if (s == NULL) {
+		return false;
+	}
+	m = len(extra);
+	if (m == 0) {
+		return true;
+	}
+	n = len(*s);
+	newlen = n + m;
+	if (newlen < n) {
+		return false;
+	}
+	if (!str_reserve(s, newlen)) {
+		return false;
+	}
+	memcpy(ptr(*s) + n, ptr(extra), m);
+	*s = ranged(ptr(*s), newlen, cap(*s));
+	return true;
+}
+
+// Append one byte onto *s.
+bool str_append_byte(char[..]* s, char c) {
+	char one[1] = { 0 };
+	one[0] = c;
+	return str_append(s, ranged(one, 1));
+}
+
+// Replace *s contents with src. Reuses capacity when it fits; otherwise
+// mallocs a fresh block (safe if src aliases *s). Empty src keeps capacity.
+bool str_set(char[..]* s, const char[..] src) {
+	size_t n = { 0 };
+	char* p = { 0 };
+	if (s == NULL) {
+		return false;
+	}
+	n = len(src);
+	if (n == 0) {
+		if (ptr(*s) != NULL) {
+			*s = ranged(ptr(*s), 0, cap(*s));
+		} else {
+			*s = str_empty();
+		}
+		return true;
+	}
+	if (ptr(*s) != NULL && n <= cap(*s)) {
+		memmove(ptr(*s), ptr(src), n);
+		*s = ranged(ptr(*s), n, cap(*s));
+		return true;
+	}
+	p = malloc(n);
+	if (p == NULL) {
+		return false;
+	}
+	memcpy(p, ptr(src), n);
+	if (ptr(*s) != NULL) {
+		free(ptr(*s));
+	}
+	*s = ranged(p, n);
+	return true;
+}
+
+// Ensure room for a trailing NUL at ptr[len] without changing len (for C
+// handoff). Writes '\0' into spare capacity.
+bool str_ensure_z(char[..]* s) {
+	size_t n = { 0 };
+	if (s == NULL) {
+		return false;
+	}
+	n = len(*s);
+	if (!str_reserve(s, n + 1)) {
+		return false;
+	}
+	ptr(*s)[n] = '\0';
+	return true;
 }
 
 // True when the view has length zero.
@@ -83,7 +236,7 @@ bool str_eq(const char[..] a, const char[..] b) {
 }
 
 // Equality against a NUL-terminated C string.
-bool str_eq_cstr(const char[..] a, const char *z) {
+bool str_eq_cstr(const char[..] a, const char* z) {
 	if (z == NULL) {
 		return len(a) == 0;
 	}
@@ -147,7 +300,7 @@ bool str_starts_with(const char[..] s, const char[..] prefix) {
 }
 
 // str_starts_with against a C string.
-bool str_starts_with_cstr(const char[..] s, const char *prefix) {
+bool str_starts_with_cstr(const char[..] s, const char* prefix) {
 	return str_starts_with(s, str_from_cstr(prefix));
 }
 
@@ -161,7 +314,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // First occurrence of needle in hay; (false, empty) when missing.
-(bool, const? char[..]) str_find(const? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) str_find(const ? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -179,7 +332,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // Last occurrence of needle in hay.
-(bool, const? char[..]) str_rfind(const? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) str_rfind(const ? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -203,7 +356,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // Case-insensitive forward search.
-(bool, const? char[..]) str_ifind(const? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) str_ifind(const ? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -230,7 +383,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // Case-insensitive reverse search.
-(bool, const? char[..]) str_irfind(const? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) str_irfind(const ? char[..] hay, const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -317,7 +470,7 @@ overload size_t cstr_write(char[..] dst, const char[..] src) {
 }
 
 // Split at the first byte in delims; no delimiter → (s, empty).
-(const? char[..], const? char[..]) str_split_once(const? char[..] s, const char[..] delims) {
+(const ? char[..], const ? char[..]) str_split_once(const ? char[..] s, const char[..] delims) {
 	for (size_t i = 0; i < len(s); i++) {
 		if (str_byte_in(delims, s[i])) {
 			return (s[0 .. i], s[(i + 1) ..]);
@@ -327,7 +480,7 @@ overload size_t cstr_write(char[..] dst, const char[..] src) {
 }
 
 // Trim leading and trailing bytes found in chars.
-const? char[..] str_trim_set(const? char[..] s, const char[..] chars) {
+const ? char[..] str_trim_set(const ? char[..] s, const char[..] chars) {
 	size_t lo = 0;
 	while (lo < len(s) && str_byte_in(chars, s[lo])) {
 		lo = lo + 1;
@@ -345,7 +498,7 @@ const? char[..] str_trim_set(const? char[..] s, const char[..] chars) {
 }
 
 // Trim leading ASCII whitespace.
-const? char[..] str_ltrim(const? char[..] s) {
+const ? char[..] str_ltrim(const ? char[..] s) {
 	size_t i = 0;
 	while (i < len(s) && str_is_space(s[i])) {
 		i = i + 1;
@@ -354,7 +507,7 @@ const? char[..] str_ltrim(const? char[..] s) {
 }
 
 // Trim trailing ASCII whitespace.
-const? char[..] str_rtrim(const? char[..] s) {
+const ? char[..] str_rtrim(const ? char[..] s) {
 	size_t n = len(s);
 	while (n != 0 && str_is_space(s[n - 1])) {
 		n = n - 1;
@@ -363,12 +516,12 @@ const? char[..] str_rtrim(const? char[..] s) {
 }
 
 // Trim leading and trailing ASCII whitespace.
-const? char[..] str_trim(const? char[..] s) {
+const ? char[..] str_trim(const ? char[..] s) {
 	return str_rtrim(str_ltrim(s));
 }
 
 // Strip one trailing LF or CRLF.
-const? char[..] str_chomp(const? char[..] s) {
+const ? char[..] str_chomp(const ? char[..] s) {
 	size_t n = len(s);
 	if (n != 0 && s[n - 1] == '\n') {
 		n = n - 1;

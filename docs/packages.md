@@ -127,9 +127,28 @@ Importers can manipulate `Window` and `Window *` directly because the memory lay
 convention, not a language attribute. Prefer `char[..]` in structs and APIs
 when you need bounds; use `char *` at foreign NUL boundaries.
 
-The `arena` package owns a bump region; methods return `char[..]` into that
-storage (valid until `a.free()` / `a.reset()`). Grow by assigning
-(`s = a.append(s, …)`), not by writing header fields. Do not invent a
+**Heap-owned text:** `str_dup`, `str_free`, `str_reserve`, `str_append` /
+`str_append_byte`, `str_set`, and `str_ensure_z` malloc/realloc through a
+`char[..]*` (rebind after growth). Only `str_free` headers these created (or
+that you treat as malloc owners) — not literals, subslices, or arena results.
+
+```c
+char[..] name = {0};
+
+{
+    auto (ok, n) = str_dup("jem");
+    if (!ok) {
+        return;
+    }
+    name = n;
+}
+str_append(&name, "!");
+str_free(&name);
+```
+
+**Arena regions:** the `arena` package owns a bump region; methods return
+`char[..]` into that storage (valid until `a.free()` / `a.reset()`). Grow by
+assigning (`s = a.append(s, …)`), not by writing header fields. Do not invent a
 parallel `{ ptr, len, cap }` type — that is already `char[..]`.
 
 ```c
@@ -167,7 +186,7 @@ str_eq(out, "part");
 
 Mutator operations should be methods on pointer types (`T *`), whereas readers accept values (`str_eq(s, ...)`). See `arena/mod.mc` and `test/arena_pkg.mc` for canonical examples.
 
-For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, s)` or `a.z(s)` for NUL-terminated copies. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
+For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Heap-owned fields use `str_dup` / `str_append` / `str_free`. Region builds use `arena` (`a.copy`, `a.append`, `a.join`, `a.replace`). Export to C with `cstr_write(buf, s)`, `str_ensure_z(&s)`, or `a.z(s)`. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
 
 ## How imports resolve
 
