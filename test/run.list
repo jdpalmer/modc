@@ -70,6 +70,7 @@ test/autoinline_skip.mc
 test/autoinline_aggr.mc
 test/auto_local.mc
 test/ternary_wide.mc
+test/ternary_aggr.mc
 test/conv.mc
 test/lit_suffix.mc
 test/uchar.mc

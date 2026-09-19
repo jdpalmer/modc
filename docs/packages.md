@@ -121,12 +121,16 @@ main()
 
 Importers can manipulate `Window` and `Window *` directly because the memory layout accounts for the pointer slot. However, they do not gain access to `GtkWidget` types unless they explicitly `#include <gtk/gtk.h>`. Header symbols included in another package are never re-exported — except when the includer is a package `bridge.mc`, whose includes form the package C surface (package-visible, linked to host objects). See `test/pkg_encap*`.
 
-## Owning containers
+## Arenas and `char[..]`
 
-The `arena` package is the allocator; returned values are opaque `char[..]`
-views. Grow by assigning a new view (`s = a.append(s, …)`), not by writing
-header fields. Custom owning types may keep their own `ptr` / `len` / `cap` and
-project views the same way.
+`T[..]` / `char[..]` is a length-aware header like `T *`: ownership is
+convention, not a language attribute. Prefer `char[..]` in structs and APIs
+when you need bounds; use `char *` at foreign NUL boundaries.
+
+The `arena` package owns a bump region; methods return `char[..]` into that
+storage (valid until `a.free()` / `a.reset()`). Grow by assigning
+(`s = a.append(s, …)`), not by writing header fields. Do not invent a
+parallel `{ ptr, len, cap }` type — that is already `char[..]`.
 
 ```c
 (bool, char[..]) (Arena* a).copy(const char[..] s);
@@ -163,7 +167,7 @@ str_eq(out, "part");
 
 Mutator operations should be methods on pointer types (`T *`), whereas readers accept values (`str_eq(s, ...)`). See `arena/mod.mc` and `test/arena_pkg.mc` for canonical examples.
 
-For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, view)` or `a.z(view)` for NUL-terminated copies. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
+For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Construct or transform text using `arena` methods (`a.copy`, `a.append`, `a.join`, `a.replace`). Export data to C APIs using `cstr_write(buf, s)` or `a.z(s)` for NUL-terminated copies. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
 
 ## How imports resolve
 

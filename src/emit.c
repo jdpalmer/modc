@@ -2190,6 +2190,32 @@ emitexpr(Compiler* c, Node* n) {
 		ttrue = newlbl();
 		tfalse = newlbl();
 		tjoin = newlbl();
+		if (is_aggr(n->type)) {
+			Val slot;
+			int w;
+
+			/* '@' is ModC's "address of aggregate" marker, not a QBE
+			 * type — never phi with =@. Snapshot both arms into one slot. */
+			ensure_aggregate(n->type);
+			w = storewidth(c, n->type);
+			slot = vtmp('l', n->type);
+			fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, w);
+			l = asbool(emitexpr(c, n->a));
+			emitjnz(l.text, ttrue, tfalse);
+			emitlbl(ttrue);
+			r = emitexpr(c, n->b);
+			emitblit(slot, r, w);
+			emitjmp(tjoin);
+			emitlbl(tfalse);
+			l = emitexpr(c, n->c);
+			emitblit(slot, l, w);
+			emitjmp(tjoin);
+			emitlbl(tjoin);
+			v.cls = '@';
+			v.type = n->type;
+			snprintf(v.text, sizeof(v.text), "%s", slot.text);
+			return v;
+		}
 		cls = qbe_class(n->type);
 		l = asbool(emitexpr(c, n->a));
 		emitjnz(l.text, ttrue, tfalse);

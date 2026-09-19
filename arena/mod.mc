@@ -1,12 +1,13 @@
-// arena — bump region allocator; builds return opaque char[..] views.
+// arena — bump region allocator; builds return char[..] into the region.
 //
 // Arena: one defer a.free() per scope; no per-string free. Reset with a.reset()
 // to reuse the same arena without freeing backing storage.
 //
-// Methods copy/append/join/replace into the region; returned views are valid
+// Methods copy/append/join/replace into the region; returned char[..] stay valid
 // until a.free() or a.reset(). Byte semantics (same as str); not UTF-8
-// validation. Grow with s = a.append(s, …) — assign a new view, do not mutate
-// T[..] fields.
+// validation. Grow with s = a.append(s, …) — assign a new header, do not mutate
+// T[..] fields. Ownership of the bytes is the arena's (convention, like free(3)
+// on a malloc'd char*).
 //
 // Receivers are live handles (see docs/methods.md). Only a.free() accepts a
 // null Arena* (no-op, like free(3)).

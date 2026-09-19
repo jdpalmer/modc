@@ -87,7 +87,7 @@ In this example, `n` is inferred as an integer, while `parse(5)` returns a two-v
 
 ### Arrays
 
-%C provides three distinct bracket forms for arrays, unifying stack storage, foreign C interfaces, and dynamic view types. Fixed arrays (`T[N]`) represent fixed-size compile-time storage. Open arrays (`T[]`) maintain compatibility with standard C parameter syntax, decaying directly to pointers without length information in the type signature. Ranged arrays (`T[..]`) are opaque slice headers (internally `{ T *ptr; size_t len; size_t cap }`). Use `len(s)`, `cap(s)`, and `ptr(s)`; assign a new view to change the header. Views set `len == cap`; writable scratch is `ranged(p, 0, n)`.
+%C provides three distinct bracket forms for arrays, unifying stack storage, foreign C interfaces, and length-aware headers. Fixed arrays (`T[N]`) represent fixed-size compile-time storage. Open arrays (`T[]`) maintain compatibility with standard C parameter syntax, decaying directly to pointers without length information in the type signature. Ranged arrays (`T[..]`) are opaque `{ T *ptr; size_t len; size_t cap }` headers — like `T *` with bounds; ownership is convention (no automatic `free`). Use `len(s)`, `cap(s)`, and `ptr(s)`; assign to rebind the header. Closed windows set `len == cap`; writable scratch is `ranged(p, 0, n)`. Store `T[..]` in structs when you need length; prefer `char *` only at foreign NUL boundaries.
 
 ```c
 int a[4] = {0};
@@ -97,16 +97,16 @@ s = a;               // implicit at ranged sites; len == cap == 4
 s = ranged(a, 2);    // explicit count; len == cap == 2
 s = ranged(a, 0, 4); // empty scratch over a
 s[0] = 1;
-s = a[1..3];         // view over &a[1], len 2
+s = a[1..3];         // window over &a[1], len 2
 s = a[2..];          // through end
 len(a);              // element count
-cap(s);              // capacity (equals len for a closed view)
+cap(s);              // capacity (equals len for a closed window)
 strlen(s);           // T[..] → T* at pointer sites (uses ptr(s))
 ```
 
 ### Ranged Iteration
 
-Ranged iteration provides a clean syntax for traversing fixed arrays and ranged views without manually tracking loop indices or array bounds. The range clause iterates over the underlying collection, binding each element either by value using `auto x` or by pointer using `auto *p`.
+Ranged iteration provides a clean syntax for traversing fixed arrays and `T[..]` values without manually tracking loop indices or array bounds. The range clause iterates over the underlying collection, binding each element either by value using `auto x` or by pointer using `auto *p`.
 
 Binding by value is ideal for read-only passes or accumulation, while binding by pointer provides direct access to mutate elements in place:
 

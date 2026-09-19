@@ -17,7 +17,7 @@ const char[..] v = "ab";
 ```
 
 - `const T *` — cannot store through the pointer; the pointer variable may be reassigned.
-- `const char[..]` — **element/string const** (like `const char[]`), not a frozen view header. Rebind (`v = other`) is allowed; `v[i] =` is not.
+- `const char[..]` — **element/string const** (like `const char[]`), not a frozen header. Rebind (`v = other`) is allowed; `v[i] =` is not.
 - Discarding const requires an explicit cast: `char *q = (char *)p`.
 
 Mutable → const is implicit. Const → mutable is not.

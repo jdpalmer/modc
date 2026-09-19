@@ -1,6 +1,8 @@
-// str — length-bounded char[..] views (non-owning) and cstr_* C boundary helpers.
+// str — length-aware char[..] helpers and cstr_* C boundary APIs.
 //
-// char[..] views do not own storage. Use import "arena" for Arena building in a region.
+// char[..] is like char *: ptr+len(+cap); ownership is convention (no auto free).
+// Prefer char[..] in structs/APIs; convert foreign NUL char* once (str_from_cstr).
+// Use import "arena" for region-backed builds (defer a.free()).
 //
 // Preconditions (caller bugs are not swallowed):
 //   char dst[] + cap — when cap > 0, dst is writable; cap == 0 or dst == NULL is
@@ -14,7 +16,7 @@
 //      str_from_cstr / *_cstr are for foreign NUL-terminated const char*.
 //      cstr_* — write into caller char[N] (NUL-terminated C boundary).
 //
-// Export: cstr_write(buf, view) on fixed char[N]; cstr_zlen(buf) / cstr_reset(buf) same.
+// Export: cstr_write(buf, s) on fixed char[N]; cstr_zlen(buf) / cstr_reset(buf) same.
 //   Three-arg cstr_* forms for sizing-only (cap==0 / dst==NULL) and open arrays.
 //
 // str_split_once(s, delims) → (token, rest); no delimiter → (s, empty).

@@ -6,7 +6,7 @@
 | ---------------- | ------- | ---------------------------------------------------------------------------------------------------- |
 | **Fixed array**  | `T[N]`  | Fixed compile-time size N. Allocates stack storage or establishes an exact-size parameter contract.  |
 | **Open array**   | `T[]`   | C-compatible parameter syntax. Decays directly to T * with no length metadata preserved in the type. |
-| **Ranged array** | `T[..]` | A runtime view struct { T *ptr; size_t len; size_t cap } (interned per element type T). |
+| **Ranged array** | `T[..]` | Opaque `{ T *ptr; size_t len; size_t cap }` header (interned per element type T). Like `T *`: address plus bounds; ownership is convention. |
 
 ## Fixed Arrays `T[N]`
 
@@ -17,7 +17,7 @@ int a[4] = {0};
 char buf[64] = {0};
 ```
 
-Fixed arrays implicitly convert to ranged views where expected. In user translation units, declaring a parameter as `void f(int a[N])` enforces an exact `T[N]` matching requirement at call sites. Within `f`, calling `len(a)` correctly returns the compile-time length `N`.
+Fixed arrays implicitly convert to `T[..]` where a ranged type is expected. In user translation units, declaring a parameter as `void f(int a[N])` enforces an exact `T[N]` matching requirement at call sites. Within `f`, calling `len(a)` correctly returns the compile-time length `N`.
 
 ## Open Arrays `T[]`
 
@@ -31,17 +31,35 @@ Open arrays should be reserved for external C headers and foreign function bound
 
 ## Ranged Arrays `T[..]`
 
-A ranged array is an opaque slice header over storage the caller already owns.
-Internally it is `{ T *ptr; size_t len; size_t cap }` (interned per element type),
-but user code does not name those fields. Use `len(s)`, `cap(s)`, and `ptr(s)`.
-Mutate the header only by assigning a new view (`s = …`); element writes through
-`s[i]` are fine. There is no allocator on the header.
+A ranged array is an opaque `{ T *ptr; size_t len; size_t cap }` header
+(interned per element type). User code does not name those fields; use
+`len(s)`, `cap(s)`, and `ptr(s)`. Rebind the header by assignment (`s = …`);
+element writes through `s[i]` are fine. The language does not allocate or
+`free` through the header — same as `T *`.
+
+**Ownership is convention, like `char *`.** The type is not “view-only” and
+not an owning container. A `char[..]` (or `T[..]`) field or local may be:
+
+- the only handle to a `malloc` / `realloc` block (`free(ptr(s))` when done),
+- a window into stack storage, an arena region, or a caller buffer,
+- a subslice or string literal (must not free).
+
+Do not invent a parallel `{ char *p; size_t len; size_t cap }` struct to “own”
+what `char[..]` already is. Prefer storing `char[..]` in structs when you
+need length-aware text; keep `char *` for foreign NUL C boundaries, then
+convert once with `ranged` / `str_from_cstr`. Region lifetimes use
+`import "arena"` (`defer a.free()`); per-string heap is ordinary
+`malloc` + `defer free` when you need it.
 
 ```c
 int[..] s = {0};
 char[..] line = {0};
 
 void upload(Vertex[..] verts);
+
+struct Token {
+	char[..] text;   /* fine: header in a struct; who frees is separate */
+};
 ```
 
 `len(s)` is the initialized window. Indexing (`s[i]`), `len(s)`, and range-for
@@ -49,9 +67,9 @@ stop there. `cap(s)` is how many elements are addressable from `ptr(s)`
 (`len <= cap`). Spare room is for mutators that grow into the same block; it is
 not inherited by a subslice.
 
-Views (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set `len == cap`. A
-writable scratch over storage you own is `ranged(p, 0, n)` — length zero,
-capacity `n`. To grow length into spare capacity, assign a new view
+Closed windows (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set
+`len == cap`. Writable scratch over a block is `ranged(p, 0, n)` — length
+zero, capacity `n`. To grow length into spare capacity, assign a new header
 (`s = ranged(ptr(s), new_len, cap(s))`), do not write fields.
 
 ### Constructing Ranged Arrays
@@ -77,7 +95,7 @@ standard C APIs. Mutable `char[..]` cannot bind a literal without a cast; use
 
 ### Implicit conversions
 
-Implicit conversions apply predictably based on whether the target expects a ranged view or a raw C pointer.
+Implicit conversions apply predictably based on whether the target expects a ranged type or a raw C pointer.
 
 At ranged-typed parameters and assignments:
 
@@ -120,7 +138,7 @@ To perform bounded reads safely, use `len(word)` within %C code, or pass explici
 
 ## Range-for
 
-Fixed arrays and ranged views support ranged iteration without an explicit index. Bind by value with `auto x`, or bind a pointer into the range with `auto *p`:
+Fixed arrays and ranged arrays support ranged iteration without an explicit index. Bind by value with `auto x`, or bind a pointer into the range with `auto *p`:
 
 ```c
 int a[4] = {1, 2, 3, 4};
@@ -135,7 +153,7 @@ for (auto *p : a) {
 }
 ```
 
-The same forms work over `T[..]` views.
+The same forms work over `T[..]`.
 
 Custom types can participate by providing `overload` hooks. `range_count` supplies a length (and optionally a base pointer via an out-parameter). `range_at` supplies element access when iteration is not over a contiguous buffer:
 
@@ -164,11 +182,12 @@ overload int range_at(Triple t, size_t i) {
 
 See `test/range_for.mc` and `test/range_hooks.mc`. Overload rules are in [methods.md](methods.md).
 
-## Const and string views
+## Const and strings
 
-Prefer `const char[..]` for read-only views. Stores through `const` are errors;
-rebind of the view header is allowed. String literals require a `const` /
-`const?` sink (or a mutable array copy via `char buf[] = "..."`):
+Prefer `const char[..]` for read-only text (like `const char *`, with length).
+Stores through `const` are errors; rebind of the header is allowed. String
+literals require a `const` / `const?` sink (or a mutable array copy via
+`char buf[] = "..."`):
 
 ```c
 const char[..] name = "James";
@@ -178,9 +197,9 @@ char *p = "James";     /* Error: literal is const */
 const char *q = "James";
 
 char buf[8] = {0};
-char[..] view = {0};
-view = buf;
-view[0] = 'x';          /* ok: mutates buf[0] */
+char[..] s = {0};
+s = buf;
+s[0] = 'x';             /* ok: mutates buf[0] */
 ```
 
 Passthrough APIs use `const?` so a mutable argument stays mutable at the
@@ -194,17 +213,27 @@ For string literals, prefer `const char[..]` rather than wrapping with `str_from
 | -------------------------------------------- | ----------------------------------------------------- |
 | **Stack Allocation**                         | Fixed array `T[N]`                                    |
 | **Unbounded C API Boundary**                 | Open array `T[]` or raw pointer `T *`                 |
-| **Safe Pointer + Length Pair**               | Opaque `T[..]`, `ranged(p, n)`, `ranged(p, len, cap)`, `len()` / `cap()` / `ptr()` |
+| **Pointer + length (+ cap)**                 | Opaque `T[..]` in locals/structs; `ranged(p, n)`, `ranged(p, len, cap)`, `len()` / `cap()` / `ptr()` |
 | **C String Integration (`strlen`/`printf`)** | `const char[..]` / `char[..]` (decays to `ptr(s)`; verify NUL termination) |
 | **Literal Text Management**                  | `const char[..] = "..."` or `char buf[] = "..."`; `const?` for passthrough |
 | **Subrange Slicing**                         | Syntax forms `s[lo..hi]`, `s[lo..]`, or `s[..hi]`     |
+| **Who frees the bytes**                      | Convention (like `char *`): arena, stack buf, or `free(ptr(s))` — not the type |
 
 
 
 ## Standard Library Packages
 
-The standard library includes two essential packages for working with string views and memory. Importing `str` (`import "str";`) provides non-owning utilities for `char[..]` views, including safe buffer writes to fixed `char[N]` targets via `cstr_write(buf, view)`, string splitting with `str_split_once`, trimming, chomping, comparisons, and numeric parsing via `str_to_long`. It also supports substring searching through `str_find` and `str_ifind`, which return `(bool, char[..])` tuples where an empty needle matches at position zero. Prefer `char[..]` and non-`*_cstr` APIs for literals (`str_eq(s, "ok")`); use `str_from_cstr` / `*_cstr` only for foreign `char *`. Full definitions are located in `str/mod.mc`.
+Importing `str` (`import "str";`) provides length-aware helpers on `char[..]`:
+`cstr_write(buf, s)`, `str_split_once`, trim/chomp, compare, parse via
+`str_to_long`, and search via `str_find` / `str_ifind` (returning
+`(bool, char[..])`). Prefer `char[..]` and non-`*_cstr` APIs for literals
+(`str_eq(s, "ok")`); use `str_from_cstr` / `*_cstr` only for foreign
+`char *`. Full definitions are in `str/mod.mc`.
 
-Similarly, importing `arena` (`import "arena";`) introduces bump allocation. This package handles memory copying and concatenation using `a.copy`, `a.join`, and `a.replace`, incremental growth via `a.append` / `a.append_byte` (assign the returned view), and NUL-terminated C string allocations with `a.z`. Full definitions are located in `arena/mod.mc`.
+Importing `arena` (`import "arena";`) is bump allocation into a region.
+Methods `a.copy`, `a.join`, `a.replace`, `a.append` / `a.append_byte`
+(assign the returned `char[..]`), and `a.z` for NUL-terminated copies.
+Returned headers stay valid until `a.free()` / `a.reset()`. See
+`arena/mod.mc`.
 
 `path`, `fs`, and `os` sit beside `str` and `arena`: slash paths, `File` handles, and process helpers, with `(T, bool)` results rather than POSIX or Win32 types. See [os.md](os.md).
