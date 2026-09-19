@@ -58,6 +58,6 @@ While multi-declarator statements like `int a, b;` are rejected in user source c
 
 User source files cannot use the `inline` keyword, which is reserved strictly for imported headers. Instead, the compiler automatically evaluates candidates for inlining at call sites. Every function definition retains an exported linker symbol, ensuring consistent linking.
 
-The optimization heuristic targets small, simple function bodies while skipping functions that contain `defer` statements, `goto` labels, `switch` blocks, variadic arguments, or aggregate return types. Because inlining acts purely as an optimization heuristic rather than a language contract, missing an inline expansion does not alter program semantics.
+The optimization heuristic targets small, simple function bodies while skipping functions that contain `defer` statements, `goto` labels, `switch` blocks, or variadic arguments. Small aggregate returns (`char[..]`, tuples, small structs) may inline via the same slot-as-result pattern used for hidden return buffers; larger aggregates stay as calls. Because inlining acts purely as an optimization heuristic rather than a language contract, missing an inline expansion does not alter program semantics.
 
 See also the `auto` and multi-return tour in [quickstart.md](quickstart.md).

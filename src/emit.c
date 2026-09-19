@@ -23,7 +23,9 @@ struct Val {
 enum {
 	MaxInlineMap = 32,
 	MaxInlineStack = 16,
-	InlineNodeBudget = 32
+	InlineNodeBudget = 32,
+	/* Small struct/tuple/char[..] returns may inline (slot-as-result). */
+	InlineAggrRetMax = 64
 };
 
 typedef struct DeferFrame DeferFrame;
@@ -99,7 +101,7 @@ static void emit_defers_until(Compiler* c, int target);
 static void emit_all_defers(Compiler* c);
 static void push_defer_frame(Compiler* c, Node* scope);
 static void add_defer(Compiler* c, Node* stmt);
-static int inline_eligible(Symbol* s);
+static int inline_eligible(Compiler* c, Symbol* s);
 static void register_inline_sites(Compiler* c, Node* n);
 static InlineSite* find_inline_site(Node* call);
 static const char* slot_basename(Symbol* s);
@@ -578,9 +580,10 @@ inline_body_walk_init(Initializer* in, int* nnodes) {
 	return 1;
 }
 
-// Small non-varargs functions without aggregate returns may be expanded at call sites.
+// Small non-varargs functions may expand at call sites. Aggregate returns are
+// allowed when small (slot-as-result, same idea as the hidden ret buffer).
 static int
-inline_eligible(Symbol* s) {
+inline_eligible(Compiler* c, Symbol* s) {
 	Node *fn, *body;
 	Type *ty, *ret;
 	int nnodes;
@@ -597,7 +600,7 @@ inline_eligible(Symbol* s) {
 	if (ty == NULL || !is_func(ty) || ty->is_varargs)
 		return 0;
 	ret = ty->base;
-	if (ret && is_aggr(ret))
+	if (ret && is_aggr(ret) && storewidth(c, ret) > InlineAggrRetMax)
 		return 0;
 	nnodes = 0;
 	return inline_body_walk(body, &nnodes);
@@ -773,7 +776,7 @@ register_inline_site(Compiler* c, Node* call, Symbol* callee) {
 	Symbol* ps;
 	int id, i;
 
-	if (call == NULL || callee == NULL || !inline_eligible(callee))
+	if (call == NULL || callee == NULL || !inline_eligible(c, callee))
 		return;
 	/* Per-package .o emit: inlining a foreign callee can pull $__stN /
 	 * $__fN_* locals that are defined only in the callee's object. */
@@ -1388,7 +1391,7 @@ try_inline_call(Compiler* c, Node* n, Val* out) {
 	if (n == NULL || n->a == NULL || n->a->kind != NdName || n->a->symbol == NULL)
 		return 0;
 	callee = n->a->symbol;
-	if (callee->kind != SkFunc || !inline_eligible(callee) || inline_on_stack(callee))
+	if (callee->kind != SkFunc || !inline_eligible(c, callee) || inline_on_stack(callee))
 		return 0;
 	site = find_inline_site(n);
 	if (site == NULL || site->callee != callee)
@@ -1446,6 +1449,15 @@ try_inline_call(Compiler* c, Node* n, Val* out) {
 		return 1;
 	}
 	if (site->has_ret) {
+		if (is_aggr(ret)) {
+			/* Slot-as-result: same shape as a non-inlined aggregate call. */
+			ensure_aggregate(ret);
+			v.cls = '@';
+			v.type = ret;
+			snprintf(v.text, sizeof(v.text), "%%%s.addr", site->retname);
+			*out = v;
+			return 1;
+		}
 		v = vtmp(qbe_class(ret), ret);
 		fprintf(outf, "\t%s =%c %s %%%s.addr\n",
 			v.text, v.cls, loadop(ret), site->retname);

@@ -67,6 +67,7 @@ test/autoinline_decl_init.mc
 test/autoinline_many.mc
 test/autoinline_export.mc
 test/autoinline_skip.mc
+test/autoinline_aggr.mc
 test/auto_local.mc
 test/ternary_wide.mc
 test/conv.mc
