@@ -36,19 +36,38 @@ w.set_title("Tasks");
 
 Method declarations follow the form `ret (T *receiver).name(params)`. Receivers must be pointers, and both the method definition and target type `T` must reside in the same package. Methods cannot be nested inside functions, combined with `overload`, or overloaded on arity. Method names exist in a per-type namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a struct field, the field wins and the compiler emits a diagnostic.
 
-When calling `expr.name()`, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. A null `T *` is not diagnosed for ordinary method calls; if the method body dereferences it, behavior is the same as any other null pointer in C. Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
+When calling `expr.name()`, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. Calling a method on a null `T *` is a caller error (see below). Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
 
-### Receivers assume a live object
+### Receivers are live, non-null handles
 
-Pointer receivers are ordinary non-null handles, not optional values. Do **not**
-null-check the receiver at the start of a method by default. Treat `T *r` like a
-C parameter the caller must keep valid for the call.
+A method receiver `T *r` is an ordinary pointer parameter with two extra
+rules in the method body (compile errors):
 
-Guard the receiver only when null (or already-closed) is part of the documented
-contract—for example idempotent `close` / `free` (a no-op on null, like
-`free(3)`), or fallible I/O that returns `(…, false)` for a closed handle. Those
-APIs should say so in a comment or package doc. Everyday mutators (`init`,
-`show`, `append`, …) should assume `r` is live and use `r.field` directly.
+1. **No null tests** on the receiver — `r == NULL`, `r != NULL`, `!r`, bare
+   `if (r)`, and other forms that ask whether `r` is null. There is **no
+   opt-out** for `free` / `close`.
+2. **No rebind** — `r = …` (and `++r` / `--r`). Mutating through `r`
+   (`r.field = …`) is fine. (Same idea as `T * const r`.)
+
+Callers must not invoke a method on a null `T *`. That is a caller bug, same
+as passing null into a C API that does not document `free(3)`-style no-ops.
+Idempotent teardown is expressed by an **already-closed object** (for example
+`f.native == NULL` after `close`), not by a null receiver pointer.
+
+Everyday mutators (`init`, `show`, `append`, …) and teardown (`free`,
+`close`) all assume `r` is live and use `r.field` directly. Do not write
+defensive `if (r == NULL) return;` at the start of a method.
+
+```c
+void (File *f).close() {
+	/* if (f == NULL) return;  — error */
+	if (f.native == NULL) {
+		return;   /* already closed / never opened — ok */
+	}
+	/* … */
+	f.native = NULL;
+}
+```
 
 ## Linker Symbol Mangling
 

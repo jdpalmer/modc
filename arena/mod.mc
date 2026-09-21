@@ -9,8 +9,8 @@
 // T[..] fields. Ownership of the bytes is the arena's (convention, like free(3)
 // on a malloc'd char*).
 //
-// Receivers are live handles (see docs/methods.md). Only a.free() accepts a
-// null Arena* (no-op, like free(3)).
+// Receivers are live handles (see docs/methods.md). Do not null-check the
+// receiver; callers must not call methods on a null Arena*.
 import "str";
 
 #include <stddef.h>
@@ -67,11 +67,8 @@ void (Arena* a).init() {
 	a.off = 0;
 }
 
-// Free backing storage. A null receiver is a no-op (like free(3)).
+// Free backing storage. Receiver must be live (see docs/methods.md).
 void (Arena* a).free() {
-	if (a == NULL) {
-		return;
-	}
 	free(a.base);
 	a.base = NULL;
 	a.cap = 0;

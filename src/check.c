@@ -1072,6 +1072,178 @@ check_discard_tuple_func(Compiler* c, Node* fn) {
 	check_discard_tuple_stmt(c, fn->a);
 }
 
+/* ---- method receiver: no null tests, no rebind ---- */
+
+static Symbol*
+method_receiver_param(Compiler* c, Node* fn) {
+	Symbol *fs, *s;
+	const char* rname;
+
+	fs = fn->symbol;
+	if (fs == NULL || !fs->is_method || fs->type == NULL || fs->type->param_names == NULL ||
+	    fs->type->param_names[0] == NULL)
+		return NULL;
+	rname = fs->type->param_names[0];
+	for (s = c->symbols; s; s = s->next) {
+		/* Params are marked dead after the function block closes; still valid. */
+		if (s->owner != fs || s->kind != SkVar || s->storage != StParam)
+			continue;
+		if (s->name && strcmp(s->name, rname) == 0)
+			return s;
+	}
+	return NULL;
+}
+
+static int
+is_receiver_name(Node* n, Symbol* recv) {
+	return n && n->kind == NdName && n->symbol == recv;
+}
+
+static void check_method_recv_expr(Compiler* c, Node* n, Symbol* recv);
+static void check_method_recv_cond(Compiler* c, Node* n, Symbol* recv);
+static void check_method_recv_init(Compiler* c, Initializer* in, Symbol* recv);
+
+// Condition / boolean context: bare receiver is a null test.
+static void
+check_method_recv_cond(Compiler* c, Node* n, Symbol* recv) {
+	if (n == NULL || recv == NULL)
+		return;
+	if (is_receiver_name(n, recv)) {
+		error_at(c, n->span,
+			 "cannot test method receiver '%s' for null; callers must pass a live object",
+			 recv->name);
+		return;
+	}
+	if (n->kind == NdUn && n->op == PnBang && is_receiver_name(n->a, recv)) {
+		error_at(c, n->span,
+			 "cannot test method receiver '%s' for null; callers must pass a live object",
+			 recv->name);
+		return;
+	}
+	if (n->kind == NdBin && (n->op == PnAmpAmp || n->op == PnPipePipe)) {
+		check_method_recv_cond(c, n->a, recv);
+		check_method_recv_cond(c, n->b, recv);
+		return;
+	}
+	if (n->kind == NdCast) {
+		check_method_recv_cond(c, n->a, recv);
+		return;
+	}
+	check_method_recv_expr(c, n, recv);
+}
+
+static void
+check_method_recv_expr(Compiler* c, Node* n, Symbol* recv) {
+	int i;
+
+	if (n == NULL || recv == NULL)
+		return;
+	if (n->kind == NdAssign) {
+		if (is_receiver_name(n->a, recv))
+			error_at(c, n->span,
+				 "cannot rebind method receiver '%s'; mutate through it instead",
+				 recv->name);
+		check_method_recv_expr(c, n->a, recv);
+		check_method_recv_expr(c, n->b, recv);
+		return;
+	}
+	if (n->kind == NdBin && (n->op == PnEqEq || n->op == PnBangEq)) {
+		if ((is_receiver_name(n->a, recv) && is_null_expr(n->b)) ||
+		    (is_receiver_name(n->b, recv) && is_null_expr(n->a)))
+			error_at(c, n->span,
+				 "cannot compare method receiver '%s' to null; callers must pass a live object",
+				 recv->name);
+		check_method_recv_expr(c, n->a, recv);
+		check_method_recv_expr(c, n->b, recv);
+		return;
+	}
+	if (n->kind == NdUn && n->op == PnBang && is_receiver_name(n->a, recv)) {
+		error_at(c, n->span,
+			 "cannot test method receiver '%s' for null; callers must pass a live object",
+			 recv->name);
+		return;
+	}
+	if (n->kind == NdUn && (n->op == PnPlusPlus || n->op == PnMinusMinus) && is_receiver_name(n->a, recv)) {
+		error_at(c, n->span,
+			 "cannot rebind method receiver '%s'; mutate through it instead",
+			 recv->name);
+		return;
+	}
+	if (n->kind == NdPost && is_receiver_name(n->a, recv)) {
+		error_at(c, n->span,
+			 "cannot rebind method receiver '%s'; mutate through it instead",
+			 recv->name);
+		return;
+	}
+	switch (n->kind) {
+	case NdIf:
+	case NdWhile:
+		check_method_recv_cond(c, n->a, recv);
+		check_method_recv_expr(c, n->b, recv);
+		check_method_recv_expr(c, n->c, recv);
+		break;
+	case NdDo:
+		check_method_recv_expr(c, n->a, recv);
+		check_method_recv_cond(c, n->b, recv);
+		break;
+	case NdFor:
+		check_method_recv_expr(c, n->a, recv);
+		check_method_recv_cond(c, n->b, recv);
+		check_method_recv_expr(c, n->c, recv);
+		for (i = 0; i < n->children_len; i++)
+			check_method_recv_expr(c, n->children[i], recv);
+		break;
+	case NdCond:
+		check_method_recv_cond(c, n->a, recv);
+		check_method_recv_expr(c, n->b, recv);
+		check_method_recv_expr(c, n->c, recv);
+		break;
+	case NdBin:
+		if (n->op == PnAmpAmp || n->op == PnPipePipe) {
+			check_method_recv_cond(c, n->a, recv);
+			check_method_recv_cond(c, n->b, recv);
+		} else {
+			check_method_recv_expr(c, n->a, recv);
+			check_method_recv_expr(c, n->b, recv);
+		}
+		break;
+	default:
+		check_method_recv_expr(c, n->a, recv);
+		check_method_recv_expr(c, n->b, recv);
+		check_method_recv_expr(c, n->c, recv);
+		for (i = 0; i < n->children_len; i++)
+			check_method_recv_expr(c, n->children[i], recv);
+		if (n->init)
+			check_method_recv_init(c, n->init, recv);
+		break;
+	}
+}
+
+static void
+check_method_recv_init(Compiler* c, Initializer* in, Symbol* recv) {
+	int i;
+
+	if (in == NULL)
+		return;
+	check_method_recv_expr(c, in->expr, recv);
+	for (i = 0; i < in->items_len; i++)
+		check_method_recv_init(c, &in->items[i], recv);
+}
+
+static void
+check_method_receiver_func(Compiler* c, Node* fn) {
+	Symbol* recv;
+
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL || fn->symbol == NULL)
+		return;
+	if (!fn->symbol->is_method || !user_source(c, fn->span))
+		return;
+	recv = method_receiver_param(c, fn);
+	if (recv == NULL)
+		return;
+	check_method_recv_expr(c, fn->a, recv);
+}
+
 static int global_pointer_constant(Compiler* c, Node* n);
 
 // Recognize the lvalue portion of an address constant.
@@ -1310,6 +1482,7 @@ void type_check_unit(Compiler* c) {
 		check_goto_over_decl(c, c->funcs[i]);
 		check_unseq_func(c, c->funcs[i]);
 		check_discard_tuple_func(c, c->funcs[i]);
+		check_method_receiver_func(c, c->funcs[i]);
 		check_unused_func(c, c->funcs[i]);
 	}
 }
