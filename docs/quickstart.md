@@ -307,7 +307,7 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts.
 
-- **No Unnecessary Casts**: A cast is a compile-time error when removing it preserves the value and %C would perform the same conversion at an assignment, initializer, return, or fixed-parameter boundary. Same-type arithmetic casts are also rejected. Casts that control arithmetic, signedness, enum operations, overload selection, vararg ABI, pointer provenance, or intentional `(void)` discards remain valid.
+- **No Unnecessary Casts**: A cast is a compile-time error when removing it preserves the value and %C would perform the same conversion at an assignment, initializer, return, or fixed-parameter boundary. Same-type arithmetic casts are rejected, as are narrow integer casts of literals that already fit (e.g. `(char)0x80` in comparisons — `char` is unsigned and promotes back to `int`). Casts that control arithmetic width, signedness, enum operations, overload selection, vararg ABI, pointer provenance, or intentional `(void)` discards remain valid.
 
 ## Guidelines & Best Practices
 

@@ -892,7 +892,15 @@ check_unnecessary_cast(Compiler* c, Type* expected, Node* n) {
 	if (!is_arith(to) || !is_arith(from))
 		return;
 	if (expected == NULL) {
-		if (!type_eq(to, from))
+		if (type_eq(to, from))
+			; /* same-type cast is always unnecessary */
+		else if (n->a->kind == NdLit && is_int(to) && is_int(from) &&
+			 to->kind != TyEnum && from->kind != TyEnum &&
+			 to->size < c->type_int->size &&
+			 cast_value_preserving(to, from, n->a))
+			/* (char)0x80 etc.: fits, then integer-promotes back to int */
+			;
+		else
 			return;
 	} else {
 		if (!is_arith(expected) ||
