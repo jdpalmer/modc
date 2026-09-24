@@ -71,6 +71,7 @@ struct InlineCtx {
 
 static FILE* outf;
 static int tempno, lblno;
+static int curlbl; /* most recent @LN; phi preds must use the arm's exit block */
 static const char* emit_str_symbol = "__string"; /* QBE data symbol for string pool */
 static const char* emit_pkg_filter; /* non-NULL during emit_qbe_pkg */
 static Symbol** locals;
@@ -124,6 +125,7 @@ newlbl(void) {
 // Emit a QBE label definition.
 static void
 emitlbl(int id) {
+	curlbl = id;
 	fprintf(outf, "@L%d\n", id);
 }
 
@@ -2223,11 +2225,14 @@ emitexpr(Compiler* c, Node* n) {
 		r = emitexpr(c, n->b);
 		if (r.cls != cls && r.cls != '@')
 			r = coerce(r, cls, n->type);
+		/* Arm may open new blocks (inline/call); phi preds are exit blocks. */
+		ttrue = curlbl;
 		emitjmp(tjoin);
 		emitlbl(tfalse);
 		l = emitexpr(c, n->c);
 		if (l.cls != cls && l.cls != '@')
 			l = coerce(l, cls, n->type);
+		tfalse = curlbl;
 		emitjmp(tjoin);
 		emitlbl(tjoin);
 		v = vtmp(cls, n->type);
@@ -2911,6 +2916,7 @@ emitfunc(Compiler* c, Node* fn) {
 	ret = ty ? ty->base : c->type_int;
 	tempno = 0;
 	lblno = 0;
+	curlbl = 0;
 	locals_len = 0;
 	loops_len = 0;
 	defers_len = 0;
