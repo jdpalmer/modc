@@ -81,9 +81,10 @@ Functions in %C can return multiple values as tuples. Destructuring syntax allow
 
 auto n = 3;
 auto (v, ok) = parse(5);
+auto (doubled, _) = parse(3);  /* `_` ignores a slot; no local */
 ```
 
-In this example, `n` is inferred as an integer, while `parse(5)` returns a two-value tuple containing a result and a status flag. The `auto (v, ok)` statement infers the respective type for each field and binds them to `v` and `ok`. This pattern avoids the need for out-parameters or explicit struct definitions when returning multiple values.
+In this example, `n` is inferred as an integer, while `parse(5)` returns a two-value tuple containing a result and a status flag. The `auto (v, ok)` statement infers the respective type for each field and binds them to `v` and `ok`. Use `_` to ignore selected slots without creating a variable (repeatable). Discarding an entire tuple return still requires `(void)parse(1);`. This pattern avoids the need for out-parameters or explicit struct definitions when returning multiple values.
 
 ### Arrays
 

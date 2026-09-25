@@ -1560,8 +1560,11 @@ parse_destruct_decl(Compiler* c, Span sp, int allauto) {
 	node_add(outer, d);
 
 	for (i = 0, f = tuplety->fields; f && i < n; i++, f = f->next) {
+		/* `_` is a destructure-only blank: no local, repeats allowed. */
+		if (binds[i].name && strcmp(binds[i].name, "_") == 0)
+			continue;
 		vt = allauto ? f->type : binds[i].type;
-		if (!allauto && vt && f->type && !conv_implicit_ok(c, vt, f->type, dot))
+		if (!allauto && vt && f->type && !conv_implicit_ok(c, vt, f->type, NULL))
 			error_at(c, sp, "destructuring type mismatch for %s", binds[i].name);
 		vsym = symbol_define(c, binds[i].name, SkVar, vt ? vt : f->type, StLocal, sp);
 		dot = node1(NdDot, sp, mknames(tmp, sp));

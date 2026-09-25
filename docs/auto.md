@@ -44,13 +44,14 @@ Tuple operations follow a straightforward syntax across declarations, returns, a
 | **`(T1, T2) f(...)`**     | Declares a function returning a tuple.                               |
 | **`return (a, b);`**      | Constructs and returns a tuple value.                                |
 | **`auto (x, y) = f();`**  | Destructures a returned tuple into inferred local variables.         |
+| **`auto (x, _) = f();`**  | Ignores a slot; `_` is blank (no local; may repeat).                  |
 | **`(T1 x, T2 y) = f();`** | Destructures a returned tuple into explicitly typed local variables. |
 
 Under the hood, tuple values lower to unnamed aggregate structs that conform to the target platform's struct-return ABI, matching the runtime performance of out-pointer parameters.
 
 ## Enforcement and Declarator Rules
 
-Discarding a tuple return value at a call site is a compile-time error. If ignoring a returned tuple is deliberate, the expression must be explicitly cast to `(void)parse(1);`.
+Discarding a tuple return value at a call site is a compile-time error. If ignoring a returned tuple is deliberate, the expression must be explicitly cast to `(void)parse(1);`. To keep some values and ignore others, use `_` in the destructuring list (`auto (v, _) = parse(1);`). `_` is special only in destructure bindings — elsewhere it is an ordinary identifier.
 
 While multi-declarator statements like `int a, b;` are rejected in user source code to enforce single declarations, tuple destructuring statements such as `auto (a, b) = f();` are recognized as a single destructuring statement rather than a declarator list. Standard parameter lists like `int f(int a, int b)` remain unaffected.
 

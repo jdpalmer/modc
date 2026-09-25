@@ -36,3 +36,18 @@ int use_maybe_fail() {
 	}
 	return v;
 }
+
+int use_blank_ok() {
+	auto (v, _) = maybe(7);
+	return v;
+}
+
+int use_blank_both() {
+	auto (_, _) = maybe(1);
+	return 0;
+}
+
+int use_blank_explicit() {
+	(int v, bool _) = maybe(4);
+	return v;
+}
