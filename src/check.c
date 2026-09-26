@@ -1412,33 +1412,45 @@ check_emitter_limits(Compiler* c) {
 /* ---- type_check_unit ---- */
 
 // True if t (or any nested component) is a package-private type.
+// Self-referential pointer layouts (T* / T** fields) must not recurse forever.
 static int
-type_mentions_pkg_private(Type* t) {
+type_mentions_pkg_private_rec(Type* t, Type** stack, int depth) {
 	int i;
+	Field* f;
 
 	if (t == NULL)
 		return 0;
+	for (i = 0; i < depth; i++) {
+		if (stack[i] == t)
+			return 0;
+	}
 	if (t->pkg_private)
 		return 1;
-	if (t->base && type_mentions_pkg_private(t->base))
+	if (depth >= 64)
+		return 0;
+	stack[depth] = t;
+	if (t->base && type_mentions_pkg_private_rec(t->base, stack, depth + 1))
 		return 1;
 	if (t->kind == TyFunc) {
-		if (type_mentions_pkg_private(t->base))
-			return 1;
 		for (i = 0; i < t->params_len; i++) {
-			if (type_mentions_pkg_private(t->params[i]))
+			if (type_mentions_pkg_private_rec(t->params[i], stack, depth + 1))
 				return 1;
 		}
 	}
 	if ((t->kind == TyStruct || t->kind == TyUnion) && t->fields) {
-		Field* f;
-
 		for (f = t->fields; f; f = f->next) {
-			if (type_mentions_pkg_private(f->type))
+			if (type_mentions_pkg_private_rec(f->type, stack, depth + 1))
 				return 1;
 		}
 	}
 	return 0;
+}
+
+static int
+type_mentions_pkg_private(Type* t) {
+	Type* stack[64];
+
+	return type_mentions_pkg_private_rec(t, stack, 0);
 }
 
 // Public API must not mention package-private types.

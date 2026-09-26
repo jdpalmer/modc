@@ -1,7 +1,7 @@
 /*
  * <math.h> for %C — declaration-only; host libm at link (-lm / libSystem).
- * Skipped: long double; _Float16 / half-precision (Apple SDK); complex.
- * Prefer this stub over the system math.h (which may use _Float16).
+ * Skipped: long double; _Float16 / half-precision (Apple SDK); complex;
+ * type-generic fpclassify/signbit (use isnan/isinf/isfinite macros).
  */
 #pragma once
 
@@ -147,4 +147,12 @@ float fminf(float x, float y);
 double fma(double x, double y, double z);
 float fmaf(float x, float y, float z);
 
-/* Classification (isnan/isinf/…) is macro-heavy on host; omit as link symbols. */
+/*
+ * Classification as expression macros (host libm often uses builtins /
+ * type-generic macros that are not stable link symbols under %C).
+ * Works for float and double operands.
+ */
+#define isnan(x) ((x) != (x))
+#define isinf(x) (!isnan(x) && isnan((x) - (x)))
+#define isfinite(x) (!isnan(x) && !isnan((x) - (x)))
+

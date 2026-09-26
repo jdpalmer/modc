@@ -35,5 +35,17 @@ int math_hdr_run() {
 	if (M_PI < 3.14 || M_PI > 3.15) {
 		return 9;
 	}
+	if (!isfinite(1.0) || !isfinite(0.0)) {
+		return 10;
+	}
+	if (isfinite(INFINITY) || isfinite(NAN)) {
+		return 11;
+	}
+	if (!isinf(INFINITY) || isinf(1.0)) {
+		return 12;
+	}
+	if (!isnan(NAN) || isnan(0.0)) {
+		return 13;
+	}
 	return 0;
 }

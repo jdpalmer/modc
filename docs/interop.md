@@ -57,7 +57,8 @@ stub when a package needs a new call; use `#pragma modc c_sources(...)` for larg
 native code. Parsing full installed Windows/GTK SDK trees is **not** a goal—
 stubs plus ordinary C headers are the supported surface. In particular, do not
 `#include` the system `<math.h>` on Apple (it uses `_Float16`); use the curated
-stub and `#pragma modc c_libs(m)` when linking.
+stub and `#pragma modc c_libs(m)` when linking. Classification helpers
+`isnan` / `isinf` / `isfinite` are expression macros in the stub.
 
 The preprocessor supports the usual `#define` / `#include` / `#if` subset used by
 most headers (including correct `|` / `^` / `&` and relational vs equality
