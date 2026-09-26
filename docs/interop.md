@@ -46,16 +46,18 @@ To integrate external code, use `import` for pure %C packages while reserving `#
 
 `modc` ships curated headers under `lib/modc/include` (in-tree: `src/host/include`).
 They are searched **before** host system include paths, so `#include <stdint.h>`,
-`#include <unistd.h>`, or `#include <windows.h>` resolve to the stub, then link
-against the real libc or `kernel32`.
+`#include <unistd.h>`, `#include <math.h>`, or `#include <windows.h>` resolve to
+the stub, then link against the real libc, libm, or `kernel32`.
 
-The stubs are a **deliberate subset**: freestanding/hosted C (`stdio`, `stdlib`, …),
-POSIX pieces needed by the `fs` / `os` packages (`unistd`, `fcntl`, `sys/stat`,
-`dirent`, `poll`, `time`, `sys/wait`, `signal`), and a thin Win32 surface
-(`windows.h` with the `*A` APIs those packages call). Prefer growing a stub
-when a package needs a new call; use `#pragma modc c_sources(...)` for large
+The stubs are a **deliberate subset**: freestanding/hosted C (`stdio`, `stdlib`,
+`math`, …), POSIX pieces needed by the `fs` / `os` packages (`unistd`, `fcntl`,
+`sys/stat`, `dirent`, `poll`, `time`, `sys/wait`, `signal`), and a thin Win32
+surface (`windows.h` with the `*A` APIs those packages call). Prefer growing a
+stub when a package needs a new call; use `#pragma modc c_sources(...)` for large
 native code. Parsing full installed Windows/GTK SDK trees is **not** a goal—
-stubs plus ordinary C headers are the supported surface.
+stubs plus ordinary C headers are the supported surface. In particular, do not
+`#include` the system `<math.h>` on Apple (it uses `_Float16`); use the curated
+stub and `#pragma modc c_libs(m)` when linking.
 
 The preprocessor supports the usual `#define` / `#include` / `#if` subset used by
 most headers (including correct `|` / `^` / `&` and relational vs equality

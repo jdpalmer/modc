@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
+#include <math.h>
 
 struct Pair {
 	int32_t x;
