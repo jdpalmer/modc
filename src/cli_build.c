@@ -5,6 +5,9 @@
  */
 #include "cli.h"
 #include <time.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 enum { MaxForeignObj = 64,
        MaxCachePkgs = 64 };
@@ -417,22 +420,68 @@ tool_cc(Compiler* c) {
 #endif
 }
 
-// Path to the qbe binary (MODC_QBE or qbe/qbe.exe).
+// True if path is a regular file we can execute.
+static int
+tool_is_exe(const char* path) {
+	if (!host_is_file(path))
+		return 0;
+#ifdef _WIN32
+	return 1;
+#else
+	return access(path, X_OK) == 0;
+#endif
+}
+
+// Path to the qbe binary (MODC_QBE or a real file on disk / PATH).
 static const char*
 tool_qbe(void) {
 	const char* q;
+	static char pathbuf[HOST_PATH_MAX];
+	static const char* abs_cands[] = {
+		"/opt/homebrew/bin/qbe",
+		"/usr/local/bin/qbe",
+		NULL
+	};
+	int i;
+	const char* path;
+	char piece[HOST_PATH_MAX];
+	size_t n;
 
 	q = getenv("MODC_QBE");
-	if (q && q[0])
-		return q;
+	if (q && q[0]) {
+		if (tool_is_exe(q))
+			return q;
+		fprintf(stderr, "modc: MODC_QBE=%s is not an executable file\n", q);
+		return NULL;
+	}
 #ifdef _WIN32
 	if (host_is_file("qbe.exe"))
 		return "qbe.exe";
 	if (host_is_file("./qbe.exe"))
 		return "./qbe.exe";
 #endif
-	if (host_is_file("/opt/homebrew/bin/qbe"))
-		return "/opt/homebrew/bin/qbe";
+	for (i = 0; abs_cands[i]; i++) {
+		if (tool_is_exe(abs_cands[i]))
+			return abs_cands[i];
+	}
+	path = getenv("PATH");
+	if (path) {
+		for (;;) {
+			n = 0;
+			while (path[n] && path[n] != ':')
+				n++;
+			if (n > 0 && n < sizeof(piece)) {
+				memcpy(piece, path, n);
+				piece[n] = 0;
+				snprintf(pathbuf, sizeof(pathbuf), "%s/qbe", piece);
+				if (tool_is_exe(pathbuf))
+					return pathbuf;
+			}
+			if (path[n] == 0)
+				break;
+			path += n + 1;
+		}
+	}
 	return "qbe";
 }
 
@@ -1048,6 +1097,8 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 	if (c->error_count)
 		return 1;
 	argv[0] = tool_qbe();
+	if (argv[0] == NULL)
+		return 1;
 	argv[1] = "-t";
 	argv[2] = tool_qbe_target(c);
 	argv[3] = "-o";

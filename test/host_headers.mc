@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <unistd.h>
 #include <assert.h>
 #include <math.h>
 
@@ -68,6 +69,9 @@ int host_headers() {
 	errno = EINVAL;
 	if (errno != EINVAL) {
 		return 13;
+	}
+	if (environ == NULL) {
+		return 14;
 	}
 	assert(1);
 	return 0;

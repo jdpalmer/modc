@@ -30,6 +30,15 @@ extern FILE *__stderrp;
 #define stdin __stdinp
 #define stdout __stdoutp
 #define stderr __stderrp
+#elif defined(_WIN32)
+/* PE: QBE amd64_win cannot take the address of dllimport data; use UCRT
+ * accessors (same as MinGW/MSVC headers) so stdin/out/err are calls.
+ * Related: errno → *_errno(), environ → *__p__environ(); see docs/interop.md
+ * for other CRT globals not yet stubbed. */
+FILE *__acrt_iob_func(unsigned index);
+#define stdin (__acrt_iob_func(0))
+#define stdout (__acrt_iob_func(1))
+#define stderr (__acrt_iob_func(2))
 #else
 extern FILE *stdin;
 extern FILE *stdout;

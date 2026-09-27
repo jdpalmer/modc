@@ -11,6 +11,7 @@ int *__error(void);
 int *__errno_location(void);
 #define errno (*__errno_location())
 #elif defined(_WIN32)
+/* PE: errno is TLS via accessor, not a dllimport int (see docs/interop.md). */
 int *_errno(void);
 #define errno (*_errno())
 #else

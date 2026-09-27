@@ -2,6 +2,9 @@
  * CLI subcommands: check, emit, build, run, test, doc, format, clean.
  */
 #include "cli.h"
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 // modc check: typecheck one or more roots without codegen.
 int
@@ -97,29 +100,88 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 	return r;
 }
 
+// True if path is an existing executable file (follows symlinks).
+static int
+wine_is_bin(const char* path) {
+	if (path == NULL || path[0] == 0 || !host_is_file(path))
+		return 0;
+#ifdef _WIN32
+	return 1;
+#else
+	return access(path, X_OK) == 0;
+#endif
+}
+
+// Search PATH for an executable name; result in out (HOST_PATH_MAX).
+static int
+wine_find_on_path(const char* name, char* out, size_t outn) {
+	const char* path;
+	char piece[HOST_PATH_MAX];
+	size_t i;
+
+	if (name == NULL || out == NULL || outn == 0)
+		return 0;
+	path = getenv("PATH");
+	if (path == NULL)
+		return 0;
+	for (;;) {
+		i = 0;
+		while (path[i] && path[i] != ':')
+			i++;
+		if (i > 0 && i < sizeof(piece)) {
+			memcpy(piece, path, i);
+			piece[i] = 0;
+			snprintf(out, outn, "%s/%s", piece, name);
+			if (wine_is_bin(out))
+				return 1;
+		}
+		if (path[i] == 0)
+			break;
+		path += i + 1;
+	}
+	return 0;
+}
+
 // Resolve CrossOver/Wine for running PE on a non-Windows host.
+// Prefer CrossOver, then Homebrew/prefix wine, then PATH — never a bare name
+// that might hang spawn when missing.
 static const char*
 tool_wine(void) {
 	const char* w;
-	static const char* cands[] = {
+	static char pathbuf[HOST_PATH_MAX];
+	static const char* abs_cands[] = {
+		/* CrossOver first on macOS */
 		"/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine",
-		"/usr/local/bin/wine64",
+		/* Homebrew / local Wine */
 		"/opt/homebrew/bin/wine64",
-		"wine64",
-		"wine",
+		"/opt/homebrew/bin/wine",
+		"/usr/local/bin/wine64",
+		"/usr/local/bin/wine",
 		NULL
 	};
+	static const char* path_names[] = { "wine64", "wine", NULL };
 	int i;
 
 	w = getenv("MODC_WINE");
-	if (w && w[0])
-		return w;
-	for (i = 0; cands[i]; i++) {
-		if (strchr(cands[i], '/')) {
-			if (host_is_file(cands[i]))
-				return cands[i];
-		} else
-			return cands[i];
+	if (w && w[0]) {
+		if (wine_is_bin(w))
+			return w;
+		fprintf(stderr, "modc: MODC_WINE=%s is not an executable file\n", w);
+		return NULL;
+	}
+	w = getenv("CX_ROOT");
+	if (w && w[0]) {
+		snprintf(pathbuf, sizeof(pathbuf), "%s/bin/wine", w);
+		if (wine_is_bin(pathbuf))
+			return pathbuf;
+	}
+	for (i = 0; abs_cands[i]; i++) {
+		if (wine_is_bin(abs_cands[i]))
+			return abs_cands[i];
+	}
+	for (i = 0; path_names[i]; i++) {
+		if (wine_find_on_path(path_names[i], pathbuf, sizeof(pathbuf)))
+			return pathbuf;
 	}
 	return NULL;
 }
@@ -168,7 +230,8 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 		wine = tool_wine();
 		if (wine == NULL) {
 			fprintf(stderr,
-				"modc: --target=windows: set MODC_WINE or install CrossOver/Wine to run\n");
+				"modc: --target=windows: no Wine runner found\n"
+				"  install CrossOver or Homebrew wine, or set MODC_WINE to the wine binary\n");
 			cleanup_tmpdir(dir);
 			return 1;
 		}

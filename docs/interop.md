@@ -60,6 +60,19 @@ stubs plus ordinary C headers are the supported surface. In particular, do not
 stub and `#pragma modc c_libs(m)` when linking. Classification helpers
 `isnan` / `isinf` / `isfinite` are expression macros in the stub.
 
+On Windows (`--target=windows` / `_WIN32`), some CRT “globals” are not
+dllimport data — QBE `amd64_win` would emit `__imp_*` loads that MinGW/UCRT
+do not provide. Stubs mirror MinGW/MSVC accessors instead:
+
+- `stdin` / `stdout` / `stderr` → `__acrt_iob_func(0|1|2)` (`stdio.h`)
+- `errno` → `*_errno()` (`errno.h`)
+- `environ` → `*__p__environ()` (`unistd.h`)
+
+**Not stubbed yet** (same accessor pattern if ever exposed): `_fmode`,
+`_pgmptr`, `_doserrno`, `_sys_nerr` / `_sys_errlist`, and the deprecated
+`daylight` / `timezone` / `tzname` time globals. Prefer Win32 APIs or
+`getenv` until a package needs those names.
+
 The preprocessor supports the usual `#define` / `#include` / `#if` subset used by
 most headers (including correct `|` / `^` / `&` and relational vs equality
 precedence). Obscure or SDK-only preprocessor features are out of scope; extend

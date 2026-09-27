@@ -39,4 +39,12 @@ pid_t getpid(void);
 #define STDERR_FILENO 2
 #endif
 
+#ifdef _WIN32
+/* PE: environ is not dllimport data (same class as stdin/err); UCRT accessor.
+ * Deferred if ever stubbed: _fmode, _pgmptr, _doserrno, _sys_nerr/_sys_errlist,
+ * daylight/timezone/tzname — see docs/interop.md. */
+char ***__p__environ(void);
+#define environ (*__p__environ())
+#else
 extern char **environ;
+#endif

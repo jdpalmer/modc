@@ -569,6 +569,7 @@ discover_windows_sysincludes(Compiler* c, int verbose) {
 #endif
 
 // Resolve host system includes (MODC_SYSINCLUDE / platform defaults).
+// Cross targets skip host SDK -I (Darwin headers poison LLP64 Windows builds).
 static void
 discover_sysincludes(Compiler* c, int verbose) {
 	const char* env;
@@ -583,6 +584,25 @@ discover_sysincludes(Compiler* c, int verbose) {
 	env = getenv("MODC_SYSROOT");
 	if (env && env[0]) {
 		add_sysroot_includes(c, env);
+		return;
+	}
+	/* --target=windows|linux|macos: only add includes matching that OS. */
+	if (c->target == TargetWindows) {
+#ifdef _WIN32
+		discover_windows_sysincludes(c, verbose);
+#endif
+		return;
+	}
+	if (c->target == TargetMacos) {
+#ifdef __APPLE__
+		discover_macos_sysincludes(c, verbose);
+#endif
+		return;
+	}
+	if (c->target == TargetLinux) {
+#ifdef __linux__
+		discover_linux_sysincludes(c, verbose);
+#endif
 		return;
 	}
 #ifdef __APPLE__

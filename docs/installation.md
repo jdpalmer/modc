@@ -102,8 +102,12 @@ modc run --target=windows app.mc
 `MODC_CC`, `MODC_QBE_TARGET`, and `MODC_WINE` still override the defaults.
 `--target=windows` selects QBE `amd64_win`, MinGW assemble/link, Win macros
 (`_WIN32` / `_WIN64`, not `__APPLE__`), LLP64 `long` (4 bytes), and `.exe` naming.
-`modc run --target=windows` launches the PE under CrossOver/Wine (`CX_BOTTLE=modc-win64`
-when that bottle exists).
+Host SDK `-I` paths are omitted (curated stubs only). `modc run --target=windows`
+looks for a runner in order: `MODC_WINE`, CrossOver.app, Homebrew
+(`/opt/homebrew` / `/usr/local`) `wine64`/`wine`, then `PATH` — and errors if none
+exist (no bare-name spawn). Default bottle: `CX_BOTTLE=modc-win64` when present.
+Win32 CRT stream/`errno`/`environ` accessors are documented under
+[interop.md](interop.md) (Hosted include stubs).
 
 Prefer fixed-width types (`int64_t`, stub `size_t`) in portable code. See
 [interop.md](interop.md) and [roadmap.md](roadmap.md).
