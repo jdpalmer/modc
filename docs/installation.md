@@ -88,15 +88,22 @@ For a more complete guide on getting started with %C, please refer to [`quicksta
 
 ## Cross-compile Win64 from macOS (MinGW + CrossOver)
 
+Prerequisites: `x86_64-w64-mingw32-gcc` (e.g. `brew install mingw-w64`), `qbe`
+with `amd64_win`, and either [CrossOver](https://www.codeweavers.com/) or
+Homebrew `wine`/`wine64`.
+
 ```sh
-# once: 64-bit bottle (32-bit bottles cannot run PE32+)
-./scripts/cross-win64.sh bottle   # or: cxbottle --bottle modc-win64 --create --template win10_64
+# once: 64-bit CrossOver bottle (32-bit bottles cannot run PE32+)
+CX=/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin
+"$CX/cxbottle" --bottle modc-win64 --create --template win10_64 \
+	--description "modc Win64 smoke"
 
 modc build --target=windows -o app.exe app.mc
 file app.exe   # PE32+ executable (console) x86-64, for MS Windows
 
 modc run --target=windows app.mc
-# or: ./scripts/cross-win64.sh run ./app.exe
+# or run an existing PE under CrossOver:
+#   CX_BOTTLE=modc-win64 WINEDEBUG=-all "$CX/wine" ./app.exe
 ```
 
 `MODC_CC`, `MODC_QBE_TARGET`, and `MODC_WINE` still override the defaults.
