@@ -117,4 +117,4 @@ Win32 CRT stream/`errno`/`environ` accessors are documented under
 [interop.md](interop.md) (Hosted include stubs).
 
 Prefer fixed-width types (`int64_t`, stub `size_t`) in portable code. See
-[interop.md](interop.md) and [roadmap.md](roadmap.md).
+[interop.md](interop.md).

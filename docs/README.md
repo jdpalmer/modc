@@ -40,5 +40,3 @@ Start with [Installation](installation.md) and the [Quickstart](quickstart.md).
 | Document | Description |
 | -------- | ----------- |
 | [Architecture](architecture.md) | Compiler pipeline and layout of `src/` |
-| [Debt](debt.md) | Dual C-header dialect cost / LOC estimate (internal) |
-| [Roadmap](roadmap.md) | Working plan (internal; do not link from user docs) |
