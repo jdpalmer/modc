@@ -1,0 +1,33 @@
+/* Portable test (was method_ranged_ret.mc + method_ranged_ret_main.c). */
+#include <assert.h>
+
+/* Methods may return ranged slices: T[..] (Recv *r).name(...). */
+typedef struct Line {
+	char buf[8];
+	int n;
+}
+Line;
+
+char[..] (Line* l).view() {
+	return ranged(l.buf, l.n);
+}
+
+int method_ranged_ret_run() {
+	Line line = { 0 };
+	char[..] v = { 0 };
+	line.buf[0] = 'a';
+	line.buf[1] = 'b';
+	line.n = 2;
+	v = line.view();
+	if (len(v) != 2) {
+		return 1;
+	}
+	if (v[0] != 'a' || v[1] != 'b') {
+		return 2;
+	}
+	return 0;
+}
+
+int main() {
+	return method_ranged_ret_run();
+}

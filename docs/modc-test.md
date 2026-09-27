@@ -1,14 +1,21 @@
 # Testing
 
-`modc test` is the test runner for %C project packages. It discovers `*_test.mc`
-files, builds each file as an independent executable defining its own `main`
-function, and reports test status as `ok` or `FAIL`. All standard package
-mechanics—such as `import`, `#pragma modc c_libs`, and `-M` search paths—apply
-during compilation exactly as they do in `modc build`.
+`modc test` is the portable test runner for %C. It discovers `*_test.mc`
+files, builds each as an independent executable (same pipeline as `modc run` /
+`modc build`), and reports `ok` or `FAIL`. All package mechanics—`import`,
+`#pragma modc c_libs`, `-M` search paths, `--target`—apply as in a normal build.
 
-For compiler toolchain development, `modc test --corpus` serves as a wrapper
-around `make check`. Standard project testing should use `modc test` without
-flags.
+Compiler-tree CI uses three layers:
+
+1. **Portable** — `MODC_NO_SYSTEM_INCLUDES=1 ./modc test test` (immediate
+   `test/*_test.mc`; works with `--target=windows` via Wine/CrossOver when
+   tools are installed). Argv-sensitive cases live under `test/special/`.
+2. **Corpus** — `scripts/check-corpus.sh` → expect-fail / check-ok needles, plus
+   remaining emit+host-`cc` drivers (C-ABI interop, `.qbe.expect`, `.env`).
+3. **Special** — `make check-special` → vendor, CLI, and argv-sensitive cases.
+
+`modc test --corpus` still runs `make check` (all three layers). Prefer
+`modc test` without `--corpus` for ordinary package work.
 
 ## Writing tests
 
@@ -59,12 +66,14 @@ is an error.
 
 ```sh
 ./modc test -M test test/testdriver
-./modc test --corpus                 # make check (compiler tree)
+./modc test --target=windows test/add_test.mc   # CrossOver/Wine when available
+./modc test --corpus                             # make check (compiler tree)
 ```
 
 Supported build flags include `-D`, `-I`, `-M`, `-F`, `--no-system-includes`,
-`-v`, and `-h`. Arguments placed after `--` are passed directly to each test
-binary at runtime (similar to `modc run`) rather than to the compiler or linker.
+`--target`, `-v`, and `-h`. Arguments placed after `--` are passed directly to
+each test binary at runtime (similar to `modc run`) rather than to the compiler
+or linker.
 
 ### Output and exit status
 

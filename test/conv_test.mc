@@ -1,0 +1,60 @@
+/* Portable test (was conv.mc + conv_main.c). */
+#include <assert.h>
+
+#include <stdint.h>
+
+/* Strict conversions: widening and void* stay implicit; narrowing needs cast. */
+
+int narrow_ok(int64_t y) {
+	char z = { 0 };
+	z = (char)y;
+	return z;
+}
+
+void* void_ptr_ok(void* p) {
+	int* q = { 0 };
+	q = p;
+	return q;
+}
+
+int widen_ok() {
+	int64_t x = { 0 };
+	int n = { 0 };
+	n = 3;
+	x = n;
+	return (int)x;
+}
+
+int malloc_style() {
+	int* p = { 0 };
+	p = 0;
+	return p != 0;
+}
+
+int char_lit_ok() {
+	char a = { 0 };
+	char z = { 0 };
+	char buf[4] = { 0 };
+	a = 'a';
+	z = '\0';
+	buf[0] = '\0';
+	return (int)a + (int)z + (int)buf[0];
+}
+
+int int_lit_fit() {
+	short s = { 0 };
+	unsigned short us = { 0 };
+	char b = { 0 };
+	s = 7;
+	us = 8;
+	b = 97;
+	return (int)s + (int)us + (int)b;
+}
+
+int main() {
+	assert_eq(narrow_ok(7), 7);
+	assert_eq(widen_ok(), 3);
+	assert_eq(char_lit_ok(), 'a');
+	assert_eq(int_lit_fit(), 112);
+	return 0;
+}

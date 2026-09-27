@@ -1,0 +1,64 @@
+/* Portable test (was auto_local.mc + auto_local_main.c). */
+#include <assert.h>
+
+/* auto for initialized locals: type inferred from initializer (with decay). */
+
+int infer_int() {
+	auto n = 3;
+	return n;
+}
+
+double infer_double() {
+	auto q = 1.0;
+	return q;
+}
+
+void* infer_ptr(void* p) {
+	auto r = p;
+	return r;
+}
+
+int infer_array_decay() {
+	int a[4] = { 0 };
+	auto p = a;
+	a[0] = 10;
+	a[1] = 20;
+	return p[0] + p[1];
+}
+
+int infer_ranged() {
+	int a[3] = { 0 };
+	int[..] s = { 0 };
+	int sum = { 0 };
+	int i = { 0 };
+	a[0] = 1;
+	a[1] = 2;
+	a[2] = 3;
+	s = a;
+	sum = 0;
+	for (i = 0; i < (int)len(s); i++) {
+		sum = sum + s[i];
+	}
+	return sum;
+}
+
+int infer_char_ptr() {
+	auto msg = "hi";
+	return (int)msg[0] + (int)msg[1];
+}
+
+int main() {
+	int a[2] = { 0 };
+	void *p = { 0 };
+
+	a[0] = 1;
+	a[1] = 2;
+	p = a;
+	assert_eq(infer_int(), 3);
+	assert_eq(infer_double(), 1.0);
+	assert_eq(infer_ptr(p), p);
+	assert_eq(infer_array_decay(), 30);
+	assert_eq(infer_ranged(), 6);
+	assert_eq(infer_char_ptr(), 'h' + 'i');
+	return 0;
+}

@@ -3398,13 +3398,21 @@ reset_su_ids(Compiler* c) {
 }
 
 // True if n's defining file belongs to package directory pkg_dir.
+// Header-instantiated symbols use Symbol.home (the including .mc), so
+// static helpers from stubs like assert.h emit into the caller's package .o.
 static int
 node_in_pkg(Node* n, const char* pkg_dir) {
 	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], want[HOST_PATH_MAX];
+	const char* file;
 
-	if (n == NULL || pkg_dir == NULL || n->span.file == NULL)
+	if (n == NULL || pkg_dir == NULL)
 		return 0;
-	pkg_file_root(n->span.file, root, sizeof(root));
+	file = n->span.file;
+	if (n->symbol && n->symbol->home && n->symbol->home[0])
+		file = n->symbol->home;
+	if (file == NULL)
+		return 0;
+	pkg_file_root(file, root, sizeof(root));
 	if (host_abspath(root, abs, sizeof(abs)) == 0)
 		snprintf(root, sizeof(root), "%s", abs);
 	snprintf(want, sizeof(want), "%s", pkg_dir);

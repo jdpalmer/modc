@@ -1,0 +1,34 @@
+/* Portable test (was static_assert.mc + static_assert_main.c). */
+#include <assert.h>
+
+/* static_assert / _Static_assert — compile-time checks via eval_const. */
+
+struct Point {
+	int x;
+	int y;
+};
+
+enum Color {
+	COLOR_RED,
+	COLOR_GREEN,
+	COLOR_BLUE
+};
+
+static_assert(sizeof(Point) == 8, "Point layout");
+static_assert((int)COLOR_BLUE == 2);
+_Static_assert(1 + 1 == 2, "arith");
+
+int in_block() {
+	static_assert(sizeof(int) == 4);
+	return 0;
+}
+
+int ok() {
+	return in_block() == 0 && sizeof(Point) == 8;
+}
+
+int main() {
+	assert(ok());
+
+	return 0;
+}

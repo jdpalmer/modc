@@ -64,6 +64,7 @@ $(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h
 
 check: $(MODC)
 	@mkdir -p $(BUILD)
+	MODC_NO_SYSTEM_INCLUDES=1 ./modc test test
 	./scripts/check-corpus.sh
 	@$(MAKE) --no-print-directory check-special
 
@@ -219,8 +220,8 @@ endif
 	./modc run test/cli_build.mc
 	./modc run test/stdio_smoke.mc
 	./modc run test/cli_dirbuild
-	./modc run test/cli_args_test.mc -- a b
-	./modc test test/cli_args_test.mc -- a b
+	./modc run test/special/cli_args_test.mc -- a b
+	./modc test test/special/cli_args_test.mc -- a b
 	./scripts/check-limits.sh
 	./modc build -Ftest/fwk_root test/fwk_include.mc -o $(BUILD)/fwk_include-bin
 	$(BUILD)/fwk_include-bin
