@@ -36,6 +36,7 @@ tags.json
 *.swp
 *.swo
 .cache/
+.cursor/
 
 # Internal
 docs/roadmap.md
