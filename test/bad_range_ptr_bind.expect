@@ -1,1 +1,0 @@
-F:range-for pointer binding requires contiguous elements; use by-value for range_at-only types

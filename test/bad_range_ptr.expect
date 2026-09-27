@@ -1,1 +1,0 @@
-F:raw pointer is not iterable in range-for; use ranged(ptr, len) or a fixed array

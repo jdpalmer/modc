@@ -1,10 +1,11 @@
 /*
  * modc selftest — portable compiler corpus (no shell / Make).
  *
- * Lanes: expect-fail (.expect), check-ok (check-ok.list), run (run.list).
+ * Lanes: *_fail.mc, *_ok.mc, *_run.mc.  *_test.mc stays on `modc test`.
  */
 #include "cli.h"
 #include <ctype.h>
+#include <stdlib.h>
 
 #ifndef _WIN32
 #include <unistd.h>
@@ -183,7 +184,89 @@ apply_flags_line(Compiler* c, CliOpts* o, const char* flags) {
 }
 
 static int
-run_expect_fail(Compiler* c, CliOpts* base, const char* mc, const char* exp_path) {
+endswith_str(const char* s, const char* suf) {
+	size_t n, m;
+
+	if (s == NULL || suf == NULL)
+		return 0;
+	n = strlen(s);
+	m = strlen(suf);
+	return n >= m && strcmp(s + n - m, suf) == 0;
+}
+
+static int
+cmp_cstr(const void* a, const void* b) {
+	return strcmp(*(char* const*)a, *(char* const*)b);
+}
+
+/* Collect test/<name> paths whose basename ends with suffix; sorted. */
+static int
+collect_suffix_mcs(const char* suffix, char*** out, int* out_n) {
+	HostDir* d;
+	const char* name;
+	char** list = NULL;
+	int n = 0, cap = 0;
+
+	*out = NULL;
+	*out_n = 0;
+	d = host_opendir("test");
+	if (d == NULL) {
+		fprintf(stderr, "modc selftest: cannot open test/\n");
+		return 1;
+	}
+	while ((name = host_readdir(d)) != NULL) {
+		char path[HOST_PATH_MAX];
+
+		if (!endswith_str(name, suffix))
+			continue;
+		if (n == cap) {
+			cap = cap ? cap * 2 : 32;
+			list = xrealloc(list, (size_t)cap * sizeof(char*));
+		}
+		snprintf(path, sizeof(path), "test/%s", name);
+		list[n++] = xstrdup(path);
+	}
+	host_closedir(d);
+	if (n > 1)
+		qsort(list, (size_t)n, sizeof(char*), cmp_cstr);
+	*out = list;
+	*out_n = n;
+	return 0;
+}
+
+/* Body of a leading "// fail: ..." or "// ok: ..." directive, or NULL. */
+static char*
+tagged_directive(char* line, const char* tag) {
+	size_t n;
+
+	while (*line && isspace((unsigned char)*line))
+		line++;
+	if (strncmp(line, "//", 2) != 0)
+		return NULL;
+	line += 2;
+	while (*line && isspace((unsigned char)*line))
+		line++;
+	n = strlen(tag);
+	if (strncmp(line, tag, n) != 0 || line[n] != ':')
+		return NULL;
+	line += n + 1;
+	while (*line && isspace((unsigned char)*line))
+		line++;
+	return line;
+}
+
+static char*
+fail_directive(char* line) {
+	return tagged_directive(line, "fail");
+}
+
+static char*
+ok_directive(char* line) {
+	return tagged_directive(line, "ok");
+}
+
+static int
+run_expect_fail(Compiler* c, CliOpts* base, const char* mc) {
 	char* text = NULL;
 	size_t len = 0;
 	char* line;
@@ -192,10 +275,11 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc, const char* exp_path
 	CliOpts o;
 	int saw_error;
 	int missing;
+	int saw_needle = 0;
 
 	flags[0] = 0;
-	if (read_file_str(exp_path, &text, &len)) {
-		fprintf(stderr, "modc selftest: cannot read %s\n", exp_path);
+	if (read_file_str(mc, &text, &len)) {
+		fprintf(stderr, "modc selftest: cannot read %s\n", mc);
 		return 1;
 	}
 	memset(&o, 0, sizeof(o));
@@ -205,11 +289,14 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc, const char* exp_path
 	selftest_reset(c);
 	c->quiet_diag = 1;
 	diag_clear(c);
-	/* First pass: collect # flags: */
 	save = text;
 	for (line = next_line(&save); line; line = next_line(&save)) {
-		if (strncmp(line, "# flags:", 8) == 0) {
-			snprintf(flags, sizeof(flags), "%s", line + 8);
+		char* dir = fail_directive(line);
+
+		if (dir == NULL)
+			continue;
+		if (strncmp(dir, "flags:", 6) == 0) {
+			snprintf(flags, sizeof(flags), "%s", dir + 6);
 			while (flags[0] && isspace((unsigned char)flags[0]))
 				memmove(flags, flags + 1, strlen(flags));
 		}
@@ -228,21 +315,30 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc, const char* exp_path
 		c->quiet_diag = 0;
 		return 1;
 	}
-	/* Second pass: needles */
-	if (read_file_str(exp_path, &text, &len))
+	if (read_file_str(mc, &text, &len))
 		return 1;
 	missing = 0;
 	save = text;
 	for (line = next_line(&save); line; line = next_line(&save)) {
 		char needle[HOST_PATH_MAX * 2];
 		const char* raw;
+		char* dir = fail_directive(line);
 
-		if (line[0] == 0 || line[0] == '#')
+		if (dir == NULL)
 			continue;
-		if (strncmp(line, "F:", 2) == 0)
-			raw = line + 2;
+		if (strncmp(dir, "flags:", 6) == 0)
+			continue;
+		if (dir[0] == '#')
+			continue;
+		if (strncmp(dir, "F:", 2) == 0)
+			raw = dir + 2;
 		else
-			raw = line;
+			raw = dir;
+		while (*raw && isspace((unsigned char)*raw))
+			raw++;
+		if (*raw == 0)
+			continue;
+		saw_needle = 1;
 		expand_root(raw, needle, sizeof(needle));
 		if (!file_contains(c->diag_log, needle)) {
 			fprintf(stderr, "FAIL: %s: missing needle: %s\n", mc, needle);
@@ -251,6 +347,10 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc, const char* exp_path
 	}
 	free(text);
 	c->quiet_diag = 0;
+	if (!saw_needle) {
+		fprintf(stderr, "FAIL: %s: no // fail: F: needle\n", mc);
+		return 1;
+	}
 	if (missing)
 		return 1;
 	printf("  fail  %s\n", mc);
@@ -258,63 +358,22 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc, const char* exp_path
 }
 
 static int
-endswith_str(const char* s, const char* suf) {
-	size_t n, m;
-
-	if (s == NULL || suf == NULL)
-		return 0;
-	n = strlen(s);
-	m = strlen(suf);
-	return n >= m && strcmp(s + n - m, suf) == 0;
-}
-
-static int
 selftest_expect_fail_all(Compiler* c, CliOpts* o) {
-	HostDir* d;
-	const char* name;
-	char path[HOST_PATH_MAX];
-	char mc[HOST_PATH_MAX];
-	char stem[256];
-	int n = 0, failed = 0;
-	size_t i;
+	char** list = NULL;
+	int nlist = 0, i, n = 0, failed = 0;
 
-	d = host_opendir("test");
-	if (d == NULL) {
-		fprintf(stderr, "modc selftest: cannot open test/\n");
+	printf("== selftest: fail ==\n");
+	if (collect_suffix_mcs("_fail.mc", &list, &nlist))
 		return 1;
-	}
-	printf("== selftest: expect-fail ==\n");
-	while ((name = host_readdir(d)) != NULL) {
-		if (!endswith_str(name, ".expect"))
-			continue;
-		if (endswith_str(name, ".qbe.expect"))
-			continue;
-		if (strstr(name, ".nosys."))
-			continue;
-		/* stem.qbe.expect already skipped; stem.nosys.expect skipped */
-		if (endswith_str(name, "nosys.expect"))
-			continue;
-		snprintf(path, sizeof(path), "test/%s", name);
-		/* basename without .expect */
-		snprintf(stem, sizeof(stem), "%s", name);
-		i = strlen(stem);
-		if (i > 7 && strcmp(stem + i - 7, ".expect") == 0)
-			stem[i - 7] = 0;
-		if (strstr(stem, ".qbe"))
-			continue;
-		snprintf(mc, sizeof(mc), "test/%s.mc", stem);
-		if (!host_is_file(mc)) {
-			fprintf(stderr, "FAIL: missing %s for %s\n", mc, path);
-			failed = 1;
-			continue;
-		}
-		if (run_expect_fail(c, o, mc, path))
+	for (i = 0; i < nlist; i++) {
+		if (run_expect_fail(c, o, list[i]))
 			failed = 1;
 		else
 			n++;
+		free(list[i]);
 	}
-	host_closedir(d);
-	printf("== selftest: %d expect-fail ==\n", n);
+	free(list);
+	printf("== selftest: %d fail ==\n", n);
 	return failed;
 }
 
@@ -404,141 +463,77 @@ check_qbe_expect(const char* stem, const char* qbe_path) {
 }
 
 static int
-run_check_ok_line(Compiler* c, CliOpts* base, char* line) {
+run_check_ok(Compiler* c, CliOpts* base, const char* mc) {
+	char* text = NULL;
+	size_t len = 0;
+	char* line;
+	char* save;
+	char flags[HOST_PATH_MAX * 2];
+	char envpath[HOST_PATH_MAX];
+	char stem[256];
+	const char* bn;
 	CliOpts o;
-	char* argv_buf[64];
-	int argc = 0;
-	char* p;
-	char* tok;
-	int i, r;
+
+	flags[0] = 0;
+	bn = host_path_basename(mc);
+	snprintf(stem, sizeof(stem), "%s", bn);
+	if (endswith_str(stem, ".mc"))
+		stem[strlen(stem) - 3] = 0;
+	snprintf(envpath, sizeof(envpath), "test/%s.env", stem);
+	(void)load_env_file(envpath);
+
+	if (read_file_str(mc, &text, &len)) {
+		fprintf(stderr, "modc selftest: cannot read %s\n", mc);
+		return 1;
+	}
+	save = text;
+	for (line = next_line(&save); line; line = next_line(&save)) {
+		char* dir = ok_directive(line);
+
+		if (dir == NULL)
+			continue;
+		if (strncmp(dir, "flags:", 6) == 0) {
+			snprintf(flags, sizeof(flags), "%s", dir + 6);
+			while (flags[0] && isspace((unsigned char)flags[0]))
+				memmove(flags, flags + 1, strlen(flags));
+		}
+	}
+	free(text);
 
 	memset(&o, 0, sizeof(o));
 	o.no_system_includes = base->no_system_includes;
 	o.verbose = base->verbose;
 	o.target = base->target;
 	selftest_reset(c);
-	p = line;
-	while (*p) {
-		while (*p && isspace((unsigned char)*p))
-			p++;
-		if (*p == 0)
-			break;
-		tok = p;
-		while (*p && !isspace((unsigned char)*p))
-			p++;
-		if (*p)
-			*p++ = 0;
-		if (argc >= 63) {
-			fprintf(stderr, "modc selftest: too many args on check-ok line\n");
-			return 1;
-		}
-		argv_buf[argc++] = tok;
-	}
-	for (i = 0; i < argc; i++) {
-		tok = argv_buf[i];
-		if (tok[0] == '-') {
-			if (apply_flag_token(c, &o, tok))
-				return 1;
-		} else
-			add_file(&o, tok);
-	}
+	if (flags[0] && apply_flags_line(c, &o, flags))
+		return 1;
 	apply_cli(c, &o);
 	c->check_only = 1;
-	r = 0;
-	for (i = 0; i < o.files_len; i++) {
-		char* files_save[64];
-		int files_n;
-		int j;
-
-		files_n = o.files_len;
-		for (j = 0; j < files_n && j < 64; j++)
-			files_save[j] = o.files[j];
-		selftest_reset(c);
-		memset(&o, 0, sizeof(o));
-		o.no_system_includes = base->no_system_includes;
-		o.verbose = base->verbose;
-		o.target = base->target;
-		for (j = 0; j < argc; j++) {
-			if (argv_buf[j][0] == '-') {
-				if (apply_flag_token(c, &o, argv_buf[j]))
-					return 1;
-			}
-		}
-		apply_cli(c, &o);
-		c->check_only = 1;
-		if (compile_file(c, files_save[i], NULL))
-			r = 1;
-	}
-	if (r) {
-		fprintf(stderr, "FAIL: check: expected success\n");
+	if (compile_file(c, mc, NULL)) {
+		fprintf(stderr, "FAIL: check %s: expected success\n", mc);
 		return 1;
 	}
+	printf("  ok    %s\n", mc);
 	return 0;
 }
 
 static int
 selftest_check_ok_all(Compiler* c, CliOpts* o) {
-	char* text;
-	size_t len;
-	char* line;
-	char* save;
-	char* copy;
-	int n = 0, failed = 0;
+	char** list = NULL;
+	int nlist = 0, i, n = 0, failed = 0;
 
-	if (!host_is_file("test/check-ok.list")) {
-		fprintf(stderr, "modc selftest: missing test/check-ok.list\n");
+	printf("== selftest: ok ==\n");
+	if (collect_suffix_mcs("_ok.mc", &list, &nlist))
 		return 1;
-	}
-	printf("== selftest: check-ok ==\n");
-	if (read_file_str("test/check-ok.list", &text, &len))
-		return 1;
-	save = text;
-	for (line = next_line(&save); line; line = next_line(&save)) {
-		char envpath[HOST_PATH_MAX];
-		char* first_mc;
-		char* q;
-		char* disp;
-
-		if (line[0] == 0 || line[0] == '#')
-			continue;
-		copy = xstrdup(line);
-		disp = xstrdup(line);
-		disp = xstrdup(line);
-		first_mc = NULL;
-		for (q = copy; *q;) {
-			while (*q && isspace((unsigned char)*q))
-				q++;
-			if (*q == 0)
-				break;
-			if (first_mc == NULL && endswith_str(q, ".mc")) {
-				first_mc = q;
-				break;
-			}
-			while (*q && !isspace((unsigned char)*q))
-				q++;
-		}
-		if (first_mc) {
-			char stem[256];
-			const char* bname;
-
-			bname = host_path_basename(first_mc);
-			snprintf(stem, sizeof(stem), "%s", bname);
-			if (endswith_str(stem, ".mc"))
-				stem[strlen(stem) - 3] = 0;
-			snprintf(envpath, sizeof(envpath), "test/%s.env", stem);
-			(void)load_env_file(envpath);
-		}
-		if (run_check_ok_line(c, o, copy))
+	for (i = 0; i < nlist; i++) {
+		if (run_check_ok(c, o, list[i]))
 			failed = 1;
-		else {
+		else
 			n++;
-			printf("  check %s\n", disp);
-		}
-		free(copy);
-		free(disp);
+		free(list[i]);
 	}
-	free(text);
-	printf("== selftest: %d check-ok ==\n", n);
+	free(list);
+	printf("== selftest: %d ok ==\n", n);
 	return failed;
 }
 
@@ -564,6 +559,9 @@ selftest_run_one(Compiler* c, CliOpts* o, const char* mc) {
 	if (endswith_str(stem, ".mc"))
 		stem[strlen(stem) - 3] = 0;
 	snprintf(base, sizeof(base), "%s", stem);
+	/* Sidecar C drivers use stem without _run / _modc suffixes. */
+	if (endswith_str(base, "_run"))
+		base[strlen(base) - 4] = 0;
 	if (endswith_str(base, "_modc"))
 		base[strlen(base) - 5] = 0;
 
@@ -656,7 +654,7 @@ selftest_run_one(Compiler* c, CliOpts* o, const char* mc) {
 		return 0;
 	}
 
-	/* Pure %C entry (rare on run.list now). */
+	/* Pure %C entry (rare). */
 	selftest_reset(c);
 	apply_cli(c, &local);
 	r = build_and_run_root(c, &local, mc);
@@ -670,29 +668,24 @@ selftest_run_one(Compiler* c, CliOpts* o, const char* mc) {
 
 static int
 selftest_run_all(Compiler* c, CliOpts* o) {
-	char* text;
-	size_t len;
-	char* line;
-	char* save;
-	int n = 0, failed = 0;
+	char** list = NULL;
+	int nlist = 0, i, n = 0, failed = 0;
 
-	if (!host_is_file("test/run.list")) {
+	printf("== selftest: run ==\n");
+	if (collect_suffix_mcs("_run.mc", &list, &nlist))
+		return 1;
+	if (nlist == 0) {
 		printf("== selftest: run (none) ==\n");
 		return 0;
 	}
-	printf("== selftest: run ==\n");
-	if (read_file_str("test/run.list", &text, &len))
-		return 1;
-	save = text;
-	for (line = next_line(&save); line; line = next_line(&save)) {
-		if (line[0] == 0 || line[0] == '#')
-			continue;
-		if (selftest_run_one(c, o, line))
+	for (i = 0; i < nlist; i++) {
+		if (selftest_run_one(c, o, list[i]))
 			failed = 1;
 		else
 			n++;
+		free(list[i]);
 	}
-	free(text);
+	free(list);
 	printf("== selftest: %d run ==\n", n);
 	return failed;
 }

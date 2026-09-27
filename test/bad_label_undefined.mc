@@ -1,3 +1,0 @@
-int bad() {
-	goto missing;
-}

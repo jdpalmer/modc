@@ -1,0 +1,13 @@
+// fail: flags: -M $ROOT
+// fail: F:cannot use null pointer to Buf
+
+typedef struct Buf {
+	char[..];
+}
+Buf;
+
+int bad() {
+	char[..] s = { 0 };
+	s = ((Buf *)0)[0 .. 5];
+	return 0;
+}

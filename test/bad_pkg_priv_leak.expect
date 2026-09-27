@@ -1,1 +1,0 @@
-F:public function 'leak_hidden' must not use a static (package-private) type

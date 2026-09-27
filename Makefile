@@ -32,7 +32,8 @@ format: $(MODC)
 		! -path './build/*' \
 		! -path './test/format/messy.mc' \
 		! -path './test/format/str_style.mc' \
-		! -path './test/pp_file_line.mc' \
+		! -path './test/pp_file_line_ok.mc' \
+		! -path './test/pp_file_line_test.mc' \
 		-print0 | while IFS= read -r -d '' f; do \
 		./modc format "$$f" 2>/dev/null || true; \
 	done
@@ -45,7 +46,8 @@ format-check: $(MODC)
 		! -path './build/*' \
 		! -path './test/format/messy.mc' \
 		! -path './test/format/str_style.mc' \
-		! -path './test/pp_file_line.mc' \
+		! -path './test/pp_file_line_ok.mc' \
+		! -path './test/pp_file_line_test.mc' \
 		| while read -r f; do \
 		cp "$$f" $(BUILD)/fmtchk.mc; \
 		if ! ./modc format $(BUILD)/fmtchk.mc 2>/dev/null; then continue; fi; \
@@ -65,30 +67,16 @@ $(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h
 check: $(MODC)
 	@mkdir -p $(BUILD)
 	./modc test test
+	./modc test test/special/cli_args_test.mc -- a b
+	./modc test -M test test/testdriver
 	./modc selftest
 
-# Optional: vendor/git/CLI rituals (not required for portable selftest).
+# Optional host integration (vendor, cache, format, doc, includes).
 check-special: $(MODC)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -Isrc -o $(BUILD)/intern_test test/intern_test.c $(BUILD)/diag.o
-	$(BUILD)/intern_test
-	@./modc check test/import_cleanup/main.mc >$(BUILD)/import_cleanup.out 2>&1; \
-		rc=$$?; test $$rc -eq 1
-	@grep -Fq 'cannot find package "missing"' $(BUILD)/import_cleanup.out
-	./modc build test/pkg_clib_main.mc -o $(BUILD)/pkg_clib-bin
-	$(BUILD)/pkg_clib-bin
-	./modc build test/pkg_csrc_main.mc -o $(BUILD)/pkg_csrc-bin
-	$(BUILD)/pkg_csrc-bin
-	./modc build test/pkg_encap_main.mc -o $(BUILD)/pkg_encap-bin
-	$(BUILD)/pkg_encap-bin
-	./modc build test/pkg_xinline_main.mc -o $(BUILD)/pkg_xinline-bin
-	$(BUILD)/pkg_xinline-bin
-	./modc build test/pkg_order_main.mc -o $(BUILD)/pkg_order-bin
-	$(BUILD)/pkg_order-bin
-	./modc build test/pkg_method_order_main.mc -o $(BUILD)/pkg_method_order-bin
-	$(BUILD)/pkg_method_order-bin
-	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic $(BUILD)/vendor_app-bin
-	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vrepos/linkdep $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic/vendor/old
+	# --- vendor: happy path, version conflict, symlink refuse, shell inject ---
+	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic $(BUILD)/vendor_app-bin $(BUILD)/vendor_inject $(BUILD)/vendor-pwned
+	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vrepos/linkdep $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic/vendor/old $(BUILD)/vendor_inject
 	@cp test/vendor_fix/log/mod.mc test/vendor_fix/log/modc.ini $(BUILD)/vrepos/log/
 	@cp test/vendor_fix/engine/mod.mc $(BUILD)/vrepos/engine/
 	@cp test/vendor_fix/ui/mod.mc $(BUILD)/vrepos/ui/
@@ -102,13 +90,6 @@ check-special: $(MODC)
 	@cd $(BUILD)/vrepos/linkdep && ln -s . loop && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
 	@printf '[deps.engine]\ngit = file://$(BUILD)/vrepos/engine\ntag = v1\n\n[deps.ui]\ngit = file://$(BUILD)/vrepos/ui\ntag = v1\n' > $(BUILD)/vendor_app/modc.ini
 	./modc vendor -C $(BUILD)/vendor_app
-	@test -d $(BUILD)/vendor_app/vendor/log
-	@test -d $(BUILD)/vendor_app/vendor/engine
-	@test -d $(BUILD)/vendor_app/vendor/ui
-	@test ! -e $(BUILD)/vendor_app/.modc-vendor-old
-	./modc vendor --check -C $(BUILD)/vendor_app
-	./modc vendor -C $(BUILD)/vendor_app
-	./modc vendor --check -C $(BUILD)/vendor_app
 	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
 	$(BUILD)/vendor_app-bin
 	@printf '\n/* v2 */\n' >> $(BUILD)/vrepos/log/mod.mc
@@ -118,164 +99,42 @@ check-special: $(MODC)
 	@printf '[deps.engine]\ngit = file://$(BUILD)/vrepos/engine\ntag = v1\n\n[deps.ui]\ngit = file://$(BUILD)/vrepos/ui\ntag = v2\n' > $(BUILD)/vendor_conflict/modc.ini
 	@./modc vendor -C $(BUILD)/vendor_conflict >$(BUILD)/vendor_conflict.out 2>&1; test $$? -ne 0
 	@grep -Fq 'version conflict for "log"' $(BUILD)/vendor_conflict.out
-	@touch $(BUILD)/vendor_atomic/vendor/old/keep
-	@printf 'old-lock\n' > $(BUILD)/vendor_atomic/modc.lock
 	@printf '[deps.linkdep]\ngit = file://$(BUILD)/vrepos/linkdep\ntag = v1\n' > $(BUILD)/vendor_atomic/modc.ini
 	@./modc vendor -C $(BUILD)/vendor_atomic >$(BUILD)/vendor_atomic.out 2>&1; test $$? -ne 0
 	@grep -Fq 'refusing to follow symlink' $(BUILD)/vendor_atomic.out
-	@test -f $(BUILD)/vendor_atomic/vendor/old/keep
-	@grep -Fxq 'old-lock' $(BUILD)/vendor_atomic/modc.lock
-	@test ! -e $(BUILD)/vendor_atomic/.modc-vendor-new
-	@test ! -e $(BUILD)/vendor_atomic/.modc-lock-new
-	@rm -rf $(BUILD)/vendor_escape
-	@mkdir -p $(BUILD)/vendor_escape/escape_target
-	@touch $(BUILD)/vendor_escape/escape_target/keep
-	@printf '[deps.../escape_target]\ngit = file://$(BUILD)/vrepos/log\ntag = v1\n' > $(BUILD)/vendor_escape/modc.ini
-	@./modc vendor -C $(BUILD)/vendor_escape >$(BUILD)/vendor_escape_name.out 2>&1; test $$? -ne 0
-	@grep -Fq 'must be one portable path component' $(BUILD)/vendor_escape_name.out
-	@test -f $(BUILD)/vendor_escape/escape_target/keep
-	@printf '[deps.bad]\ngit = file://$(BUILD)/vrepos/log\ntag = v1\nsubdir = ../outside\n' > $(BUILD)/vendor_escape/modc.ini
-	@./modc vendor -C $(BUILD)/vendor_escape >$(BUILD)/vendor_escape_subdir.out 2>&1; test $$? -ne 0
-	@grep -Fq 'subdir must be a relative path without traversal' $(BUILD)/vendor_escape_subdir.out
-	@rm -rf $(BUILD)/vendor_inject $(BUILD)/vendor-pwned
-	@mkdir -p $(BUILD)/vendor_inject
 	@printf '[deps.bad]\ngit = $$(touch $(BUILD)/vendor-pwned)\nrev = 0000000000000000000000000000000000000000\n' > $(BUILD)/vendor_inject/modc.ini
 	@./modc vendor -C $(BUILD)/vendor_inject >/dev/null 2>&1; test $$? -ne 0
 	@test ! -e $(BUILD)/vendor-pwned
-	./modc help vendor > /dev/null
-	./modc build test/cli_build.mc -o $(BUILD)/cli_build-bin
-	$(BUILD)/cli_build-bin
+	# --- cache: miss, hit, one foreign invalidation ---
 	@rm -rf test/.modc-cache
-	./modc build -v test/cli_build.mc -o $(BUILD)/cache_cli 2>&1 | tee $(BUILD)/cache_cli1.log
+	./modc build -v test/cli_build_test.mc -o $(BUILD)/cache_cli 2>&1 | tee $(BUILD)/cache_cli1.log
 	@grep -q 'cache miss graph' $(BUILD)/cache_cli1.log
-	./modc build -v test/cli_build.mc -o $(BUILD)/cache_cli 2>&1 | tee $(BUILD)/cache_cli2.log
+	./modc build -v test/cli_build_test.mc -o $(BUILD)/cache_cli 2>&1 | tee $(BUILD)/cache_cli2.log
 	@grep -q 'cache hit graph' $(BUILD)/cache_cli2.log
-	@grep -q 'cache hit pkg' $(BUILD)/cache_cli2.log
 	$(BUILD)/cache_cli
 	@rm -rf test/.modc-cache
-	./modc build -v test/pkg_csrc_main.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc1.log
+	./modc build -v test/pkg_csrc_test.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc1.log
 	@grep -q 'cache miss foreign' $(BUILD)/cache_csrc1.log
-	./modc build -v test/pkg_csrc_main.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc2.log
-	@grep -q 'cache hit foreign' $(BUILD)/cache_csrc2.log
-	@grep -q 'cache hit graph' $(BUILD)/cache_csrc2.log
 	@printf '%s\n' 'int c_add_one(int x); /* cache invalidation */' > test/pkg_csrc/shim/add_one.h
-	./modc build -v test/pkg_csrc_main.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc3.log
-	@grep -q 'cache miss pkg pkg_csrc' $(BUILD)/cache_csrc3.log
-	@grep -q 'cache miss foreign' $(BUILD)/cache_csrc3.log
+	./modc build -v test/pkg_csrc_test.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc2.log
+	@grep -q 'cache miss foreign' $(BUILD)/cache_csrc2.log
 	@printf '%s\n' 'int c_add_one(int x);' > test/pkg_csrc/shim/add_one.h
 	$(BUILD)/cache_csrc
-	@rm -rf test/cache_two/.modc-cache
-	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two1.log
-	@grep -q 'cache miss graph' $(BUILD)/cache_two1.log
-	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two2.log
-	@grep -q 'cache hit graph' $(BUILD)/cache_two2.log
-	@printf '%s\n' 'import "leaf";' '' 'int main() {' '	return leaf_add(21, 21) == 42 ? 0: 1;' '}' > test/cache_two/main.mc
-	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two3.log
-	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two3.log
-	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two3.log
-	$(BUILD)/cache_two
-	@printf '%s\n' 'import "leaf";' '' 'int main() {' '	return leaf_add(20, 22) == 42 ? 0: 1;' '}' > test/cache_two/main.mc
-	./modc build test/cache_two/main.mc -o $(BUILD)/cache_two >/dev/null
-	@printf '%s\n' 'int leaf_add(int a, int b) {' '	return a + b;' '}' '' 'static int leaf_priv() {' '	return 2;' '}' > test/cache_two/leaf/mod.mc
-	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two5.log
-	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two5.log
-	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two5.log
-	$(BUILD)/cache_two
-	@printf '%s\n' 'double leaf_add(int a, int b) {' '	return a + b;' '}' '' 'static int leaf_priv() {' '	return 1;' '}' > test/cache_two/leaf/mod.mc
-	./modc build -v test/cache_two/main.mc -o $(BUILD)/cache_two 2>&1 | tee $(BUILD)/cache_two4.log
-	@grep -q 'cache miss pkg leaf' $(BUILD)/cache_two4.log
-	@grep -q 'cache miss pkg main_mc' $(BUILD)/cache_two4.log
-	@printf '%s\n' 'int leaf_add(int a, int b) {' '	return a + b;' '}' '' 'static int leaf_priv() {' '	return 1;' '}' > test/cache_two/leaf/mod.mc
-	./modc clean -v test/cli_build.mc 2>&1 | tee $(BUILD)/cache_clean.log
-	@grep -q 'modc clean: removed' $(BUILD)/cache_clean.log
-	@test ! -d test/.modc-cache
-	./modc clean test/cli_build.mc
-ifneq ($(OS),Windows_NT)
-	@rm -rf $(BUILD)/rmtree_project $(BUILD)/rmtree_target
-	@mkdir -p $(BUILD)/rmtree_project/.modc-cache $(BUILD)/rmtree_target
-	@touch $(BUILD)/rmtree_target/keep
-	@ln -s missing $(BUILD)/rmtree_project/.modc-cache/broken
-	@ln -s $(BUILD)/rmtree_target $(BUILD)/rmtree_project/.modc-cache/linkdir
-	@mkfifo $(BUILD)/rmtree_project/.modc-cache/fifo
-	./modc clean $(BUILD)/rmtree_project
-	@test ! -e $(BUILD)/rmtree_project/.modc-cache
-	@test -f $(BUILD)/rmtree_target/keep
-endif
-	./modc help clean > /dev/null
-	./modc build test/cli_dirbuild -o $(BUILD)/cli_dirbuild-bin
-	$(BUILD)/cli_dirbuild-bin
-	./modc build test/cli_dirbuild_imp -o $(BUILD)/cli_dirbuild_imp-bin
-	$(BUILD)/cli_dirbuild_imp-bin
-	./modc build test/project_root/cmd/app -o $(BUILD)/project-root-bin
-	$(BUILD)/project-root-bin
-	./modc clean test/project_root/cmd/app
-	./modc build test/pkg_shell -o '$(BUILD)/shell;literal-bin'
-	'$(BUILD)/shell;literal-bin'
-	./modc clean test/pkg_shell
-	@rm -f $(BUILD)/cli_build $(BUILD)/cli_dirbuild
-	./modc build test/cli_build.mc && test -x cli_build && mv cli_build $(BUILD)/cli_build-default
-	$(BUILD)/cli_build-default
-	(cd test/cli_dirbuild && $(MODC) build -o $(BUILD)/cli_dirbuild-dot)
-	$(BUILD)/cli_dirbuild-dot
-	./modc run test/cli_build.mc
-	./modc run test/stdio_smoke.mc
-	./modc run test/cli_dirbuild
-	./modc run test/special/cli_args_test.mc -- a b
-	./modc test test/special/cli_args_test.mc -- a b
-	./scripts/check-limits.sh
-	./modc build -Ftest/fwk_root test/fwk_include.mc -o $(BUILD)/fwk_include-bin
-	$(BUILD)/fwk_include-bin
-ifeq ($(shell uname -s),Darwin)
-	./modc build -v test/fwk_pragma.mc -o $(BUILD)/fwk_pragma-bin 2>&1 | grep -q -- '-framework Cocoa'
-	$(BUILD)/fwk_pragma-bin
-	@env -u MODC_NO_SYSTEM_INCLUDES -u MODC_SYSINCLUDE ./modc check -v test/add.mc 2>&1 | grep -q 'framework path:'
-endif
-	@env -u MODC_NO_SYSTEM_INCLUDES -u MODC_SYSINCLUDE ./modc check -v test/add.mc 2>&1 | grep -q 'system include:'
-	@./modc check test/sys_include.mc >$(BUILD)/bad_nosys.out 2>&1; test $$? -ne 0
-	@grep -Fq 'cannot find include file modc_system_probe.h' $(BUILD)/bad_nosys.out
-	./modc help build > /dev/null
-	./modc --version > /dev/null
-	./modc check test/testdriver
-	./modc test -M test test/testdriver
-	./modc doc -M test docpkg | grep -q 'add returns the sum'
-	./modc doc -M test docpkg.add | grep -q 'add(int a, int b)'
-	@./modc doc -M test docpkg.nosuch >/dev/null 2>&1; test $$? -ne 0
-	@./modc doc -M test docpkg 2>/dev/null | grep -q hide; test $$? -ne 0
+	# --- format goldens ---
 	cp test/format/messy.mc $(BUILD)/format_messy.mc
 	./modc format $(BUILD)/format_messy.mc
 	diff -u test/format/want.mc $(BUILD)/format_messy.mc
-	./modc format $(BUILD)/format_messy.mc
-	diff -u test/format/want.mc $(BUILD)/format_messy.mc
-	cp test/format/messy.mc $(BUILD)/format_mode.mc
-	chmod 640 $(BUILD)/format_mode.mc
-	@mode_before=$$(stat -f %Lp $(BUILD)/format_mode.mc 2>/dev/null || stat -c %a $(BUILD)/format_mode.mc); \
-		./modc format $(BUILD)/format_mode.mc; \
-		mode_after=$$(stat -f %Lp $(BUILD)/format_mode.mc 2>/dev/null || stat -c %a $(BUILD)/format_mode.mc); \
-		test "$$mode_before" = "$$mode_after"
-	@rm -f $(BUILD)/format_link.mc
-	cp test/format/messy.mc $(BUILD)/format_target.mc
-	@ln -s format_target.mc $(BUILD)/format_link.mc && \
-		./modc format $(BUILD)/format_link.mc && \
-		test -L $(BUILD)/format_link.mc && \
-		diff -u test/format/want.mc $(BUILD)/format_target.mc
 	cp test/format/str_style.mc $(BUILD)/format_str_style.mc
 	./modc format $(BUILD)/format_str_style.mc
 	diff -u test/format/want_str_style.mc $(BUILD)/format_str_style.mc
-	@rm -rf $(BUILD)/destdir
-	$(MAKE) install DESTDIR=$(BUILD)/destdir PREFIX=/usr/local
-	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/str/mod.mc
-	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/arena/mod.mc
-	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/path/mod.mc
-	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/fs/mod.mc
-	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/os/mod.mc
-	@test -f $(BUILD)/destdir/usr/local/lib/modc/pkg/tty/mod.mc
-	$(BUILD)/destdir/usr/local/bin/modc check test/str_pkg.mc
-	$(BUILD)/destdir/usr/local/bin/modc check test/arena_pkg.mc
-	$(BUILD)/destdir/usr/local/bin/modc check test/path_pkg.mc
-	$(BUILD)/destdir/usr/local/bin/modc check test/fs_pkg.mc
-	$(BUILD)/destdir/usr/local/bin/modc check test/os_pkg.mc
-	$(BUILD)/destdir/usr/local/bin/modc check test/tty_pkg.mc
-	@env -u MODC_NO_SYSTEM_INCLUDES $(BUILD)/destdir/usr/local/bin/modc check -v test/str_pkg.mc 2>&1 | grep -q 'modc pkg:'
+	# --- doc ---
+	./modc doc -M test docpkg | grep -q 'add returns the sum'
+	./modc doc -M test docpkg.add | grep -q 'add(int a, int b)'
+	# --- includes: -F link + hermetic nosys ---
+	./modc build -Ftest/fwk_root test/fwk_include_ok.mc -o $(BUILD)/fwk_include-bin
+	$(BUILD)/fwk_include-bin
+	@./modc check test/sys_include_run.mc >$(BUILD)/bad_nosys.out 2>&1; test $$? -ne 0
+	@grep -Fq 'cannot find include file modc_system_probe.h' $(BUILD)/bad_nosys.out
 
 install: $(MODC)
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg

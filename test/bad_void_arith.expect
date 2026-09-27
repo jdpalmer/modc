@@ -1,1 +1,0 @@
-F:`void *` arithmetic is not allowed in %C user code (allowed in headers); cast to a typed pointer first

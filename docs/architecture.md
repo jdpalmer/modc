@@ -76,10 +76,11 @@ Install layout and how to build the compiler itself are in
 
 ## Tests and packages
 
-The corpus is `test/*.mc` (plus `*_main.c` where needed), run with
-`modc selftest` (expect-fail, check-ok, emit/link/run in-process). `make check`
-is `modc test test` then `modc selftest`. Optional host rituals live in
-`make check-special`. See [modc-test.md](modc-test.md).
+The corpus is `test/*_fail.mc`, `test/*_ok.mc`, and `test/*_run.mc`, run with
+`modc selftest`. Runnable package tests are `test/*_test.mc` via `modc test`.
+`make check` is `modc test` (including specials/testdriver) then `modc selftest`.
+Optional host rituals live in `make check-special` (vendor, cache, format, doc,
+includes). See [modc-test.md](modc-test.md).
 
 Shipped packages include `str/`, `arena/`, `path/`, `fs/`, `os/`, and `tty/`. Import resolution order is
 documented in [packages.md](packages.md).

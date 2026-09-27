@@ -1,1 +1,0 @@
-F:T[..] is opaque; use len(), cap(), or ptr() (not .len)
