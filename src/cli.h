@@ -53,6 +53,7 @@ int cmd_emit(Compiler* c, CliOpts* o, int argc, char** argv);
 int cmd_build(Compiler* c, CliOpts* o, int argc, char** argv);
 int cmd_run(Compiler* c, CliOpts* o, int argc, char** argv);
 int cmd_test(Compiler* c, CliOpts* o, int argc, char** argv);
+int cmd_selftest(Compiler* c, CliOpts* o, int argc, char** argv);
 int cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv);
 int cmd_format(Compiler* c, CliOpts* o, int argc, char** argv);
 int cmd_clean(CliOpts* o, int argc, char** argv);

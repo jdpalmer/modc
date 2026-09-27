@@ -15,7 +15,7 @@ HOST := $(ROOT)/src/host/include
 BUILD := $(ROOT)/build
 MODC := $(ROOT)/modc
 
-SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/diag.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c
+SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c
 OBJS := $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
 
 CFLAGS += -DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
@@ -64,10 +64,10 @@ $(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h
 
 check: $(MODC)
 	@mkdir -p $(BUILD)
-	MODC_NO_SYSTEM_INCLUDES=1 ./modc test test
-	./scripts/check-corpus.sh
-	@$(MAKE) --no-print-directory check-special
+	./modc test test
+	./modc selftest
 
+# Optional: vendor/git/CLI rituals (not required for portable selftest).
 check-special: $(MODC)
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -Isrc -o $(BUILD)/intern_test test/intern_test.c $(BUILD)/diag.o

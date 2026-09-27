@@ -180,18 +180,44 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	int i, col, len;
 	const char *text, *p, *line;
 	int lineno;
+	char msg[512];
+	char head[1100];
+	size_t need;
 
 	c->error_count++;
 	if (c->quiet_pp)
 		return;
-	if (sp.file)
-		fprintf(stderr, "%s:%d:%d: error: ", sp.file, sp.line, sp.col > 0 ? sp.col : 1);
-	else
-		fprintf(stderr, "error: ");
 	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
+	vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
-	fprintf(stderr, "\n");
+	if (sp.file)
+		snprintf(head, sizeof(head), "%s:%d:%d: error: ", sp.file, sp.line,
+			sp.col > 0 ? sp.col : 1);
+	else
+		snprintf(head, sizeof(head), "error: ");
+	if (!c->quiet_diag) {
+		fputs(head, stderr);
+		fputs(msg, stderr);
+		fputc('\n', stderr);
+	}
+	if (c->diag_log != NULL || c->quiet_diag) {
+		need = strlen(head) + strlen(msg) + 2;
+		if (c->diag_log_len + need + 1 > c->diag_log_cap) {
+			size_t cap = c->diag_log_cap ? c->diag_log_cap : 4096;
+			while (cap < c->diag_log_len + need + 1)
+				cap *= 2;
+			c->diag_log = xrealloc(c->diag_log, cap);
+			c->diag_log_cap = cap;
+		}
+		if (c->diag_log) {
+			memcpy(c->diag_log + c->diag_log_len, head, strlen(head));
+			c->diag_log_len += strlen(head);
+			memcpy(c->diag_log + c->diag_log_len, msg, strlen(msg));
+			c->diag_log_len += strlen(msg);
+			c->diag_log[c->diag_log_len++] = '\n';
+			c->diag_log[c->diag_log_len] = 0;
+		}
+	}
 
 	text = NULL;
 	for (i = 0; i < c->src_files_len; i++) {
@@ -212,12 +238,42 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 		while (*p && *p != '\n')
 			p++;
 		len = (int)(p - line);
-		fprintf(stderr, "  %.*s\n  ", len, line);
-		col = sp.col > 0 ? sp.col : 1;
-		for (i = 1; i < col && i <= len; i++)
-			fputc(line[i - 1] == '\t' ? '\t' : ' ', stderr);
-		fputc('^', stderr);
-		fputc('\n', stderr);
+		if (!c->quiet_diag) {
+			fprintf(stderr, "  %.*s\n  ", len, line);
+			col = sp.col > 0 ? sp.col : 1;
+			for (i = 1; i < col && i <= len; i++)
+				fputc(line[i - 1] == '\t' ? '\t' : ' ', stderr);
+			fputc('^', stderr);
+			fputc('\n', stderr);
+		}
+		/* Capture caret block for needle matching (optional). */
+		if (c->diag_log) {
+			char caret[1024];
+			int n;
+
+			n = snprintf(caret, sizeof(caret), "  %.*s\n  ", len, line);
+			if (n > 0 && (size_t)n < sizeof(caret)) {
+				col = sp.col > 0 ? sp.col : 1;
+				for (i = 1; i < col && i <= len && n + 1 < (int)sizeof(caret); i++)
+					caret[n++] = line[i - 1] == '\t' ? '\t' : ' ';
+				if (n + 2 < (int)sizeof(caret)) {
+					caret[n++] = '^';
+					caret[n++] = '\n';
+					caret[n] = 0;
+				}
+				need = (size_t)n;
+				if (c->diag_log_len + need + 1 > c->diag_log_cap) {
+					size_t cap = c->diag_log_cap ? c->diag_log_cap : 4096;
+					while (cap < c->diag_log_len + need + 1)
+						cap *= 2;
+					c->diag_log = xrealloc(c->diag_log, cap);
+					c->diag_log_cap = cap;
+				}
+				memcpy(c->diag_log + c->diag_log_len, caret, need);
+				c->diag_log_len += need;
+				c->diag_log[c->diag_log_len] = 0;
+			}
+		}
 	}
 	if (c->error_count >= MaxErr)
 		c->fatal = 1;

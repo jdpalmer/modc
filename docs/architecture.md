@@ -76,10 +76,10 @@ Install layout and how to build the compiler itself are in
 
 ## Tests and packages
 
-The corpus is `test/*.mc` (plus `*_main.c` where needed), run with `make check`
-via `scripts/check-corpus.sh` (emit/link/run and expect-fail) and
-`scripts/check-special.sh` (format, vendor, cache, install, …). See
-[test/README.md](../test/README.md).
+The corpus is `test/*.mc` (plus `*_main.c` where needed), run with
+`modc selftest` (expect-fail, check-ok, emit/link/run in-process). `make check`
+is `modc test test` then `modc selftest`. Optional host rituals live in
+`make check-special`. See [modc-test.md](modc-test.md).
 
 Shipped packages include `str/`, `arena/`, `path/`, `fs/`, `os/`, and `tty/`. Import resolution order is
 documented in [packages.md](packages.md).

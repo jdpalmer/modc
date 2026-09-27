@@ -98,6 +98,7 @@ usage(const char* sub) {
 			"Discover and run project tests (*_test.mc).\n"
 			"Each test file is built and run like 'modc run' (must define main).\n"
 			"With no path, scans the current directory (non-recursive).\n"
+			"For the compiler corpus, use 'modc selftest' (portable; no Make).\n"
 			"\n"
 			"Options:\n"
 			"  -D, --define NAME[=VALUE]\n"
@@ -106,12 +107,33 @@ usage(const char* sub) {
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
 			"      --target host|windows|macos|linux\n"
-			"      --corpus                run 'make check' in the current directory\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n"
 			"\n"
 			"Exit 0 if all tests pass (or none found). *_test.mc files are\n"
 			"excluded from 'modc build dir' package discovery.\n");
+		exit(sub ? 0 : 1);
+	}
+	if (sub && strcmp(sub, "selftest") == 0) {
+		fprintf(stderr,
+			"usage: modc selftest [options]\n"
+			"\n"
+			"Run the portable compiler corpus in-process (no shell/Make):\n"
+			"  expect-fail  test/*.expect + matching .mc\n"
+			"  check-ok     test/check-ok.list\n"
+			"  run          test/run.list (emit/link/run leftovers)\n"
+			"\n"
+			"Defaults to --no-system-includes unless MODC_NO_SYSTEM_INCLUDES is set.\n"
+			"\n"
+			"Options:\n"
+			"  -D, --define NAME[=VALUE]\n"
+			"  -I, --include-dir DIR\n"
+			"  -M DIR\n"
+			"  -F DIR\n"
+			"      --no-system-includes\n"
+			"      --target host|windows|macos|linux\n"
+			"  -h, --help\n"
+			"  -v, --verbose\n");
 		exit(sub ? 0 : 1);
 	}
 	if (sub && strcmp(sub, "doc") == 0) {
@@ -175,6 +197,7 @@ usage(const char* sub) {
 		"  modc build [options] [file.mc|dir] [-o prog] [-- cc-args...]\n"
 		"  modc run   [options] [file.mc|dir] [-- program-args...]\n"
 		"  modc test  [options] [dir|file_test.mc] [-- program-args...]\n"
+		"  modc selftest [options]\n"
 		"  modc doc   [options] [target]\n"
 		"  modc format file.mc...\n"
 		"  modc vendor [options]\n"
@@ -207,7 +230,7 @@ version(void) {
 // True if s is a known top-level modc subcommand name.
 static int
 is_subcmd(const char* s) {
-	return s && (!strcmp(s, "check") || !strcmp(s, "emit") || !strcmp(s, "build") || !strcmp(s, "run") || !strcmp(s, "test") || !strcmp(s, "doc") || !strcmp(s, "format") || !strcmp(s, "vendor") || !strcmp(s, "clean") || !strcmp(s, "help"));
+	return s && (!strcmp(s, "check") || !strcmp(s, "emit") || !strcmp(s, "build") || !strcmp(s, "run") || !strcmp(s, "test") || !strcmp(s, "selftest") || !strcmp(s, "doc") || !strcmp(s, "format") || !strcmp(s, "vendor") || !strcmp(s, "clean") || !strcmp(s, "help"));
 }
 
 // Append a -I path to driver options (takes ownership of path pointer).
@@ -824,6 +847,8 @@ int main(int argc, char** argv) {
 		return cmd_run(&c, &o, argc, argv);
 	if (strcmp(sub, "test") == 0)
 		return cmd_test(&c, &o, argc, argv);
+	if (strcmp(sub, "selftest") == 0)
+		return cmd_selftest(&c, &o, argc, argv);
 	if (strcmp(sub, "doc") == 0)
 		return cmd_doc(&c, &o, argc, argv);
 	if (strcmp(sub, "format") == 0)

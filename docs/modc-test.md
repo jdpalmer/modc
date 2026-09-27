@@ -7,19 +7,18 @@ files, builds each as an independent executable (same pipeline as `modc run` /
 
 Compiler-tree CI uses three layers:
 
-1. **Portable** — `MODC_NO_SYSTEM_INCLUDES=1 ./modc test test` (immediate
-   `test/*_test.mc`; works with `--target=windows` via Wine/CrossOver when
-   tools are installed). Argv-sensitive cases live under `test/special/`.
-2. **Corpus** — `scripts/check-corpus.sh` → expect-fail / check-ok needles, plus
-   remaining emit+host-`cc` drivers (C-ABI interop, `.qbe.expect`, `.env`).
-   Expect-fail files use `F:` fixed diagnostic substrings (exact `error:` text)
-   so a wrong message cannot silently match a vague needle. Distinct `bad_*.mc`
-   files that share a diagnostic still stay separate — they cover different
-   constructs, not duplicate tests.
-3. **Special** — `make check-special` → vendor, CLI, and argv-sensitive cases.
+1. **Portable package tests** — `./modc test test` (immediate `test/*_test.mc`;
+   works with `--target=windows` via Wine/CrossOver when tools are installed).
+   Argv-sensitive cases live under `test/special/`.
+2. **Selftest (corpus)** — `./modc selftest` runs expect-fail (`.expect` /
+   `F:` needles), check-ok (`test/check-ok.list`), and run (`test/run.list`
+   emit+link+run, `.qbe.expect`, `.emitflags`, `.env`) **in-process** with no
+   shell or Make. Expect-fail files use `F:` fixed diagnostic substrings (exact
+   `error:` text) so a wrong message cannot silently match a vague needle.
+3. **Special** — `make check-special` → vendor, CLI, and argv-sensitive cases
+   (optional; host-specific).
 
-`modc test --corpus` still runs `make check` (all three layers). Prefer
-`modc test` without `--corpus` for ordinary package work.
+`make check` is `./modc test test` then `./modc selftest`.
 
 ## Writing tests
 
@@ -59,9 +58,10 @@ framework.
 
 ```sh
 modc test [options] [dir|file_test.mc] [-- program-args...]
+modc selftest [options]
 ```
 
-With no path, the runner scans the current directory (`.`) for immediate
+With no path, `modc test` scans the current directory (`.`) for immediate
 `*_test.mc` files (non-recursive). A directory argument scans that directory the
 same way. A path ending in `*_test.mc` runs that single file. Matched files are
 sorted alphabetically before execution. Discovering zero tests in a valid
@@ -71,7 +71,8 @@ is an error.
 ```sh
 ./modc test -M test test/testdriver
 ./modc test --target=windows test/add_test.mc   # CrossOver/Wine when available
-./modc test --corpus                             # make check (compiler tree)
+./modc selftest                                 # portable compiler corpus
+make check                                      # test + selftest
 ```
 
 Supported build flags include `-D`, `-I`, `-M`, `-F`, `--no-system-includes`,

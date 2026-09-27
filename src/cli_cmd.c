@@ -306,7 +306,7 @@ cmd_run(Compiler* c, CliOpts* o, int argc, char** argv) {
 	return build_and_run_root(c, o, o->files[0]);
 }
 
-// modc test: discover *_test.mc or --corpus → make check.
+// modc test: discover and run *_test.mc.
 int
 cmd_test(Compiler* c, CliOpts* o, int argc, char** argv) {
 	char** tests;
@@ -322,21 +322,9 @@ cmd_test(Compiler* c, CliOpts* o, int argc, char** argv) {
 	if (r != 0)
 		return 1;
 	if (o->corpus) {
-		const char* make_argv[] = {"make", "check", NULL};
-
-		if (o->files_len != 0) {
-			fprintf(stderr, "modc test: --corpus does not take a path\n");
-			return 1;
-		}
-		if (o->verbose)
-			fprintf(stderr, "modc test --corpus: make check\n");
-		r = host_spawn_wait(make_argv);
-		if (r == -1) {
-			fprintf(stderr, "modc test: failed to run make check: %s\n",
-				strerror(errno));
-			return 1;
-		}
-		return r;
+		fprintf(stderr,
+			"modc test: --corpus is removed; use 'modc selftest' (portable corpus)\n");
+		return 1;
 	}
 	apply_cli(c, o);
 	if (o->files_len > 1) {

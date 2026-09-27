@@ -31,7 +31,7 @@ You can build `modc` from a clone of this repository using standard build tools:
 
 ```sh
 make          # → ./modc
-make check    # optional: portable `modc test` + corpus + specials
+make check    # optional: `modc test test` + `modc selftest`
 ```
 
 Which then can be installed into either the default location (`/usr/local`) or your own `$PREFIX`.

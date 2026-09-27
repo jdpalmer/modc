@@ -430,6 +430,10 @@ struct Compiler {
 	int fatal;
 	int check_only;
 	int quiet_pp; /* import scan: expand macros, mute diagnostics */
+	int quiet_diag; /* selftest: mute stderr; still append diag_log */
+	char* diag_log; /* captured diagnostics for selftest needles */
+	size_t diag_log_len;
+	size_t diag_log_cap;
 	int target; /* TargetHost / TargetWindows / … (cli.h) */
 
 	Type *type_void, *type_char, *type_uchar, *type_short, *type_ushort;

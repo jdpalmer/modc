@@ -274,7 +274,7 @@ modc test               # tests in current directory
 modc test pkgdir/       # package directory
 ```
 
-For compiler development, passing the `--corpus` flag wraps the compiler test suite execution (`make check`), though standard package testing requires only `modc test`. Full command options and execution details are documented in [`modc-test.md`](modc-test.md).
+For compiler development, `modc selftest` runs the portable in-process corpus; `make check` runs package tests then selftest. Ordinary package work needs only `modc test`. Full details are in [`modc-test.md`](modc-test.md).
 
 ## Language Safety and Consistency Rules
 
