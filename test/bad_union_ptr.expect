@@ -1,1 +1,1 @@
-mix pointers with non-pointer
+F:union must not mix pointers with non-pointer members in %C user code (allowed in headers)

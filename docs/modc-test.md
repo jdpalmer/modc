@@ -12,6 +12,10 @@ Compiler-tree CI uses three layers:
    tools are installed). Argv-sensitive cases live under `test/special/`.
 2. **Corpus** — `scripts/check-corpus.sh` → expect-fail / check-ok needles, plus
    remaining emit+host-`cc` drivers (C-ABI interop, `.qbe.expect`, `.env`).
+   Expect-fail files use `F:` fixed diagnostic substrings (exact `error:` text)
+   so a wrong message cannot silently match a vague needle. Distinct `bad_*.mc`
+   files that share a diagnostic still stay separate — they cover different
+   constructs, not duplicate tests.
 3. **Special** — `make check-special` → vendor, CLI, and argv-sensitive cases.
 
 `modc test --corpus` still runs `make check` (all three layers). Prefer

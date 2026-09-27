@@ -1,1 +1,1 @@
-operator '~' is not allowed on an enum
+F:operator '~' is not allowed on an enum; cast explicitly

@@ -1,1 +1,1 @@
-implicit fallthrough
+F:implicit fallthrough; insert 'fallthrough;' or 'break'

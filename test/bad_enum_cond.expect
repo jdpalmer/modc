@@ -1,1 +1,1 @@
-conditional enum arms require the same enum type
+F:conditional enum arms require the same enum type; cast explicitly

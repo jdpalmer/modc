@@ -1,1 +1,1 @@
-F:char[..] with %s requires a bare "%s"
+F:char[..] with %s requires a bare "%s" (no flags, width, or precision); it is rewritten to %.*s

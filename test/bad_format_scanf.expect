@@ -1,1 +1,1 @@
-scanf '%s' requires a mutable char *
+F:scanf '%s' requires a mutable char *

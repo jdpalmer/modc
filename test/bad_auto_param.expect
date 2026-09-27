@@ -1,1 +1,1 @@
-auto is only for initialized locals
+F:auto is only for initialized locals (auto x = expr)

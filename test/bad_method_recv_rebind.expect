@@ -1,1 +1,1 @@
-cannot rebind method receiver
+F:cannot rebind method receiver 'b'; mutate through it instead

@@ -1,1 +1,1 @@
-implicit conversion from int to Color
+F:implicit conversion from int to Color requires a cast

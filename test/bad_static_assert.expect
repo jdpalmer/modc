@@ -1,1 +1,1 @@
-static_assert failed
+F:static_assert failed: "must fail"

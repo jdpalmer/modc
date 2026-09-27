@@ -1,1 +1,1 @@
-uninitialized local
+F:uninitialized local 'x'; initialize at declaration

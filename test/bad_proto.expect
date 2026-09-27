@@ -1,1 +1,1 @@
-function prototypes are not allowed
+F:function prototypes are not allowed in %C user code (allowed in headers)

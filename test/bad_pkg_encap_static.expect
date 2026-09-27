@@ -1,1 +1,1 @@
-static struct fields must be pointers
+F:static struct fields must be pointers (package-private handles)

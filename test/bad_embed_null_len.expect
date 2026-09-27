@@ -1,2 +1,2 @@
 # flags: -M $ROOT
-cannot use null pointer
+F:cannot use null pointer to Buf
