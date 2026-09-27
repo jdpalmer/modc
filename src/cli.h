@@ -22,6 +22,7 @@ typedef struct {
 	int verbose;
 	int no_system_includes;
 	int corpus;
+	int target; /* TargetHost / TargetWindows / … */
 	char* output;
 	char** incpaths;
 	int incpaths_len;
@@ -36,12 +37,13 @@ void version(void);
 void add_file(CliOpts* o, char* path);
 void apply_cli(Compiler* c, CliOpts* o);
 int parse_common(Compiler* c, CliOpts* o, int* i, int argc, char** argv, int need_out);
+int parse_target_name(const char* name); /* Target* or -1 */
 
 void reset_comp_state(Compiler* c);
 int compile_file(Compiler* c, const char* path, FILE* outf);
 int emit_one(Compiler* c, CliOpts* o, const char* path);
 int compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, const char* outpath);
-char* default_out_name(const char* path);
+char* default_out_name(const char* path, int target);
 void ensure_build_root(CliOpts* o);
 void cleanup_tmpdir(const char* dir);
 int build_and_run_root(Compiler* c, CliOpts* o, const char* path);

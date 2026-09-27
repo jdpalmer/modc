@@ -22,6 +22,8 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path (macOS)\n"
 			"      --no-system-includes    omit host system include paths\n"
+			"      --target host|windows|macos|linux\n"
+			"                              codegen / ABI / macros (default: host)\n"
 			"  -h, --help                  show help\n"
 			"  -v, --verbose               verbose messages\n");
 		exit(sub ? 0 : 1);
@@ -39,6 +41,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --target host|windows|macos|linux\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n");
 		exit(sub ? 0 : 1);
@@ -58,6 +61,8 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --target host|windows|macos|linux\n"
+			"                              windows: amd64_win + MinGW (MODC_CC override)\n"
 			"  -h, --help\n"
 			"  -v, --verbose               print invoked commands\n"
 			"\n"
@@ -78,6 +83,8 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --target host|windows|macos|linux\n"
+			"                              windows: PE via MinGW; run under CrossOver/Wine\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n"
 			"\n"
@@ -98,6 +105,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --target host|windows|macos|linux\n"
 			"      --corpus                run 'make check' in the current directory\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n"
@@ -179,6 +187,7 @@ usage(const char* sub) {
 		"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 		"  -F DIR                      framework search path\n"
 		"      --no-system-includes    omit host system include paths\n"
+		"      --target host|windows|macos|linux\n"
 		"  -h, --help                  show help\n"
 		"  -V, --version               show version\n"
 		"  -v, --verbose               print invoked commands\n"
@@ -599,11 +608,39 @@ apply_cli(Compiler* c, CliOpts* o) {
 		c->incpaths[c->incpaths_len++] = o->incpaths[i];
 	}
 	c->check_only = o->check_only;
+	c->target = o->target;
 	discover_sysincludes(c, o->verbose);
 	if (o->verbose && c->modc_include && c->modc_include[0])
 		fprintf(stderr, "modc include: %s\n", c->modc_include);
 	if (o->verbose && c->modc_pkg && c->modc_pkg[0])
 		fprintf(stderr, "modc pkg: %s\n", c->modc_pkg);
+	if (o->verbose && o->target != TargetHost) {
+		const char* tname;
+
+		tname = o->target == TargetWindows ? "windows"
+			: o->target == TargetMacos   ? "macos"
+			: o->target == TargetLinux   ? "linux"
+						     : "host";
+		fprintf(stderr, "modc target: %s\n", tname);
+	}
+}
+
+// Map --target=NAME to Target*; -1 on unknown.
+int
+parse_target_name(const char* name) {
+	if (name == NULL || name[0] == 0)
+		return -1;
+	if (strcmp(name, "host") == 0)
+		return TargetHost;
+	if (strcmp(name, "windows") == 0 || strcmp(name, "win64") == 0 ||
+	    strcmp(name, "win") == 0)
+		return TargetWindows;
+	if (strcmp(name, "macos") == 0 || strcmp(name, "darwin") == 0 ||
+	    strcmp(name, "osx") == 0)
+		return TargetMacos;
+	if (strcmp(name, "linux") == 0)
+		return TargetLinux;
+	return -1;
 }
 
 // Parse shared CLI flags into CliOpts/Compiler; -1 help, 1 error, 0 ok.
@@ -678,6 +715,34 @@ parse_common(Compiler* c, CliOpts* o, int* i, int argc, char** argv, int need_ou
 		}
 		if (strcmp(a, "--corpus") == 0) {
 			o->corpus = 1;
+			continue;
+		}
+		if (strcmp(a, "--target") == 0) {
+			int t;
+
+			if (*i + 1 >= argc) {
+				fprintf(stderr, "modc: %s requires an argument\n", a);
+				return 1;
+			}
+			t = parse_target_name(argv[++(*i)]);
+			if (t < 0) {
+				fprintf(stderr,
+					"modc: unknown --target (want host|windows|macos|linux)\n");
+				return 1;
+			}
+			o->target = t;
+			continue;
+		}
+		if (strncmp(a, "--target=", 9) == 0) {
+			int t;
+
+			t = parse_target_name(a + 9);
+			if (t < 0) {
+				fprintf(stderr,
+					"modc: unknown --target (want host|windows|macos|linux)\n");
+				return 1;
+			}
+			o->target = t;
 			continue;
 		}
 		if ((strcmp(a, "-o") == 0 || strcmp(a, "--output") == 0) && need_out) {

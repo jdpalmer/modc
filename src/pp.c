@@ -2352,40 +2352,63 @@ void pp_clear_once(Compiler* c) {
 	}
 }
 
-// Install predefined macros (__FILE__, host OS/arch, etc.) before preprocessing.
+// Install predefined macros (__FILE__, target OS/arch, etc.) before preprocessing.
 void pp_init(Compiler* c) {
+	int win, apple, linux_;
+
+	win = apple = linux_ = 0;
+	if (c->target == TargetWindows)
+		win = 1;
+	else if (c->target == TargetMacos)
+		apple = 1;
+	else if (c->target == TargetLinux)
+		linux_ = 1;
+	else {
 #ifdef __APPLE__
-	pp_define(c, "__APPLE__");
+		apple = 1;
 #endif
 #ifdef __linux__
-	pp_define(c, "__linux__");
+		linux_ = 1;
 #endif
 #ifdef _WIN32
-	pp_define(c, "_WIN32");
-	/* Enough for hosted stubs and ordinary headers; not a full Win SDK persona. */
-	pp_define(c, "_WIN64");
-	pp_define(c, "_MSC_VER=1930");
-	pp_define(c, "_M_X64=100");
+		win = 1;
 #endif
-	/* Architecture: mirror the host compiler that built modc (not __GNUC__). */
+	}
+	if (apple)
+		pp_define(c, "__APPLE__");
+	if (linux_)
+		pp_define(c, "__linux__");
+	if (win) {
+		pp_define(c, "_WIN32");
+		/* Enough for hosted stubs and ordinary headers; not a full Win SDK persona. */
+		pp_define(c, "_WIN64");
+		pp_define(c, "_MSC_VER=1930");
+		pp_define(c, "_M_X64=100");
+	}
+	/* Architecture: for Windows cross, amd64; else mirror the host that built modc. */
+	if (c->target == TargetWindows) {
+		pp_define(c, "__x86_64__");
+		pp_define(c, "__amd64__");
+	} else {
 #if defined(__x86_64__) || defined(_M_X64) || defined(__amd64__)
-	pp_define(c, "__x86_64__");
-	pp_define(c, "__amd64__");
+		pp_define(c, "__x86_64__");
+		pp_define(c, "__amd64__");
 #elif defined(__i386__) || defined(_M_IX86)
-	pp_define(c, "__i386__");
+		pp_define(c, "__i386__");
 #elif defined(__aarch64__) || defined(_M_ARM64) || defined(__arm64__)
-	pp_define(c, "__aarch64__");
-	pp_define(c, "__arm64__");
+		pp_define(c, "__aarch64__");
+		pp_define(c, "__arm64__");
 #elif defined(__arm__) || defined(_M_ARM)
-	pp_define(c, "__arm__");
+		pp_define(c, "__arm__");
 #elif defined(__riscv)
-	pp_define(c, "__riscv");
+		pp_define(c, "__riscv");
 #if defined(__riscv_xlen) && (__riscv_xlen == 64)
-	pp_define(c, "__riscv_xlen=64");
+		pp_define(c, "__riscv_xlen=64");
 #elif defined(__riscv_xlen) && (__riscv_xlen == 32)
-	pp_define(c, "__riscv_xlen=32");
+		pp_define(c, "__riscv_xlen=32");
 #endif
 #endif
+	}
 	/* Dynamic at expansion (invocation site); bodies unused. */
 	pp_define(c, "__FILE__");
 	pp_define(c, "__LINE__");

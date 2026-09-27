@@ -83,3 +83,27 @@ modc build
 ```
 
 For a more complete guide on getting started with %C, please refer to [`quickstart`](quickstart.md).
+
+---
+
+## Cross-compile Win64 from macOS (MinGW + CrossOver)
+
+```sh
+# once: 64-bit bottle (32-bit bottles cannot run PE32+)
+./scripts/cross-win64.sh bottle   # or: cxbottle --bottle modc-win64 --create --template win10_64
+
+modc build --target=windows -o app.exe app.mc
+file app.exe   # PE32+ executable (console) x86-64, for MS Windows
+
+modc run --target=windows app.mc
+# or: ./scripts/cross-win64.sh run ./app.exe
+```
+
+`MODC_CC`, `MODC_QBE_TARGET`, and `MODC_WINE` still override the defaults.
+`--target=windows` selects QBE `amd64_win`, MinGW assemble/link, Win macros
+(`_WIN32` / `_WIN64`, not `__APPLE__`), LLP64 `long` (4 bytes), and `.exe` naming.
+`modc run --target=windows` launches the PE under CrossOver/Wine (`CX_BOTTLE=modc-win64`
+when that bottle exists).
+
+Prefer fixed-width types (`int64_t`, stub `size_t`) in portable code. See
+[interop.md](interop.md) and [roadmap.md](roadmap.md).

@@ -9,7 +9,10 @@
 
 typedef int BOOL;
 typedef unsigned int DWORD;
+typedef unsigned int UINT;
+typedef unsigned short WCHAR;
 typedef void *HANDLE;
+typedef void *HGLOBAL;
 
 #define INVALID_HANDLE_VALUE ((HANDLE)(intptr_t)-1)
 #define INVALID_FILE_ATTRIBUTES 0xffffffffu
@@ -52,9 +55,16 @@ typedef void *HANDLE;
 #define ENABLE_ECHO_INPUT 0x0004u
 #define ENABLE_WINDOW_INPUT 0x0008u
 #define ENABLE_MOUSE_INPUT 0x0010u
+#define ENABLE_QUICK_EDIT_MODE 0x0040u
+#define ENABLE_EXTENDED_FLAGS 0x0080u
+#define ENABLE_VIRTUAL_TERMINAL_INPUT 0x0200u
 #define ENABLE_PROCESSED_OUTPUT 0x0001u
 #define ENABLE_WRAP_AT_EOL_OUTPUT 0x0002u
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004u
+
+#define CP_UTF8 65001u
+#define CF_UNICODETEXT 13u
+#define GMEM_MOVEABLE 0x0002u
 
 #define STARTF_USESTDHANDLES 0x00000100u
 #define CREATE_NO_WINDOW 0x08000000u
@@ -63,6 +73,7 @@ typedef void *HANDLE;
 #define WAIT_OBJECT_0 0u
 #define WAIT_TIMEOUT 258u
 #define WAIT_FAILED 0xffffffffu
+#define ERROR_BROKEN_PIPE 109u
 
 typedef struct _FILETIME {
 	DWORD dwLowDateTime;
@@ -179,6 +190,27 @@ HANDLE GetStdHandle(DWORD n);
 BOOL GetConsoleMode(HANDLE h, DWORD *mode);
 BOOL SetConsoleMode(HANDLE h, DWORD mode);
 BOOL GetConsoleScreenBufferInfo(HANDLE h, CONSOLE_SCREEN_BUFFER_INFO *info);
+BOOL GetNumberOfConsoleInputEvents(HANDLE h, DWORD *n);
+DWORD GetConsoleCP(void);
+DWORD GetConsoleOutputCP(void);
+BOOL SetConsoleCP(DWORD cp);
+BOOL SetConsoleOutputCP(DWORD cp);
+uint64_t GetTickCount64(void);
+
+BOOL OpenClipboard(void *owner);
+BOOL CloseClipboard(void);
+BOOL EmptyClipboard(void);
+BOOL IsClipboardFormatAvailable(UINT format);
+HANDLE GetClipboardData(UINT format);
+HANDLE SetClipboardData(UINT format, HANDLE data);
+void *GlobalAlloc(UINT flags, size_t bytes);
+void *GlobalLock(HANDLE h);
+BOOL GlobalUnlock(HANDLE h);
+HANDLE GlobalFree(HANDLE h);
+int MultiByteToWideChar(UINT cp, DWORD flags, const char *src, int srclen,
+	WCHAR *dst, int dstlen);
+int WideCharToMultiByte(UINT cp, DWORD flags, const WCHAR *src, int srclen,
+	char *dst, int dstlen, const char *def, BOOL *used);
 
 BOOL CreatePipe(HANDLE *rd, HANDLE *wr, SECURITY_ATTRIBUTES *sa, DWORD size);
 BOOL SetHandleInformation(HANDLE h, DWORD mask, DWORD flags);

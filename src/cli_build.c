@@ -376,14 +376,37 @@ run_argv(int verbose, const char* const argv[]) {
 	return 0;
 }
 
-// Host C compiler for assemble/link (MODC_CC, CC, or platform default).
+// Host C compiler for assemble/link (MODC_CC, CC, or platform / --target default).
 static const char*
-tool_cc(void) {
+tool_cc(Compiler* c) {
 	const char* cc;
+	static char mingw_buf[HOST_PATH_MAX];
 
 	cc = getenv("MODC_CC");
 	if (cc && cc[0])
 		return cc;
+	if (c && c->target == TargetWindows) {
+#ifndef _WIN32
+		static const char* cands[] = {
+			"/opt/homebrew/bin/x86_64-w64-mingw32-gcc",
+			"/usr/local/bin/x86_64-w64-mingw32-gcc",
+			"x86_64-w64-mingw32-gcc",
+			NULL
+		};
+		int i;
+
+		for (i = 0; cands[i]; i++) {
+			if (strchr(cands[i], '/')) {
+				if (host_is_file(cands[i]))
+					return cands[i];
+			} else {
+				/* Bare name: let the linker search PATH. */
+				snprintf(mingw_buf, sizeof(mingw_buf), "%s", cands[i]);
+				return mingw_buf;
+			}
+		}
+#endif
+	}
 	cc = getenv("CC");
 	if (cc && cc[0])
 		return cc;
@@ -408,17 +431,35 @@ tool_qbe(void) {
 	if (host_is_file("./qbe.exe"))
 		return "./qbe.exe";
 #endif
+	if (host_is_file("/opt/homebrew/bin/qbe"))
+		return "/opt/homebrew/bin/qbe";
 	return "qbe";
 }
 
-// QBE -t triple for this host (or MODC_QBE_TARGET).
+// QBE -t triple for --target / host (or MODC_QBE_TARGET).
 static const char*
-tool_qbe_target(void) {
+tool_qbe_target(Compiler* c) {
 	const char* t;
 
 	t = getenv("MODC_QBE_TARGET");
 	if (t && t[0])
 		return t;
+	if (c && c->target == TargetWindows)
+		return "amd64_win";
+	if (c && c->target == TargetMacos) {
+#if defined(__aarch64__) || defined(__arm64__)
+		return "arm64_apple";
+#else
+		return "amd64_apple";
+#endif
+	}
+	if (c && c->target == TargetLinux) {
+#if defined(__aarch64__) || defined(__arm64__)
+		return "arm64";
+#else
+		return "amd64_sysv";
+#endif
+	}
 #ifdef _WIN32
 	return "amd64_win";
 #elif defined(__APPLE__) && (defined(__aarch64__) || defined(__arm64__))
@@ -551,9 +592,10 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	int i;
 
 	h = cache_hash_str(MODC_VERSION);
-	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target()));
+	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
-	h = cache_hash_mix(h, cache_hash_str(tool_cc()));
+	h = cache_hash_mix(h, (uint64_t)c->target + 1);
+	h = cache_hash_mix(h, cache_hash_str(tool_cc(c)));
 	h = cache_hash_mix(h, cache_hash_str(tool_cxx()));
 	for (i = 0; i < c->cli_defs_len; i++)
 		h = cache_hash_mix(h, cache_hash_str(c->cli_defs[i]));
@@ -582,7 +624,7 @@ foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* proj
 	h = cache_hash_mix(h, cache_hash_str(key));
 	h = cache_hash_mix(h, cache_hash_str(MODC_VERSION));
 	h = cache_hash_mix(h, cache_hash_str(comp));
-	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target()));
+	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	for (i = 0; i < c->cli_defs_len; i++)
 		h = cache_hash_mix(h, cache_hash_str(c->cli_defs[i]));
@@ -631,7 +673,7 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 			fprintf(stderr, "modc: too many c_sources files\n");
 			return 1;
 		}
-		comp = src_is_cxx(c->csources[i]) ? tool_cxx() : tool_cc();
+		comp = src_is_cxx(c->csources[i]) ? tool_cxx() : tool_cc(c);
 		snprintf(objs[*nobj], 512, "%s/foreign%d.o", dir, *nobj);
 		key = foreign_obj_key(c, c->csources[i], comp, projroot);
 		cache_hash_hex(key, hex, sizeof(hex));
@@ -689,7 +731,7 @@ link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], i
 	const char* linker;
 	int i, argc, n;
 
-	linker = needs_cxx_link(c) ? tool_cxx() : tool_cc();
+	linker = needs_cxx_link(c) ? tool_cxx() : tool_cc(c);
 	argc = 0;
 	if (add_arg(argv, &argc, linker))
 		goto toolong;
@@ -976,7 +1018,22 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 	snprintf(qbe, sizeof(qbe), "%s/pkg%d.qbe", dir, pkg_index);
 	snprintf(asmpath, sizeof(asmpath), "%s/pkg%d.s", dir, pkg_index);
 	snprintf(obj, sizeof(obj), "%s/pkg%d.o", dir, pkg_index);
-	snprintf(strsym, sizeof(strsym), "__string_%s_%.8s", pkg->id, pkg->hex);
+	/* QBE symbols: [A-Za-z_][A-Za-z0-9_]* — package dirs may contain '-'. */
+	{
+		int i, j;
+		char id[96];
+
+		j = 0;
+		for (i = 0; pkg->id[i] && j < (int)sizeof(id) - 1; i++) {
+			unsigned char ch = (unsigned char)pkg->id[i];
+			if (isalnum(ch))
+				id[j++] = (char)ch;
+			else
+				id[j++] = '_';
+		}
+		id[j] = 0;
+		snprintf(strsym, sizeof(strsym), "__string_%s_%.8s", id, pkg->hex);
+	}
 	f = fopen(qbe, "w");
 	if (f == NULL) {
 		fprintf(stderr, "modc: cannot write %s: %s\n", qbe, strerror(errno));
@@ -992,14 +1049,14 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 		return 1;
 	argv[0] = tool_qbe();
 	argv[1] = "-t";
-	argv[2] = tool_qbe_target();
+	argv[2] = tool_qbe_target(c);
 	argv[3] = "-o";
 	argv[4] = asmpath;
 	argv[5] = qbe;
 	argv[6] = NULL;
 	if (run_argv(o->verbose, argv) != 0)
 		return 1;
-	argv[0] = tool_cc();
+	argv[0] = tool_cc(c);
 	argv[1] = "-c";
 	argv[2] = asmpath;
 	argv[3] = "-o";
@@ -1031,6 +1088,18 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 
 	files = NULL;
 	nfiles = 0;
+#ifndef _WIN32
+	if (c->target == TargetWindows) {
+		const char* cc;
+
+		cc = tool_cc(c);
+		if (cc && strchr(cc, '/') && !host_is_file(cc)) {
+			fprintf(stderr,
+				"modc: --target=windows needs x86_64-w64-mingw32-gcc (or set MODC_CC)\n");
+			return 1;
+		}
+	}
+#endif
 	if (pkg_discover(c, path, &files, &nfiles))
 		return 1;
 	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs) != 0) {
@@ -1074,7 +1143,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 				linkh, foreign_obj_key(c, c->csources[i],
 						       src_is_cxx(c->csources[i])
 							       ? tool_cxx()
-							       : tool_cc(),
+							       : tool_cc(c),
 						       projroot));
 		for (i = 0; i < o->linkargv_len; i++)
 			linkh = cache_hash_mix(linkh, cache_hash_str(o->linkargv[i]));
@@ -1086,7 +1155,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 
 			key = foreign_obj_key(c, c->csources[i],
 					      src_is_cxx(c->csources[i]) ? tool_cxx()
-									: tool_cc(),
+									: tool_cc(c),
 					      projroot);
 			cache_hash_hex(key, hex, sizeof(hex));
 			snprintf(cached, sizeof(cached), "%s/foreign/%s.o", crooot, hex);
@@ -1211,7 +1280,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 				linkh, foreign_obj_key(c, c->csources[i],
 						       src_is_cxx(c->csources[i])
 							       ? tool_cxx()
-							       : tool_cc(),
+							       : tool_cc(c),
 						       projroot));
 		for (i = 0; i < o->linkargv_len; i++)
 			linkh = cache_hash_mix(linkh, cache_hash_str(o->linkargv[i]));
@@ -1223,21 +1292,22 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 
 /* Heap string: executable name from a file or directory path. */
 char*
-default_out_name(const char* path) {
+default_out_name(const char* path, int target) {
 	char buf[PATH_MAX], cwd[PATH_MAX];
 	const char *base, *dot;
 	size_t n;
 	char* name;
+	int want_exe;
 
+	want_exe = (target == TargetWindows);
+#ifdef _WIN32
+	want_exe = 1;
+#endif
 	if (path == NULL || path[0] == 0)
 		path = ".";
 	if (strcmp(path, ".") == 0 || strcmp(path, "./") == 0 || strcmp(path, ".\\") == 0) {
 		if (host_getcwd(cwd, sizeof(cwd)) != 0)
-#ifdef _WIN32
-			return xstrdup("a.exe");
-#else
-			return xstrdup("a.out");
-#endif
+			return xstrdup(want_exe ? "a.exe" : "a.out");
 		path = cwd;
 	}
 	snprintf(buf, sizeof(buf), "%s", path);
@@ -1249,28 +1319,24 @@ default_out_name(const char* path) {
 	base = host_path_last_sep(buf);
 	base = base ? base + 1 : buf;
 	if (base[0] == 0)
-#ifdef _WIN32
-		return xstrdup("a.exe");
-#else
-		return xstrdup("a.out");
-#endif
+		return xstrdup(want_exe ? "a.exe" : "a.out");
 	dot = strrchr(base, '.');
 	if (dot && strcmp(dot, ".mc") == 0 && dot > base)
 		name = xstrndup(base, (size_t)(dot - base));
 	else
 		name = xstrdup(base);
-#ifdef _WIN32
-	n = strlen(name);
-	if (n < 4 || strcmp(name + n - 4, ".exe") != 0) {
-		char* with;
+	if (want_exe) {
+		n = strlen(name);
+		if (n < 4 || strcmp(name + n - 4, ".exe") != 0) {
+			char* with;
 
-		with = xmalloc(n + 5);
-		memcpy(with, name, n);
-		memcpy(with + n, ".exe", 5);
-		free(name);
-		return with;
+			with = xmalloc(n + 5);
+			memcpy(with, name, n);
+			memcpy(with + n, ".exe", 5);
+			free(name);
+			return with;
+		}
 	}
-#endif
 	return name;
 }
 

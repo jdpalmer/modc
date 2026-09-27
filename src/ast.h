@@ -403,6 +403,14 @@ enum {
 	MaxSwitchCases = 128
 };
 
+/* Codegen / ABI target (set from --target=…; TargetHost = build machine). */
+enum {
+	TargetHost = 0,
+	TargetWindows,
+	TargetMacos,
+	TargetLinux
+};
+
 struct Compiler {
 	char* infile;
 	char** incpaths;
@@ -422,6 +430,7 @@ struct Compiler {
 	int fatal;
 	int check_only;
 	int quiet_pp; /* import scan: expand macros, mute diagnostics */
+	int target; /* TargetHost / TargetWindows / … (cli.h) */
 
 	Type *type_void, *type_char, *type_uchar, *type_short, *type_ushort;
 	Type *type_int, *type_uint, *type_long, *type_ulong;

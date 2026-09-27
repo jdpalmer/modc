@@ -31,10 +31,15 @@ void type_init(Compiler* c) {
 	c->type_ushort = mkprim(c, TyUShort, 2, 2, 1);
 	c->type_int = mkprim(c, TyInt, 4, 4, 0);
 	c->type_uint = mkprim(c, TyUInt, 4, 4, 1);
-	/* Host ABI long (LP64: 8; LLP64/Windows: 4). Headers only in user dialect. */
-	c->type_long = mkprim(c, TyLong, (int)sizeof(long), (int)sizeof(long), 0);
-	c->type_ulong = mkprim(c, TyULong, (int)sizeof(unsigned long),
-			    (int)sizeof(unsigned long), 1);
+	/* Host ABI long: LLP64 (Windows) is 4; else host sizeof(long). */
+	if (c->target == TargetWindows) {
+		c->type_long = mkprim(c, TyLong, 4, 4, 0);
+		c->type_ulong = mkprim(c, TyULong, 4, 4, 1);
+	} else {
+		c->type_long = mkprim(c, TyLong, (int)sizeof(long), (int)sizeof(long), 0);
+		c->type_ulong = mkprim(c, TyULong, (int)sizeof(unsigned long),
+				    (int)sizeof(unsigned long), 1);
+	}
 	/* Fixed 64-bit for int64_t and dialect literal suffixes l/ul. */
 	c->type_llong = mkprim(c, TyLLong, 8, 8, 0);
 	c->type_ullong = mkprim(c, TyULLong, 8, 8, 1);

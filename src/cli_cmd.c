@@ -81,7 +81,7 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 	}
 	outname = NULL;
 	if (o->output == NULL) {
-		outname = default_out_name(o->files[0]);
+		outname = default_out_name(o->files[0], o->target);
 		o->output = outname;
 	}
 	if (o->verbose)
@@ -97,6 +97,33 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 	return r;
 }
 
+// Resolve CrossOver/Wine for running PE on a non-Windows host.
+static const char*
+tool_wine(void) {
+	const char* w;
+	static const char* cands[] = {
+		"/Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine",
+		"/usr/local/bin/wine64",
+		"/opt/homebrew/bin/wine64",
+		"wine64",
+		"wine",
+		NULL
+	};
+	int i;
+
+	w = getenv("MODC_WINE");
+	if (w && w[0])
+		return w;
+	for (i = 0; cands[i]; i++) {
+		if (strchr(cands[i], '/')) {
+			if (host_is_file(cands[i]))
+				return cands[i];
+		} else
+			return cands[i];
+	}
+	return NULL;
+}
+
 // Build a temp exe for path, spawn it, then clean up.
 int
 build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
@@ -105,6 +132,8 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	int i, st, runargs_len;
 	const char** runargv;
 	int nrun;
+	const char* wine;
+	int use_wine;
 
 	c->c_libs_len = 0;
 	c->frameworks_len = 0;
@@ -113,10 +142,18 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 		fprintf(stderr, "modc: cannot create temp dir: %s\n", strerror(errno));
 		return 1;
 	}
+	use_wine = 0;
+#ifndef _WIN32
+	if (c->target == TargetWindows)
+		use_wine = 1;
+#endif
 #ifdef _WIN32
 	snprintf(prog, sizeof(prog), "%s/prog.exe", dir);
 #else
-	snprintf(prog, sizeof(prog), "%s/prog", dir);
+	if (c->target == TargetWindows)
+		snprintf(prog, sizeof(prog), "%s/prog.exe", dir);
+	else
+		snprintf(prog, sizeof(prog), "%s/prog", dir);
 #endif
 	runargs_len = o->linkargv_len;
 	o->linkargv_len = 0;
@@ -126,12 +163,51 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 		cleanup_tmpdir(dir);
 		return 1;
 	}
-	nrun = o->linkargv_len + 2;
+	wine = NULL;
+	if (use_wine) {
+		wine = tool_wine();
+		if (wine == NULL) {
+			fprintf(stderr,
+				"modc: --target=windows: set MODC_WINE or install CrossOver/Wine to run\n");
+			cleanup_tmpdir(dir);
+			return 1;
+		}
+		if (getenv("CX_BOTTLE") == NULL && getenv("WINEPREFIX") == NULL) {
+			/* Prefer the smoke bottle if present. */
+			static char bottle[HOST_PATH_MAX];
+			const char* home;
+
+			home = getenv("HOME");
+			if (home) {
+				snprintf(bottle, sizeof(bottle),
+					 "%s/Library/Application Support/CrossOver/Bottles/modc-win64",
+					 home);
+				if (host_is_dir(bottle))
+					setenv("CX_BOTTLE", "modc-win64", 0);
+			}
+		}
+		if (getenv("WINEDEBUG") == NULL)
+			setenv("WINEDEBUG", "-all", 0);
+	}
+	nrun = o->linkargv_len + 2 + (wine ? 1 : 0);
 	runargv = xmalloc((size_t)nrun * sizeof(char*));
-	runargv[0] = prog;
-	for (i = 0; i < o->linkargv_len; i++)
-		runargv[i + 1] = o->linkargv[i];
-	runargv[nrun - 1] = NULL;
+	i = 0;
+	if (wine)
+		runargv[i++] = wine;
+	runargv[i++] = prog;
+	{
+		int j;
+
+		for (j = 0; j < o->linkargv_len; j++)
+			runargv[i++] = o->linkargv[j];
+	}
+	runargv[i] = NULL;
+	if (o->verbose) {
+		fprintf(stderr, "+");
+		for (i = 0; runargv[i]; i++)
+			fprintf(stderr, " %s", runargv[i]);
+		fprintf(stderr, "\n");
+	}
 	st = host_spawn_wait(runargv);
 	free(runargv);
 	if (st < 0) {
