@@ -68,6 +68,13 @@ stop there. `cap(s)` is how many elements are addressable from `ptr(s)`
 (`len <= cap`). Spare room is for mutators that grow into the same block; it is
 not inherited by a subslice.
 
+### Bounds checks (`--bounds-check`)
+
+By default, `s[i]` and `a[i]` on `T[..]` / `T[N]` are unchecked (same as C).
+Pass `--bounds-check` to `modc build`, `run`, `test`, or `emit` to insert an
+unsigned compare against `len` (or `N`) and call `abort` on overflow. Raw
+`T*` indexing is never checked. Release builds omit the flag for zero cost.
+
 Closed windows (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set
 `len == cap`. Writable scratch over a block is `ranged(p, 0, n)` — length
 zero, capacity `n`. To grow length into spare capacity, assign a new header

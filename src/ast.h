@@ -431,6 +431,7 @@ struct Compiler {
 	int check_only;
 	int quiet_pp; /* import scan: expand macros, mute diagnostics */
 	int quiet_diag; /* selftest: mute stderr; still append diag_log */
+	int bounds_check; /* emit index traps for T[..] / T[N] */
 	char* diag_log; /* captured diagnostics for selftest needles */
 	size_t diag_log_len;
 	size_t diag_log_cap;

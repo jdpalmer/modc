@@ -653,6 +653,7 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 		h = cache_hash_mix(h, cache_hash_str(key));
 	}
 	h = cache_hash_mix(h, c->no_system_includes ? 1 : 0);
+	h = cache_hash_mix(h, c->bounds_check ? 1 : 0);
 	return h;
 }
 

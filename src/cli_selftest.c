@@ -124,6 +124,10 @@ apply_flag_token(Compiler* c, CliOpts* o, const char* tok) {
 		o->no_system_includes = 1;
 		return 0;
 	}
+	if (strcmp(tok, "--bounds-check") == 0) {
+		o->bounds_check = 1;
+		return 0;
+	}
 	fprintf(stderr, "modc selftest: unknown flag '%s'\n", tok);
 	return 1;
 }

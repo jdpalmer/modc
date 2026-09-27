@@ -22,6 +22,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path (macOS)\n"
 			"      --no-system-includes    omit host system include paths\n"
+			"      --bounds-check          trap out-of-range T[..]/T[N] index\n"
 			"      --target host|windows|macos|linux\n"
 			"                              codegen / ABI / macros (default: host)\n"
 			"  -h, --help                  show help\n"
@@ -41,6 +42,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --bounds-check\n"
 			"      --target host|windows|macos|linux\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n");
@@ -61,6 +63,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --bounds-check\n"
 			"      --target host|windows|macos|linux\n"
 			"                              windows: amd64_win + MinGW (MODC_CC override)\n"
 			"  -h, --help\n"
@@ -83,6 +86,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --bounds-check\n"
 			"      --target host|windows|macos|linux\n"
 			"                              windows: PE via MinGW; run under CrossOver/Wine\n"
 			"  -h, --help\n"
@@ -106,6 +110,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --bounds-check\n"
 			"      --target host|windows|macos|linux\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n"
@@ -132,6 +137,7 @@ usage(const char* sub) {
 			"  -M DIR\n"
 			"  -F DIR\n"
 			"      --no-system-includes\n"
+			"      --bounds-check\n"
 			"      --target host|windows|macos|linux\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n");
@@ -150,6 +156,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --no-system-includes\n"
+			"      --bounds-check\n"
 			"  -h, --help\n"
 			"  -v, --verbose\n");
 		exit(sub ? 0 : 1);
@@ -211,6 +218,7 @@ usage(const char* sub) {
 		"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 		"  -F DIR                      framework search path\n"
 		"      --no-system-includes    omit host system include paths\n"
+		"      --bounds-check          trap out-of-range T[..]/T[N] index\n"
 		"      --target host|windows|macos|linux\n"
 		"  -h, --help                  show help\n"
 		"  -V, --version               show version\n"
@@ -652,6 +660,7 @@ apply_cli(Compiler* c, CliOpts* o) {
 		c->incpaths[c->incpaths_len++] = o->incpaths[i];
 	}
 	c->check_only = o->check_only;
+	c->bounds_check = o->bounds_check;
 	c->target = o->target;
 	discover_sysincludes(c, o->verbose);
 	if (o->verbose && c->modc_include && c->modc_include[0])
@@ -755,6 +764,10 @@ parse_common(Compiler* c, CliOpts* o, int* i, int argc, char** argv, int need_ou
 		}
 		if (strcmp(a, "--no-system-includes") == 0) {
 			o->no_system_includes = 1;
+			continue;
+		}
+		if (strcmp(a, "--bounds-check") == 0) {
+			o->bounds_check = 1;
 			continue;
 		}
 		if (strcmp(a, "--corpus") == 0) {

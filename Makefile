@@ -67,9 +67,12 @@ $(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h
 check: $(MODC)
 	@mkdir -p $(BUILD)
 	./modc test test
+	./modc test --bounds-check test/bounds_ok_test.mc
 	./modc test test/special/cli_args_test.mc -- a b
 	./modc test -M test test/testdriver
 	./modc selftest
+	./modc build --bounds-check -o $(BUILD)/bounds_oob test/bounds_oob.mc
+	@$(BUILD)/bounds_oob >/dev/null 2>&1; test $$? -ne 0
 
 # Optional host integration (vendor, cache, format, doc, includes).
 check-special: $(MODC)

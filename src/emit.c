@@ -899,6 +899,23 @@ vimm(char cls, int64_t n, Type* t) {
 	return v;
 }
 
+// Branch to trap (abort) when index is not strictly less than len (unsigned).
+static void
+emit_index_bounds(Val idx, Val len) {
+	Val ok;
+	int lok, ltrap;
+
+	ok = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, idx.text, len.text);
+	lok = newlbl();
+	ltrap = newlbl();
+	emitjnz(ok.text, lok, ltrap);
+	emitlbl(ltrap);
+	fprintf(outf, "\tcall $abort()\n");
+	emitjmp(lok);
+	emitlbl(lok);
+}
+
 // Insert casts/extensions so a value matches the target QBE class.
 static Val
 coerce(Val v, char cls, Type* to) {
@@ -1179,20 +1196,29 @@ emitlval(Compiler* c, Node* n) {
 	}
 	if (n->kind == NdIndex) {
 		if (n->a && is_ranged(n->a->type) && n->a->type->base) {
-			b = emitexpr(c, n->a);
-			if (b.cls != 'l' && b.cls != '@')
-				b = coerce(b, 'l', c->type_void_ptr);
-			{
-				Val p;
+			Val agg, p, lenv;
+			int lenoff;
 
-				p = vtmp('l', type_ptr(c, n->a->type->base));
-				fprintf(outf, "\t%s =l loadl %s\n", p.text, b.text);
-				b = p;
-			}
+			agg = emitexpr(c, n->a);
+			if (agg.cls != 'l' && agg.cls != '@')
+				agg = coerce(agg, 'l', c->type_void_ptr);
+			p = vtmp('l', type_ptr(c, n->a->type->base));
+			fprintf(outf, "\t%s =l loadl %s\n", p.text, agg.text);
 			i = emitexpr(c, n->b);
-			step = type_size(c, n->a->type->base);
 			if (i.cls != 'l')
 				i = coerce(i, 'l', c->type_llong);
+			if (c->bounds_check) {
+				lenoff = 8;
+				if (n->a->type->fields && n->a->type->fields->next)
+					lenoff = n->a->type->fields->next->offset;
+				s = vtmp('l', c->type_void_ptr);
+				fprintf(outf, "\t%s =l add %s, %d\n", s.text, agg.text, lenoff);
+				lenv = vtmp('l', c->type_ullong);
+				fprintf(outf, "\t%s =l loadl %s\n", lenv.text, s.text);
+				emit_index_bounds(i, lenv);
+			}
+			b = p;
+			step = type_size(c, n->a->type->base);
 			if (step != 1) {
 				s = vtmp('l', c->type_llong);
 				if (step > 0 && (step & (step - 1)) == 0) {
@@ -1225,6 +1251,12 @@ emitlval(Compiler* c, Node* n) {
 			i = coerce(i, 'l', c->type_llong);
 		if (b.cls != 'l')
 			b = coerce(b, 'l', c->type_void_ptr);
+		if (c->bounds_check && bt && bt->kind == TyArray && bt->len >= 0) {
+			Val lenv;
+
+			lenv = vimm('l', bt->len, c->type_ullong);
+			emit_index_bounds(i, lenv);
+		}
 		if (step != 1) {
 			s = vtmp('l', c->type_llong);
 			if (step > 0 && (step & (step - 1)) == 0) {
