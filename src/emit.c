@@ -1587,9 +1587,12 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		ln = vtmp('l', c->type_ullong);
 		fprintf(outf, "\t%s =l add %s, %d\n", ln.text, slot.text, lenoff);
 		alen = 0;
-		if (n->children_len == 1 && n->children[0] && n->children[0]->kind == NdStr && n->children[0]->type && n->children[0]->type->base && (n->children[0]->type->base->kind == TyChar || n->children[0]->type->base->kind == TyUChar) && n->children[0]->type->len > 0)
-			alen = n->children[0]->type->len - 1;
-		else if (n->children_len == 1 && n->children[0] && is_array(n->children[0]->type))
+		if (n->children_len == 1 && n->children[0] && n->children[0]->kind == NdStr && n->children[0]->type && n->children[0]->type->base && (n->children[0]->type->base->kind == TyChar || n->children[0]->type->base->kind == TyUChar) && n->children[0]->type->len > 0) {
+			/* String literals include a trailing NUL; #embed does not. */
+			alen = n->children[0]->type->len;
+			if (!n->children[0]->is_embed)
+				alen--;
+		} else if (n->children_len == 1 && n->children[0] && is_array(n->children[0]->type))
 			alen = n->children[0]->type->len;
 		if (n->children_len == 1 && alen > 0)
 			r = vimm('l', alen, c->type_ullong);

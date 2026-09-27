@@ -17,6 +17,43 @@ int a[4] = {0};
 char buf[64] = {0};
 ```
 
+### `#embed` binary blobs
+
+C23-style `#embed` injects a file’s bytes as a compile-time constant. Paths
+resolve like `#include` (`"…"` relative to the including file; `<…>` on the
+include path). Optional `limit(N)` truncates to the first N bytes. Empty files
+are an error. Soft size cap is 1 MiB (larger assets should stay out of the QBE
+`data` path for now).
+
+```c
+static char icon[] = {
+#embed "assets/icon.bin"
+};
+
+static char head[4] = {
+#embed "assets/icon.bin" limit(4)
+};
+
+/* Brace-less form (same idea as `char s[] = "hi"`): */
+static char blob[] =
+#embed "assets/payload.bin"
+;
+
+/* Or as a ranged view: */
+const char[..] view =
+#embed "assets/payload.bin"
+;
+```
+
+Bytes land in the same QBE string/data pool as string literals—no host
+assembler `.incbin` required for icon-sized blobs.
+
+**Intentionally omitted (C23 `#embed` extras):** `prefix`, `suffix`,
+`if_empty`, and `__has_embed`. Those exist for header metaprogramming and
+optional-resource probing. %C’s use case is app assets in `.mc`; missing files
+are hard errors, and stubs are preferred over growing the preprocessor. Revisit
+only if a real stub or dogfood file needs them.
+
 Fixed arrays implicitly convert to `T[..]` where a ranged type is expected. In user translation units, declaring a parameter as `void f(int a[N])` enforces an exact `T[N]` matching requirement at call sites. Within `f`, calling `len(a)` correctly returns the compile-time length `N`.
 
 ## Open Arrays `T[]`

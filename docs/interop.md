@@ -75,9 +75,11 @@ do not provide. Stubs mirror MinGW/MSVC accessors instead:
 
 The preprocessor supports the usual `#define` / `#include` / `#if` subset used by
 most headers (including correct `|` / `^` / `&` and relational vs equality
-precedence). Obscure or SDK-only preprocessor features are out of scope; extend
-a stub instead of growing `pp.c`. `#pragma once` deduplicates includes; classic
-#ifndef include-guard heuristics are not used as a skip cache.
+precedence), plus C23-style `#embed` for compile-time binary blobs (see
+[arrays.md](arrays.md); `prefix` / `suffix` / `if_empty` / `__has_embed` are
+intentionally omitted). Obscure or SDK-only preprocessor features are out of
+scope; extend a stub instead of growing `pp.c`. `#pragma once` deduplicates
+includes; classic #ifndef include-guard heuristics are not used as a skip cache.
 
 Package logic lives in `.mc` sources. System API declarations belong in hosted
 stubs (`unistd.h`, `windows.h`, …), not in the package.

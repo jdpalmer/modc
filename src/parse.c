@@ -1795,6 +1795,15 @@ parse_primary(Compiler* c) {
 		}
 		return n;
 	}
+	if (t->kind == TkEmbed) {
+		take(c);
+		n = node(NdStr, t->span);
+		n->int_val = t->int_val;
+		n->is_embed = 1;
+		n->type = type_array(c, c->type_char, (int64_t)t->kw);
+		n->type->is_readonly = 1;
+		return n;
+	}
 	if (atkw(c, KwTrue) || atkw(c, KwFalse)) {
 		int v = atkw(c, KwTrue);
 		t = take(c);
@@ -3256,6 +3265,16 @@ finish_array_from_init(Compiler* c, Type** pt, Initializer* in) {
 	t = *pt;
 	if (t == NULL || t->kind != TyArray)
 		return;
+	/* Sole #embed inside braces acts like a string-style whole-array init. */
+	if (in && in->is_list && in->items_len == 1 && !in->items[0].is_list &&
+	    in->items[0].expr && in->items[0].expr->kind == NdStr &&
+	    in->items[0].expr->is_embed) {
+		in->expr = in->items[0].expr;
+		in->is_list = 0;
+		free(in->items);
+		in->items = NULL;
+		in->items_len = 0;
+	}
 	if (t->len >= 0)
 		return;
 	len = 0;
@@ -3394,9 +3413,14 @@ validate_initializer_rec(Compiler* c, Type* t, Initializer* in, int base,
 
 				dstlen = t->len;
 				srclen = in->expr->type ? in->expr->type->len : 1;
-				/* C permits `char a[2] = "hi"` with the final NUL omitted. */
-				if (dstlen >= 0 && srclen > dstlen + 1)
-					error_at(c, sp, "string literal is too long for array");
+				if (in->expr->is_embed) {
+					if (dstlen >= 0 && srclen > dstlen)
+						error_at(c, sp, "embedded resource is too large for array");
+				} else {
+					/* C permits `char a[2] = "hi"` with the final NUL omitted. */
+					if (dstlen >= 0 && srclen > dstlen + 1)
+						error_at(c, sp, "string literal is too long for array");
+				}
 				init_record_range(c, ck, base, type_size(c, t), sp);
 			}
 			return;

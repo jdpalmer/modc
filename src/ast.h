@@ -48,6 +48,7 @@ enum {
 	TkNewline,
 	TkHeader,  /* after #include: <foo.h> or "foo.h" */
 	TkComment, /* // or block comment; only when Compiler.keep_comments */
+	TkEmbed,   /* #embed blob: int_val = strpool offset, kw = byte length */
 };
 
 enum {
@@ -373,6 +374,7 @@ struct Node {
 	int is_lvalue;
 	int paren;	  /* wrapped in (…); assign-in-condition rules */
 	int is_char_lit;  /* NdLit from '…' character constant */
+	int is_embed;	  /* NdStr from #embed (raw bytes; no synthetic NUL) */
 	int is_synth;	  /* compiler-built node (e.g. ranged→pointer decay) */
 	int cast_checked; /* unnecessary-cast diagnostic already emitted */
 };
@@ -610,6 +612,8 @@ char qbe_class(Type* t); /* 'w'/'l'/'s'/'d' or '@' aggregate */
 /* Decode escapes into the string pool. Returns offset; *out_len (if non-NULL)
  * receives the decoded byte count including the terminating NUL. */
 int intern_str(Compiler* c, const char* raw, int* out_len);
+/* Append raw bytes (no escapes, no forced NUL) to the string pool. */
+int intern_bytes(Compiler* c, const void* bytes, int nbytes);
 int eval_const(Compiler* c, Node* n, int64_t* out);
 int eval_float_const(Compiler* c, Node* n, double* out);
 Node* type_expr(Compiler* c, Node* n);

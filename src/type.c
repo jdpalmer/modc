@@ -1344,6 +1344,25 @@ hexval(int ch) {
 	return 0;
 }
 
+// Append raw bytes to the compile-time pool (used by #embed; no forced NUL).
+int intern_bytes(Compiler* c, const void* bytes, int nbytes) {
+	int off;
+
+	if (nbytes < 0)
+		nbytes = 0;
+	off = c->strpool_len;
+	if (c->strpool_len + nbytes > c->strpool_cap) {
+		c->strpool_cap = c->strpool_cap ? c->strpool_cap * 2 : 256;
+		while (c->strpool_cap < c->strpool_len + nbytes)
+			c->strpool_cap *= 2;
+		c->strpool = xrealloc(c->strpool, c->strpool_cap);
+	}
+	if (nbytes > 0 && bytes != NULL)
+		memcpy(c->strpool + c->strpool_len, bytes, (size_t)nbytes);
+	c->strpool_len += nbytes;
+	return off;
+}
+
 // Decode C escapes and append a NUL-terminated string to the compile-time pool.
 int intern_str(Compiler* c, const char* raw, int* out_len) {
 	unsigned char* buf;

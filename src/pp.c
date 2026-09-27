@@ -1,12 +1,12 @@
 /*
- * Preprocessor: directives, macros, #include.
+ * Preprocessor: directives, macros, #include, #embed.
  *
  * Compilation pipeline: lex → [pp] → parse → type check → emit → QBE
  *
  * Consumes the lexer Tok stream and rewrites c->tokens in place. Conditional
  * stack is IfOn / IfWait / IfDone. Macro expansion follows Prosser-ish
  * argument expand / # / ## rules. After pp_run, parse sees a flat token list
- * with no directives left.
+ * with no directives left. #embed injects a TkEmbed blob (bytes in strpool).
  */
 #include "ast.h"
 #include "host_os.h"
@@ -780,6 +780,112 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 	}
 	pp_ninc_open++;
 	free(text);
+	free(path);
+}
+
+enum { EmbedMaxBytes = 1 << 20 }; /* 1 MiB QBE data path; larger needs .incbin later */
+
+// Record a binary dependency path so the build cache invalidates on change.
+static void
+note_dep_file(Compiler* c, const char* path) {
+	if (path == NULL)
+		return;
+	if (c->src_files_len % 8 == 0) {
+		c->src_files = xrealloc(c->src_files, (c->src_files_len + 8) * sizeof(char*));
+		c->src_text = xrealloc(c->src_text, (c->src_files_len + 8) * sizeof(char*));
+	}
+	c->src_files[c->src_files_len] = xstrdup(path);
+	c->src_text[c->src_files_len] = NULL;
+	c->src_files_len++;
+}
+
+// #embed "file" [limit(N)]: inject one TkEmbed (raw bytes in the string pool).
+static void
+do_embed(Compiler* c, Tok* at, Tok* src, int src_files_len, int* i) {
+	char *name, *path, *data;
+	size_t nbytes;
+	int angled, limit, have_limit, off;
+	Tok emb;
+
+	name = header_name(src, src_files_len, i, &angled);
+	if (name == NULL) {
+		error_tok(c, at, "bad #embed");
+		skip_nl(src, src_files_len, i);
+		return;
+	}
+	have_limit = 0;
+	limit = 0;
+	while (*i < src_files_len && src[*i].kind != TkNewline && src[*i].kind != TkEof) {
+		if (ident_is(&src[*i], "limit")) {
+			(*i)++;
+			if (*i >= src_files_len || src[*i].kind != TkPunct || src[*i].punct != PnLparen) {
+				error_tok(c, at, "expected '(' after limit");
+				break;
+			}
+			(*i)++;
+			if (*i >= src_files_len || src[*i].kind != TkNumber) {
+				error_tok(c, at, "limit() expects an integer constant");
+				break;
+			}
+			if (src[*i].int_val < 0 || src[*i].int_val > EmbedMaxBytes) {
+				error_tok(c, at, "limit() out of range");
+				break;
+			}
+			limit = (int)src[*i].int_val;
+			have_limit = 1;
+			(*i)++;
+			if (*i >= src_files_len || src[*i].kind != TkPunct || src[*i].punct != PnRparen) {
+				error_tok(c, at, "expected ')' after limit");
+				break;
+			}
+			(*i)++;
+			continue;
+		}
+		if (src[*i].kind == TkIdent || src[*i].kind == TkKw) {
+			error_tok(c, &src[*i], "unsupported #embed parameter '%s'",
+				  src[*i].s ? src[*i].s : "?");
+			break;
+		}
+		(*i)++;
+	}
+	skip_nl(src, src_files_len, i);
+
+	path = find_include(c, at->span.file, name, angled);
+	free(name);
+	if (path == NULL) {
+		error_tok(c, at, "cannot find embed file");
+		return;
+	}
+	data = read_file(path, &nbytes);
+	if (data == NULL) {
+		error_tok(c, at, "cannot read embed file %s", path);
+		free(path);
+		return;
+	}
+	note_dep_file(c, path);
+	if (have_limit && (size_t)limit < nbytes)
+		nbytes = (size_t)limit;
+	if (nbytes > (size_t)EmbedMaxBytes) {
+		error_tok(c, at, "#embed file larger than %d bytes (use a smaller asset)",
+			  EmbedMaxBytes);
+		free(data);
+		free(path);
+		return;
+	}
+	if (nbytes == 0) {
+		error_tok(c, at, "#embed resource is empty");
+		free(data);
+		free(path);
+		return;
+	}
+	off = intern_bytes(c, data, (int)nbytes);
+	memset(&emb, 0, sizeof(emb));
+	emb.kind = TkEmbed;
+	emb.span = at->span;
+	emb.int_val = off;
+	emb.kw = (int)nbytes; /* byte length */
+	emit_tok(c, emb);
+	free(data);
 	free(path);
 }
 
@@ -2147,6 +2253,10 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 					free(name);
 				} else
 					error_tok(c, t, "bad #include");
+				continue;
+			}
+			if (strcmp(dir, "embed") == 0) {
+				do_embed(c, t, src, src_files_len, &i);
 				continue;
 			}
 			if (strcmp(dir, "error") == 0) {
