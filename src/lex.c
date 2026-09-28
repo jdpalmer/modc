@@ -8,6 +8,10 @@
  * that is pp.c. Entry: lex_file.
  */
 #include "ast.h"
+#include <ctype.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 
 static const char* kwname[] = {
     "auto",
@@ -204,25 +208,25 @@ splice_lines(const char* in) {
 	return out;
 }
 
-// Append one token to c->tokens, attaching any pending doc comment to it.
+// Append one token to c->lex.tokens, attaching any pending doc comment to it.
 static void
 addtok(Compiler* c, Tok t) {
-	if (t.kind != TkNewline && t.kind != TkEof && c->pending_doc) {
-		t.doc = c->pending_doc;
-		c->pending_doc = NULL;
+	if (t.kind != TkNewline && t.kind != TkEof && c->lex.pending_doc) {
+		t.doc = c->lex.pending_doc;
+		c->lex.pending_doc = NULL;
 	}
-	if (c->tokens_len >= c->tokens_cap) {
-		c->tokens_cap = c->tokens_cap ? c->tokens_cap * 2 : 256;
-		c->tokens = xrealloc(c->tokens, c->tokens_cap * sizeof(Tok));
+	if (c->lex.tokens_len >= c->lex.tokens_cap) {
+		c->lex.tokens_cap = c->lex.tokens_cap ? c->lex.tokens_cap * 2 : 256;
+		c->lex.tokens = xrealloc(c->lex.tokens, c->lex.tokens_cap * sizeof(Tok));
 	}
-	c->tokens[c->tokens_len++] = t;
+	c->lex.tokens[c->lex.tokens_len++] = t;
 }
 
 // Discard accumulated leading doc text before the next declaration.
 static void
 doc_clear(Compiler* c) {
-	free(c->pending_doc);
-	c->pending_doc = NULL;
+	free(c->lex.pending_doc);
+	c->lex.pending_doc = NULL;
 }
 
 // Append one trimmed // or /* */ line to the pending doc string for the next decl.
@@ -238,15 +242,15 @@ doc_append_line(Compiler* c, const char* text, int n) {
 		n--;
 	if (n < 0)
 		n = 0;
-	olen = c->pending_doc ? (int)strlen(c->pending_doc) : 0;
-	c->pending_doc = xrealloc(c->pending_doc, (size_t)olen + (size_t)n + 2);
+	olen = c->lex.pending_doc ? (int)strlen(c->lex.pending_doc) : 0;
+	c->lex.pending_doc = xrealloc(c->lex.pending_doc, (size_t)olen + (size_t)n + 2);
 	if (olen) {
-		c->pending_doc[olen] = '\n';
+		c->lex.pending_doc[olen] = '\n';
 		olen++;
 	}
 	for (i = 0; i < n; i++)
-		c->pending_doc[olen + i] = text[i];
-	c->pending_doc[olen + n] = 0;
+		c->lex.pending_doc[olen + i] = text[i];
+	c->lex.pending_doc[olen + n] = 0;
 }
 
 // True for the first character of an identifier (letters, _, $, UTF-8 lead).
@@ -262,7 +266,7 @@ isident(int ch) {
 	return isalnum(ch) || ch == '_' || ch == '$' || (unsigned char)ch >= 0x80;
 }
 
-// Lex one source file into c->tokens (keywords, literals, punct, comments, newlines).
+// Lex one source file into c->lex.tokens (keywords, literals, punct, comments, newlines).
 void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 	char* src;
 	int i, line, col, startcol, ch, kw, bol, hadws, ban_alt;
@@ -270,24 +274,24 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 	Span sp;
 
 	src = splice_lines(raw);
-	if (c->src_files_len % 8 == 0) {
-		c->src_files = xrealloc(c->src_files, (c->src_files_len + 8) * sizeof(char*));
-		c->src_text = xrealloc(c->src_text, (c->src_files_len + 8) * sizeof(char*));
+	if (c->unit.src_files_len % 8 == 0) {
+		c->unit.src_files = xrealloc(c->unit.src_files, (c->unit.src_files_len + 8) * sizeof(char*));
+		c->unit.src_text = xrealloc(c->unit.src_text, (c->unit.src_files_len + 8) * sizeof(char*));
 	}
 	/* Stable copy: callers may free their path; spans keep this pointer. */
-	c->src_files[c->src_files_len] = xstrdup(path);
-	c->src_text[c->src_files_len] = src;
-	path = c->src_files[c->src_files_len];
-	c->src_files_len++;
+	c->unit.src_files[c->unit.src_files_len] = xstrdup(path);
+	c->unit.src_text[c->unit.src_files_len] = src;
+	path = c->unit.src_files[c->unit.src_files_len];
+	c->unit.src_files_len++;
 
 	/* iso646 ban only for user TUs — decide once per file, not per ident. */
 	ban_alt = 0;
-	if (c->unit_files_len == 0)
+	if (c->unit.unit_files_len == 0)
 		ban_alt = 1;
 	else {
 		int u;
-		for (u = 0; u < c->unit_files_len; u++) {
-			if (c->unit_files[u] && strcmp(path, c->unit_files[u]) == 0) {
+		for (u = 0; u < c->unit.unit_files_len; u++) {
+			if (c->unit.unit_files[u] && strcmp(path, c->unit.unit_files[u]) == 0) {
 				ban_alt = 1;
 				break;
 			}
@@ -305,7 +309,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 		while (src[i]) {
 			int at_bol;
 
-			if (c->fatal)
+			if (c->diag.fatal)
 				break;
 			hadws = 0;
 			at_bol = bol;
@@ -325,7 +329,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 				end = start;
 				while (src[end] && src[end] != '\n')
 					end++;
-				if (c->keep_comments) {
+				if (c->lex.keep_comments) {
 					memset(&t, 0, sizeof(t));
 					t.kind = TkComment;
 					t.s = xstrndup(src + i, end - i);
@@ -340,7 +344,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 					doc_append_line(c, src + start, end - start);
 					after_doc = 1;
 				}
-				if (at_bol && c->keep_comments)
+				if (at_bol && c->lex.keep_comments)
 					after_doc = 1;
 				col += end - i;
 				i = end;
@@ -357,7 +361,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 				start = i;
 				while (src[i] && !(src[i] == '*' && src[i + 1] == '/')) {
 					if (src[i] == '\n') {
-						if (!c->keep_comments && at_bol && i >= start)
+						if (!c->lex.keep_comments && at_bol && i >= start)
 							doc_append_line(c, src + start, i - start);
 						start = i + 1;
 						line++;
@@ -370,7 +374,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 					i++;
 				}
 				end = i;
-				if (!c->keep_comments && at_bol) {
+				if (!c->lex.keep_comments && at_bol) {
 					doc_append_line(c, src + start, end - start);
 					after_doc = 1;
 				}
@@ -378,7 +382,7 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 					i += 2;
 					col += 2;
 				}
-				if (c->keep_comments) {
+				if (c->lex.keep_comments) {
 					memset(&t, 0, sizeof(t));
 					t.kind = TkComment;
 					t.s = xstrndup(src + cstart, i - cstart);

@@ -9,6 +9,10 @@
  * Keys include QBE target and host OS; project-local paths are relative.
  */
 #include "ast.h"
+#include <ctype.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <stdlib.h>
 #include "host_os.h"
 
 #include <stdio.h>
@@ -32,7 +36,7 @@ fnv1a64(const void* data, size_t n, uint64_t h) {
 }
 
 // Hash an arbitrary byte buffer for cache keys.
-uint64_t
+static uint64_t
 cache_hash_bytes(const void* data, size_t n) {
 	return fnv1a64(data, n, 0);
 }
@@ -101,7 +105,7 @@ mkdir_parents(const char* path) {
 }
 
 // Create dir and all missing parents (mkdir -p); 0 on success.
-int
+static int
 cache_mkdir_p(const char* dir) {
 	char path[HOST_PATH_MAX];
 	size_t n;

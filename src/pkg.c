@@ -8,6 +8,9 @@
  * the driver stitches those TUs into one Compiler.
  */
 #include "ast.h"
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #include "host_os.h"
 #include <ctype.h>
 
@@ -18,9 +21,9 @@ enum { MaxPkgFiles = 256,
 void pkg_add_search_path(Compiler* c, const char* dir) {
 	if (dir == NULL || dir[0] == 0)
 		return;
-	if (c->pkgpaths_len % 8 == 0)
-		c->pkgpaths = xrealloc(c->pkgpaths, (c->pkgpaths_len + 8) * sizeof(char*));
-	c->pkgpaths[c->pkgpaths_len++] = xstrdup(dir);
+	if (c->paths.pkgpaths_len % 8 == 0)
+		c->paths.pkgpaths = xrealloc(c->paths.pkgpaths, (c->paths.pkgpaths_len + 8) * sizeof(char*));
+	c->paths.pkgpaths[c->paths.pkgpaths_len++] = xstrdup(dir);
 }
 
 // Record a -l library name for the final host link line (deduped).
@@ -29,12 +32,12 @@ void pkg_add_clib(Compiler* c, const char* lib) {
 
 	if (lib == NULL || lib[0] == 0)
 		return;
-	for (i = 0; i < c->c_libs_len; i++)
-		if (strcmp(c->c_libs[i], lib) == 0)
+	for (i = 0; i < c->paths.c_libs_len; i++)
+		if (strcmp(c->paths.c_libs[i], lib) == 0)
 			return;
-	if (c->c_libs_len % 8 == 0)
-		c->c_libs = xrealloc(c->c_libs, (c->c_libs_len + 8) * sizeof(char*));
-	c->c_libs[c->c_libs_len++] = xstrdup(lib);
+	if (c->paths.c_libs_len % 8 == 0)
+		c->paths.c_libs = xrealloc(c->paths.c_libs, (c->paths.c_libs_len + 8) * sizeof(char*));
+	c->paths.c_libs[c->paths.c_libs_len++] = xstrdup(lib);
 }
 
 // Record a macOS framework for the final host link line (deduped).
@@ -43,13 +46,13 @@ void pkg_add_framework(Compiler* c, const char* name) {
 
 	if (name == NULL || name[0] == 0)
 		return;
-	for (i = 0; i < c->frameworks_len; i++)
-		if (strcmp(c->frameworks[i], name) == 0)
+	for (i = 0; i < c->paths.frameworks_len; i++)
+		if (strcmp(c->paths.frameworks[i], name) == 0)
 			return;
-	if (c->frameworks_len % 8 == 0)
-		c->frameworks = xrealloc(c->frameworks,
-					 (c->frameworks_len + 8) * sizeof(char*));
-	c->frameworks[c->frameworks_len++] = xstrdup(name);
+	if (c->paths.frameworks_len % 8 == 0)
+		c->paths.frameworks = xrealloc(c->paths.frameworks,
+					 (c->paths.frameworks_len + 8) * sizeof(char*));
+	c->paths.frameworks[c->paths.frameworks_len++] = xstrdup(name);
 }
 
 // True for C/C++/ObjC source extensions accepted by c_sources pragmas.
@@ -79,12 +82,12 @@ void comp_add_framework_path(Compiler* c, const char* dir) {
 
 	if (dir == NULL || dir[0] == 0)
 		return;
-	for (i = 0; i < c->framework_paths_len; i++)
-		if (strcmp(c->framework_paths[i], dir) == 0)
+	for (i = 0; i < c->paths.framework_paths_len; i++)
+		if (strcmp(c->paths.framework_paths[i], dir) == 0)
 			return;
-	if (c->framework_paths_len % 8 == 0)
-		c->framework_paths = xrealloc(c->framework_paths, (c->framework_paths_len + 8) * sizeof(char*));
-	c->framework_paths[c->framework_paths_len++] = xstrdup(dir);
+	if (c->paths.framework_paths_len % 8 == 0)
+		c->paths.framework_paths = xrealloc(c->paths.framework_paths, (c->paths.framework_paths_len + 8) * sizeof(char*));
+	c->paths.framework_paths[c->paths.framework_paths_len++] = xstrdup(dir);
 }
 
 // True when path exists and is a directory.
@@ -119,12 +122,12 @@ void pkg_add_csource(Compiler* c, const char* from_file, const char* relpath) {
 	joined = host_join_path(pkgdir, relpath);
 	snprintf(path, sizeof(path), "%s", joined);
 	free(joined);
-	for (i = 0; i < c->csources_len; i++)
-		if (strcmp(c->csources[i], path) == 0)
+	for (i = 0; i < c->paths.csources_len; i++)
+		if (strcmp(c->paths.csources[i], path) == 0)
 			return;
-	if (c->csources_len % 8 == 0)
-		c->csources = xrealloc(c->csources, (c->csources_len + 8) * sizeof(char*));
-	c->csources[c->csources_len++] = xstrdup(path);
+	if (c->paths.csources_len % 8 == 0)
+		c->paths.csources = xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
+	c->paths.csources[c->paths.csources_len++] = xstrdup(path);
 }
 
 // True when a filename ends in .mc.
@@ -294,8 +297,8 @@ try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 	char sep;
 	int i;
 
-	for (i = 0; i < c->pkgpaths_len; i++)
-		if (try_pkg_at(c->pkgpaths[i], spec, out, out_len))
+	for (i = 0; i < c->paths.pkgpaths_len; i++)
+		if (try_pkg_at(c->paths.pkgpaths[i], spec, out, out_len))
 			return 1;
 	env = getenv("MODC_PATH");
 	if (env && env[0]) {
@@ -315,7 +318,7 @@ try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 		}
 		free(pathdup);
 	}
-	if (c->modc_pkg && try_pkg_at(c->modc_pkg, spec, out, out_len))
+	if (c->paths.modc_pkg && try_pkg_at(c->paths.modc_pkg, spec, out, out_len))
 		return 1;
 	return 0;
 }
@@ -329,7 +332,7 @@ resolve_import(Compiler* c, const char* spec, const char* from_file, char* out, 
 	dirname_copy(from_file, basedir, sizeof(basedir));
 	if (try_pkg_at(basedir, spec, out, out_len))
 		return 0;
-	if (c->project_root[0] && try_pkg_at(c->project_root, spec, out, out_len))
+	if (c->paths.project_root[0] && try_pkg_at(c->paths.project_root, spec, out, out_len))
 		return 0;
 
 	snprintf(cur, sizeof(cur), "%s", basedir);
@@ -460,36 +463,36 @@ scan_imports(Compiler* c, const char* path, char*** imps, int* nimps) {
 		free(text);
 		return 0;
 	}
-	save_toks = c->tokens;
-	save_ntok = c->tokens_len;
-	save_tokcap = c->tokens_cap;
-	save_pos = c->pos;
-	save_nerror = c->error_count;
-	save_infile = c->infile;
-	c->tokens = NULL;
-	c->tokens_len = 0;
-	c->tokens_cap = 0;
-	c->pos = 0;
-	c->infile = xstrdup(path);
+	save_toks = c->lex.tokens;
+	save_ntok = c->lex.tokens_len;
+	save_tokcap = c->lex.tokens_cap;
+	save_pos = c->lex.pos;
+	save_nerror = c->diag.error_count;
+	save_infile = c->paths.infile;
+	c->lex.tokens = NULL;
+	c->lex.tokens_len = 0;
+	c->lex.tokens_cap = 0;
+	c->lex.pos = 0;
+	c->paths.infile = xstrdup(path);
 	/* Lex only — do not preprocess. `import` is a keyword; pulling #include
 	 * trees here previously doubled windows.h work for no benefit. */
-	lex_file(c, c->infile, text, 1);
+	lex_file(c, c->paths.infile, text, 1);
 	free(text);
-	if (c->error_count) {
-		c->tokens = save_toks;
-		c->tokens_len = save_ntok;
-		c->tokens_cap = save_tokcap;
-		c->pos = save_pos;
-		c->error_count = save_nerror;
-		c->infile = save_infile;
+	if (c->diag.error_count) {
+		c->lex.tokens = save_toks;
+		c->lex.tokens_len = save_ntok;
+		c->lex.tokens_cap = save_tokcap;
+		c->lex.pos = save_pos;
+		c->diag.error_count = save_nerror;
+		c->paths.infile = save_infile;
 		return 1;
 	}
 	list = NULL;
 	n = 0;
 	cap = 0;
 	depth = 0;
-	for (i = 0; i < c->tokens_len; i++) {
-		Tok* t = &c->tokens[i];
+	for (i = 0; i < c->lex.tokens_len; i++) {
+		Tok* t = &c->lex.tokens[i];
 		if (t->kind == TkPunct && t->punct == PnLbrace)
 			depth++;
 		else if (t->kind == TkPunct && t->punct == PnRbrace)
@@ -497,21 +500,21 @@ scan_imports(Compiler* c, const char* path, char*** imps, int* nimps) {
 		if (depth != 0)
 			continue;
 		if (t->kind == TkKw && t->kw == KwImport) {
-			if (i + 2 < c->tokens_len && c->tokens[i + 1].kind == TkString) {
+			if (i + 2 < c->lex.tokens_len && c->lex.tokens[i + 1].kind == TkString) {
 				if (n >= cap) {
 					cap = cap ? cap * 2 : 4;
 					list = xrealloc(list, cap * sizeof(char*));
 				}
-				list[n++] = xstrdup(c->tokens[i + 1].s);
+				list[n++] = xstrdup(c->lex.tokens[i + 1].s);
 			}
 		}
 	}
-	c->tokens = save_toks;
-	c->tokens_len = save_ntok;
-	c->tokens_cap = save_tokcap;
-	c->pos = save_pos;
-	c->error_count = save_nerror;
-	c->infile = save_infile;
+	c->lex.tokens = save_toks;
+	c->lex.tokens_len = save_ntok;
+	c->lex.tokens_cap = save_tokcap;
+	c->lex.pos = save_pos;
+	c->diag.error_count = save_nerror;
+	c->paths.infile = save_infile;
 	*imps = list;
 	*nimps = n;
 	return 0;
@@ -635,8 +638,8 @@ int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n) {
 	int nsrcs, i;
 
 	memset(&d, 0, sizeof(d));
-	c->project_root[0] = 0;
-	cache_project_root(root, c->project_root, sizeof(c->project_root));
+	c->paths.project_root[0] = 0;
+	cache_project_root(root, c->paths.project_root, sizeof(c->paths.project_root));
 	srcs = NULL;
 	nsrcs = 0;
 	if (list_sources(root, &srcs, &nsrcs)) {

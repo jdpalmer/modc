@@ -31,33 +31,33 @@ typedef struct {
 	int hit;
 } BuildPkg;
 
-// Lex and preprocess one path into c->tokens; apply -D from j onward.
+// Lex and preprocess one path into c->lex.tokens; apply -D from j onward.
 static int
 lex_pp_file(Compiler* c, const char* path, int j) {
 	char* text;
 
-	c->tokens = NULL;
-	c->tokens_len = 0;
-	c->tokens_cap = 0;
-	c->pos = 0;
+	c->lex.tokens = NULL;
+	c->lex.tokens_len = 0;
+	c->lex.tokens_cap = 0;
+	c->lex.pos = 0;
 	pp_clear_macros(c);
 	pp_clear_once(c);
 	pp_init(c);
-	for (; j < c->cli_defs_len; j++)
-		pp_define(c, c->cli_defs[j]);
-	free(c->infile);
-	c->infile = xstrdup(path);
+	for (; j < c->paths.cli_defs_len; j++)
+		pp_define(c, c->paths.cli_defs[j]);
+	free(c->paths.infile);
+	c->paths.infile = xstrdup(path);
 	text = read_file(path, NULL);
 	if (text == NULL) {
 		fprintf(stderr, "modc: cannot read %s: %s\n", path, strerror(errno));
 		return 1;
 	}
-	lex_file(c, c->infile, text, 1);
+	lex_file(c, c->paths.infile, text, 1);
 	free(text);
-	if (c->error_count)
+	if (c->diag.error_count)
 		return 1;
 	pp_run(c);
-	return c->error_count ? 1 : 0;
+	return c->diag.error_count ? 1 : 0;
 }
 
 // Wall-ish seconds from clock() for MODC_PROFILE timings.
@@ -75,19 +75,19 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 	double t0, t1, t_lexpp, t_prescan, t_parse, t_type;
 
 	type_init(c);
-	c->unit_files = NULL;
-	c->unit_files_len = 0;
-	c->unit_src_start = c->src_files_len;
+	c->unit.unit_files = NULL;
+	c->unit.unit_files_len = 0;
+	c->unit.unit_src_start = c->unit.src_files_len;
 	r = 0;
 	profile = getenv("MODC_PROFILE") != NULL;
 	t_lexpp = t_prescan = t_parse = t_type = 0;
 	cache = xmalloc((size_t)nfiles * sizeof(*cache));
 	memset(cache, 0, (size_t)nfiles * sizeof(*cache));
 	for (i = 0; i < nfiles; i++) {
-		if (c->unit_files_len % 8 == 0)
-			c->unit_files = xrealloc(c->unit_files,
-						(c->unit_files_len + 8) * sizeof(char*));
-		c->unit_files[c->unit_files_len++] = xstrdup(files[i]);
+		if (c->unit.unit_files_len % 8 == 0)
+			c->unit.unit_files = xrealloc(c->unit.unit_files,
+						(c->unit.unit_files_len + 8) * sizeof(char*));
+		c->unit.unit_files[c->unit.unit_files_len++] = xstrdup(files[i]);
 	}
 	for (i = 0; i < nfiles; i++) {
 		if (profile)
@@ -100,16 +100,16 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 			t1 = now_sec();
 			t_lexpp += t1 - t0;
 		}
-		cache[i].tokens = c->tokens;
-		cache[i].tokens_len = c->tokens_len;
-		cache[i].tokens_cap = c->tokens_cap;
-		cache[i].infile = c->infile; /* span.file aliases this */
+		cache[i].tokens = c->lex.tokens;
+		cache[i].tokens_len = c->lex.tokens_len;
+		cache[i].tokens_cap = c->lex.tokens_cap;
+		cache[i].infile = c->paths.infile; /* span.file aliases this */
 		/* Detach so the next lex_pp_file does not drop or free these. */
-		c->tokens = NULL;
-		c->tokens_len = 0;
-		c->tokens_cap = 0;
-		c->infile = NULL;
-		if (c->error_count) {
+		c->lex.tokens = NULL;
+		c->lex.tokens_len = 0;
+		c->lex.tokens_cap = 0;
+		c->paths.infile = NULL;
+		if (c->diag.error_count) {
 			r = 1;
 			break;
 		}
@@ -119,21 +119,21 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 	for (i = 0; r == 0 && i < nfiles; i++) {
 		if (profile)
 			t0 = now_sec();
-		c->infile = cache[i].infile;
-		c->tokens = cache[i].tokens;
-		c->tokens_len = cache[i].tokens_len;
-		c->tokens_cap = cache[i].tokens_cap;
-		c->pos = 0;
+		c->paths.infile = cache[i].infile;
+		c->lex.tokens = cache[i].tokens;
+		c->lex.tokens_len = cache[i].tokens_len;
+		c->lex.tokens_cap = cache[i].tokens_cap;
+		c->lex.pos = 0;
 		prescan_unit_type_names(c);
 		if (profile) {
 			t1 = now_sec();
 			t_prescan += t1 - t0;
 		}
-		c->tokens = NULL;
-		c->tokens_len = 0;
-		c->tokens_cap = 0;
-		c->infile = NULL;
-		if (c->error_count) {
+		c->lex.tokens = NULL;
+		c->lex.tokens_len = 0;
+		c->lex.tokens_cap = 0;
+		c->paths.infile = NULL;
+		if (c->diag.error_count) {
 			r = 1;
 			break;
 		}
@@ -141,21 +141,21 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 	for (i = 0; r == 0 && i < nfiles; i++) {
 		if (profile)
 			t0 = now_sec();
-		c->infile = cache[i].infile;
-		c->tokens = cache[i].tokens;
-		c->tokens_len = cache[i].tokens_len;
-		c->tokens_cap = cache[i].tokens_cap;
-		c->pos = 0;
+		c->paths.infile = cache[i].infile;
+		c->lex.tokens = cache[i].tokens;
+		c->lex.tokens_len = cache[i].tokens_len;
+		c->lex.tokens_cap = cache[i].tokens_cap;
+		c->lex.pos = 0;
 		prescan_unit_type_bodies(c);
 		if (profile) {
 			t1 = now_sec();
 			t_prescan += t1 - t0;
 		}
-		c->tokens = NULL;
-		c->tokens_len = 0;
-		c->tokens_cap = 0;
-		c->infile = NULL;
-		if (c->error_count) {
+		c->lex.tokens = NULL;
+		c->lex.tokens_len = 0;
+		c->lex.tokens_cap = 0;
+		c->paths.infile = NULL;
+		if (c->diag.error_count) {
 			r = 1;
 			break;
 		}
@@ -165,21 +165,21 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 	for (i = 0; r == 0 && i < nfiles; i++) {
 		if (profile)
 			t0 = now_sec();
-		c->infile = cache[i].infile;
-		c->tokens = cache[i].tokens;
-		c->tokens_len = cache[i].tokens_len;
-		c->tokens_cap = cache[i].tokens_cap;
-		c->pos = 0;
+		c->paths.infile = cache[i].infile;
+		c->lex.tokens = cache[i].tokens;
+		c->lex.tokens_len = cache[i].tokens_len;
+		c->lex.tokens_cap = cache[i].tokens_cap;
+		c->lex.pos = 0;
 		prescan_unit_funcs(c);
 		if (profile) {
 			t1 = now_sec();
 			t_prescan += t1 - t0;
 		}
-		c->tokens = NULL;
-		c->tokens_len = 0;
-		c->tokens_cap = 0;
-		c->infile = NULL;
-		if (c->error_count) {
+		c->lex.tokens = NULL;
+		c->lex.tokens_len = 0;
+		c->lex.tokens_cap = 0;
+		c->paths.infile = NULL;
+		if (c->diag.error_count) {
 			r = 1;
 			break;
 		}
@@ -187,20 +187,20 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 	for (i = 0; r == 0 && i < nfiles; i++) {
 		if (profile)
 			t0 = now_sec();
-		c->infile = cache[i].infile;
-		c->tokens = cache[i].tokens;
-		c->tokens_len = cache[i].tokens_len;
-		c->tokens_cap = cache[i].tokens_cap;
-		c->pos = 0;
+		c->paths.infile = cache[i].infile;
+		c->lex.tokens = cache[i].tokens;
+		c->lex.tokens_len = cache[i].tokens_len;
+		c->lex.tokens_cap = cache[i].tokens_cap;
+		c->lex.pos = 0;
 		parse_unit(c);
 		if (profile) {
 			t1 = now_sec();
 			t_parse += t1 - t0;
 		}
-		c->tokens = NULL;
-		c->tokens_len = 0;
-		c->tokens_cap = 0;
-		if (c->error_count) {
+		c->lex.tokens = NULL;
+		c->lex.tokens_len = 0;
+		c->lex.tokens_cap = 0;
+		if (c->diag.error_count) {
 			r = 1;
 			break;
 		}
@@ -220,7 +220,7 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 		t1 = now_sec();
 		t_type = t1 - t0;
 	}
-	if (c->error_count) {
+	if (c->diag.error_count) {
 		if (profile)
 			fprintf(stderr,
 				"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs type=%.3fs\n",
@@ -255,7 +255,7 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 	free(files);
 	if (r)
 		return 1;
-	if (!c->check_only) {
+	if (!c->opt.check_only) {
 		if (outf == NULL)
 			outf = stdout;
 		profile = getenv("MODC_PROFILE") != NULL;
@@ -271,7 +271,7 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 			t_emit = t1 - t0;
 			fprintf(stderr, "modc profile: emit=%.3fs\n", t_emit);
 		}
-		if (c->error_count)
+		if (c->diag.error_count)
 			return 1;
 	}
 	return 0;
@@ -280,28 +280,28 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 // Clear TU state so the next root can reuse the same Compiler.
 void
 reset_comp_state(Compiler* c) {
-	c->tokens = NULL;
-	c->tokens_len = 0;
-	c->tokens_cap = 0;
-	c->pos = 0;
-	c->error_count = 0;
-	c->fatal = 0;
-	c->symbols = NULL;
-	free(c->symbol_tab);
-	c->symbol_tab = NULL;
-	c->symbol_tab_cap = 0;
-	c->symbols_len = 0;
-	c->block = 0;
-	c->funcs = NULL;
-	c->funcs_len = 0;
-	c->funcs_cap = 0;
-	c->globals = NULL;
-	c->globals_len = 0;
-	c->globals_cap = 0;
-	c->current_fn = NULL;
-	c->type_list = NULL;
-	c->unit_files = NULL;
-	c->unit_files_len = 0;
+	c->lex.tokens = NULL;
+	c->lex.tokens_len = 0;
+	c->lex.tokens_cap = 0;
+	c->lex.pos = 0;
+	c->diag.error_count = 0;
+	c->diag.fatal = 0;
+	c->syms.symbols = NULL;
+	free(c->syms.symbol_tab);
+	c->syms.symbol_tab = NULL;
+	c->syms.symbol_tab_cap = 0;
+	c->syms.symbols_len = 0;
+	c->syms.block = 0;
+	c->unit.funcs = NULL;
+	c->unit.funcs_len = 0;
+	c->unit.funcs_cap = 0;
+	c->unit.globals = NULL;
+	c->unit.globals_len = 0;
+	c->unit.globals_cap = 0;
+	c->syms.current_fn = NULL;
+	c->types.type_list = NULL;
+	c->unit.unit_files = NULL;
+	c->unit.unit_files_len = 0;
 	type_init(c);
 }
 
@@ -388,7 +388,7 @@ tool_cc(Compiler* c) {
 	cc = getenv("MODC_CC");
 	if (cc && cc[0])
 		return cc;
-	if (c && c->target == TargetWindows) {
+	if (c && c->opt.target == TargetWindows) {
 #ifndef _WIN32
 		static const char* cands[] = {
 			"/opt/homebrew/bin/x86_64-w64-mingw32-gcc",
@@ -493,16 +493,16 @@ tool_qbe_target(Compiler* c) {
 	t = getenv("MODC_QBE_TARGET");
 	if (t && t[0])
 		return t;
-	if (c && c->target == TargetWindows)
+	if (c && c->opt.target == TargetWindows)
 		return "amd64_win";
-	if (c && c->target == TargetMacos) {
+	if (c && c->opt.target == TargetMacos) {
 #if defined(__aarch64__) || defined(__arm64__)
 		return "arm64_apple";
 #else
 		return "amd64_apple";
 #endif
 	}
-	if (c && c->target == TargetLinux) {
+	if (c && c->opt.target == TargetLinux) {
 #if defined(__aarch64__) || defined(__arm64__)
 		return "arm64";
 #else
@@ -573,8 +573,8 @@ static int
 needs_cxx_link(Compiler* c) {
 	int i;
 
-	for (i = 0; i < c->csources_len; i++)
-		if (src_is_cxx(c->csources[i]))
+	for (i = 0; i < c->paths.csources_len; i++)
+		if (src_is_cxx(c->paths.csources[i]))
 			return 1;
 	return 0;
 }
@@ -600,21 +600,21 @@ static int
 add_compile_flags(Compiler* c, const char** argv, int* argc) {
 	int i;
 
-	for (i = 0; i < c->incpaths_len; i++)
-		if (add_arg(argv, argc, "-I") || add_arg(argv, argc, c->incpaths[i]))
+	for (i = 0; i < c->paths.incpaths_len; i++)
+		if (add_arg(argv, argc, "-I") || add_arg(argv, argc, c->paths.incpaths[i]))
 			return 1;
-	if (!c->no_system_includes) {
-		for (i = 0; i < c->sysincpaths_len; i++)
+	if (!c->paths.no_system_includes) {
+		for (i = 0; i < c->paths.sysincpaths_len; i++)
 			if (add_arg(argv, argc, "-I") ||
-			    add_arg(argv, argc, c->sysincpaths[i]))
+			    add_arg(argv, argc, c->paths.sysincpaths[i]))
 				return 1;
 	}
-	for (i = 0; i < c->cli_defs_len; i++)
-		if (add_arg(argv, argc, "-D") || add_arg(argv, argc, c->cli_defs[i]))
+	for (i = 0; i < c->paths.cli_defs_len; i++)
+		if (add_arg(argv, argc, "-D") || add_arg(argv, argc, c->paths.cli_defs[i]))
 			return 1;
-	for (i = 0; i < c->framework_paths_len; i++)
+	for (i = 0; i < c->paths.framework_paths_len; i++)
 		if (add_arg(argv, argc, "-F") ||
-		    add_arg(argv, argc, c->framework_paths[i]))
+		    add_arg(argv, argc, c->paths.framework_paths[i]))
 			return 1;
 	return 0;
 }
@@ -643,17 +643,17 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	h = cache_hash_str(MODC_VERSION);
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
-	h = cache_hash_mix(h, (uint64_t)c->target + 1);
+	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
 	h = cache_hash_mix(h, cache_hash_str(tool_cc(c)));
 	h = cache_hash_mix(h, cache_hash_str(tool_cxx()));
-	for (i = 0; i < c->cli_defs_len; i++)
-		h = cache_hash_mix(h, cache_hash_str(c->cli_defs[i]));
-	for (i = 0; i < c->incpaths_len; i++) {
-		cache_path_key(c->incpaths[i], projroot, key, sizeof(key));
+	for (i = 0; i < c->paths.cli_defs_len; i++)
+		h = cache_hash_mix(h, cache_hash_str(c->paths.cli_defs[i]));
+	for (i = 0; i < c->paths.incpaths_len; i++) {
+		cache_path_key(c->paths.incpaths[i], projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
 	}
-	h = cache_hash_mix(h, c->no_system_includes ? 1 : 0);
-	h = cache_hash_mix(h, c->bounds_check ? 1 : 0);
+	h = cache_hash_mix(h, c->paths.no_system_includes ? 1 : 0);
+	h = cache_hash_mix(h, c->opt.bounds_check ? 1 : 0);
 	return h;
 }
 
@@ -676,17 +676,17 @@ foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* proj
 	h = cache_hash_mix(h, cache_hash_str(comp));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
-	for (i = 0; i < c->cli_defs_len; i++)
-		h = cache_hash_mix(h, cache_hash_str(c->cli_defs[i]));
-	for (i = 0; i < c->incpaths_len; i++) {
-		cache_path_key(c->incpaths[i], projroot, key, sizeof(key));
+	for (i = 0; i < c->paths.cli_defs_len; i++)
+		h = cache_hash_mix(h, cache_hash_str(c->paths.cli_defs[i]));
+	for (i = 0; i < c->paths.incpaths_len; i++) {
+		cache_path_key(c->paths.incpaths[i], projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
 	}
-	for (i = 0; i < c->framework_paths_len; i++) {
-		cache_path_key(c->framework_paths[i], projroot, key, sizeof(key));
+	for (i = 0; i < c->paths.framework_paths_len; i++) {
+		cache_path_key(c->paths.framework_paths[i], projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
 	}
-	h = cache_hash_mix(h, c->no_system_includes ? 1 : 0);
+	h = cache_hash_mix(h, c->paths.no_system_includes ? 1 : 0);
 	if (src_is_objc(src))
 		h = cache_hash_mix(h, cache_hash_str("-fobjc-arc"));
 #ifdef _WIN32
@@ -711,26 +711,26 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 	projroot[0] = 0;
 	cache_root_for(entry ? entry : ".", crooot, sizeof(crooot));
 	cache_project_root(entry ? entry : ".", projroot, sizeof(projroot));
-	for (i = 0; i < c->csources_len; i++) {
+	for (i = 0; i < c->paths.csources_len; i++) {
 		const char* comp;
 
-		if (!host_is_file(c->csources[i])) {
+		if (!host_is_file(c->paths.csources[i])) {
 			fprintf(stderr, "modc: c_sources file not found: %s\n",
-				c->csources[i]);
+				c->paths.csources[i]);
 			return 1;
 		}
 		if (*nobj >= MaxForeignObj) {
 			fprintf(stderr, "modc: too many c_sources files\n");
 			return 1;
 		}
-		comp = src_is_cxx(c->csources[i]) ? tool_cxx() : tool_cc(c);
+		comp = src_is_cxx(c->paths.csources[i]) ? tool_cxx() : tool_cc(c);
 		snprintf(objs[*nobj], 512, "%s/foreign%d.o", dir, *nobj);
-		key = foreign_obj_key(c, c->csources[i], comp, projroot);
+		key = foreign_obj_key(c, c->paths.csources[i], comp, projroot);
 		cache_hash_hex(key, hex, sizeof(hex));
 		snprintf(cached, sizeof(cached), "%s/foreign/%s.o", crooot, hex);
 		snprintf(depmeta, sizeof(depmeta), "%s.deps", cached);
 		snprintf(depfile, sizeof(depfile), "%s/foreign%d.d", dir, *nobj);
-		snprintf(what, sizeof(what), "foreign %s", c->csources[i]);
+		snprintf(what, sizeof(what), "foreign %s", c->paths.csources[i]);
 		if (host_is_file(cached) && cache_deps_valid(depmeta)) {
 			if (cache_copy_file(cached, objs[*nobj]) != 0)
 				return 1;
@@ -750,13 +750,13 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 		    add_arg(argv, &argc, "-MMD") || add_arg(argv, &argc, "-MF") ||
 		    add_arg(argv, &argc, depfile))
 			goto toolong;
-		src_dirname(c->csources[i], srcdir, sizeof(srcdir));
+		src_dirname(c->paths.csources[i], srcdir, sizeof(srcdir));
 		if (add_arg(argv, &argc, "-I") || add_arg(argv, &argc, srcdir))
 			goto toolong;
-		if (src_is_objc(c->csources[i]) &&
+		if (src_is_objc(c->paths.csources[i]) &&
 		    add_arg(argv, &argc, "-fobjc-arc"))
 			goto toolong;
-		if (add_arg(argv, &argc, c->csources[i]) ||
+		if (add_arg(argv, &argc, c->paths.csources[i]) ||
 		    add_arg(argv, &argc, "-o") || add_arg(argv, &argc, objs[*nobj]))
 			goto toolong;
 		if (run_argv(o->verbose, argv) != 0)
@@ -793,18 +793,18 @@ link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], i
 			goto toolong;
 	if (add_arg(argv, &argc, "-o") || add_arg(argv, &argc, outpath))
 		goto toolong;
-	if (!c->no_system_includes) {
-		for (i = 0; i < c->syslibpaths_len; i++)
+	if (!c->paths.no_system_includes) {
+		for (i = 0; i < c->paths.syslibpaths_len; i++)
 			if (add_arg(argv, &argc, "-L") ||
-			    add_arg(argv, &argc, c->syslibpaths[i]))
+			    add_arg(argv, &argc, c->paths.syslibpaths[i]))
 				goto toolong;
 	}
-	for (i = 0; i < c->c_libs_len; i++)
-		if (add_arg(argv, &argc, "-l") || add_arg(argv, &argc, c->c_libs[i]))
+	for (i = 0; i < c->paths.c_libs_len; i++)
+		if (add_arg(argv, &argc, "-l") || add_arg(argv, &argc, c->paths.c_libs[i]))
 			goto toolong;
-	for (i = 0; i < c->frameworks_len; i++)
+	for (i = 0; i < c->paths.frameworks_len; i++)
 		if (add_arg(argv, &argc, "-framework") ||
-		    add_arg(argv, &argc, c->frameworks[i]))
+		    add_arg(argv, &argc, c->paths.frameworks[i]))
 			goto toolong;
 	for (i = 0; i < o->linkargv_len; i++)
 		if (add_arg(argv, &argc, o->linkargv[i]))
@@ -915,14 +915,14 @@ save_modc_deps(Compiler* c, const char* path) {
 	char** deps;
 	int i, j, n;
 
-	deps = xmalloc((size_t)(c->src_files_len - c->unit_src_start) * sizeof(char*));
+	deps = xmalloc((size_t)(c->unit.src_files_len - c->unit.unit_src_start) * sizeof(char*));
 	n = 0;
-	for (i = c->unit_src_start; i < c->src_files_len; i++) {
-		for (j = 0; j < c->unit_files_len; j++)
-			if (strcmp(c->src_files[i], c->unit_files[j]) == 0)
+	for (i = c->unit.unit_src_start; i < c->unit.src_files_len; i++) {
+		for (j = 0; j < c->unit.unit_files_len; j++)
+			if (strcmp(c->unit.src_files[i], c->unit.unit_files[j]) == 0)
 				break;
-		if (j == c->unit_files_len)
-			deps[n++] = c->src_files[i];
+		if (j == c->unit.unit_files_len)
+			deps[n++] = c->unit.src_files[i];
 	}
 	i = cache_write_deps(path, deps, n);
 	free(deps);
@@ -987,15 +987,15 @@ save_link_meta(Compiler* c, CliOpts* o, const char* path) {
 	int off, i;
 
 	off = 0;
-	for (i = 0; i < c->c_libs_len && off < (int)sizeof(buf) - 8; i++)
+	for (i = 0; i < c->paths.c_libs_len && off < (int)sizeof(buf) - 8; i++)
 		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "L %s\n",
-				c->c_libs[i]);
-	for (i = 0; i < c->frameworks_len && off < (int)sizeof(buf) - 8; i++)
+				c->paths.c_libs[i]);
+	for (i = 0; i < c->paths.frameworks_len && off < (int)sizeof(buf) - 8; i++)
 		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "F %s\n",
-				c->frameworks[i]);
-	for (i = 0; i < c->csources_len && off < (int)sizeof(buf) - 8; i++)
+				c->paths.frameworks[i]);
+	for (i = 0; i < c->paths.csources_len && off < (int)sizeof(buf) - 8; i++)
 		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "S %s\n",
-				c->csources[i]);
+				c->paths.csources[i]);
 	for (i = 0; i < o->linkargv_len && off < (int)sizeof(buf) - 8; i++)
 		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "X %s\n",
 				o->linkargv[i]);
@@ -1011,12 +1011,12 @@ add_csource_abs(Compiler* c, const char* path) {
 
 	if (path == NULL || path[0] == 0)
 		return;
-	for (i = 0; i < c->csources_len; i++)
-		if (strcmp(c->csources[i], path) == 0)
+	for (i = 0; i < c->paths.csources_len; i++)
+		if (strcmp(c->paths.csources[i], path) == 0)
 			return;
-	if (c->csources_len % 8 == 0)
-		c->csources = xrealloc(c->csources, (c->csources_len + 8) * sizeof(char*));
-	c->csources[c->csources_len++] = xstrdup(path);
+	if (c->paths.csources_len % 8 == 0)
+		c->paths.csources = xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
+	c->paths.csources[c->paths.csources_len++] = xstrdup(path);
 }
 
 // Restore link pragmas from a cached linkmeta file.
@@ -1029,9 +1029,9 @@ load_link_meta(Compiler* c, const char* path) {
 	text = read_file(path, &n);
 	if (text == NULL)
 		return 1;
-	c->c_libs_len = 0;
-	c->frameworks_len = 0;
-	c->csources_len = 0;
+	c->paths.c_libs_len = 0;
+	c->paths.frameworks_len = 0;
+	c->paths.csources_len = 0;
 	i = 0;
 	while (i < n) {
 		start = i;
@@ -1095,7 +1095,7 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 		(void)host_unlink(qbe);
 		return 1;
 	}
-	if (c->error_count)
+	if (c->diag.error_count)
 		return 1;
 	argv[0] = tool_qbe();
 	if (argv[0] == NULL)
@@ -1141,7 +1141,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	files = NULL;
 	nfiles = 0;
 #ifndef _WIN32
-	if (c->target == TargetWindows) {
+	if (c->opt.target == TargetWindows) {
 		const char* cc;
 
 		cc = tool_cc(c);
@@ -1190,10 +1190,10 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		linkh = cache_hash_str(outpath);
 		for (i = 0; i < npkgs; i++)
 			linkh = cache_hash_mix(linkh, pkgs[i].key);
-		for (i = 0; i < c->csources_len; i++)
+		for (i = 0; i < c->paths.csources_len; i++)
 			linkh = cache_hash_mix(
-				linkh, foreign_obj_key(c, c->csources[i],
-						       src_is_cxx(c->csources[i])
+				linkh, foreign_obj_key(c, c->paths.csources[i],
+						       src_is_cxx(c->paths.csources[i])
 							       ? tool_cxx()
 							       : tool_cc(c),
 						       projroot));
@@ -1201,12 +1201,12 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			linkh = cache_hash_mix(linkh, cache_hash_str(o->linkargv[i]));
 		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
 		foreign_ready = 1;
-		for (i = 0; i < c->csources_len; i++) {
+		for (i = 0; i < c->paths.csources_len; i++) {
 			char cached[HOST_PATH_MAX], depmeta[HOST_PATH_MAX], hex[32];
 			uint64_t key;
 
-			key = foreign_obj_key(c, c->csources[i],
-					      src_is_cxx(c->csources[i]) ? tool_cxx()
+			key = foreign_obj_key(c, c->paths.csources[i],
+					      src_is_cxx(c->paths.csources[i]) ? tool_cxx()
 									: tool_cc(c),
 					      projroot);
 			cache_hash_hex(key, hex, sizeof(hex));
@@ -1215,7 +1215,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			if (!host_is_file(cached) || !cache_deps_valid(depmeta))
 				foreign_ready = 0;
 			else {
-				snprintf(what, sizeof(what), "foreign %s", c->csources[i]);
+				snprintf(what, sizeof(what), "foreign %s", c->paths.csources[i]);
 				cache_log(o->verbose, "hit", what);
 			}
 		}
@@ -1327,10 +1327,10 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		linkh = cache_hash_str(outpath);
 		for (i = 0; i < npkgs; i++)
 			linkh = cache_hash_mix(linkh, pkgs[i].key);
-		for (i = 0; i < c->csources_len; i++)
+		for (i = 0; i < c->paths.csources_len; i++)
 			linkh = cache_hash_mix(
-				linkh, foreign_obj_key(c, c->csources[i],
-						       src_is_cxx(c->csources[i])
+				linkh, foreign_obj_key(c, c->paths.csources[i],
+						       src_is_cxx(c->paths.csources[i])
 							       ? tool_cxx()
 							       : tool_cc(c),
 						       projroot));

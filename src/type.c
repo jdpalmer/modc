@@ -9,6 +9,10 @@
  */
 #include "ast.h"
 #include <ctype.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Allocate a primitive Type with fixed size/align/signedness.
 static Type*
@@ -24,29 +28,29 @@ mkprim(Compiler* c, int kind, int size, int align, int is_unsigned) {
 
 // Wire up the standard primitive types on Compiler (void, integers, floats, bool, void*).
 void type_init(Compiler* c) {
-	c->type_void = mkprim(c, TyVoid, 0, 1, 0);
-	c->type_char = mkprim(c, TyChar, 1, 1, 1); /* %C: char is unsigned 8-bit */
-	c->type_uchar = mkprim(c, TyUChar, 1, 1, 1);
-	c->type_short = mkprim(c, TyShort, 2, 2, 0);
-	c->type_ushort = mkprim(c, TyUShort, 2, 2, 1);
-	c->type_int = mkprim(c, TyInt, 4, 4, 0);
-	c->type_uint = mkprim(c, TyUInt, 4, 4, 1);
+	c->types.type_void = mkprim(c, TyVoid, 0, 1, 0);
+	c->types.type_char = mkprim(c, TyChar, 1, 1, 1); /* %C: char is unsigned 8-bit */
+	c->types.type_uchar = mkprim(c, TyUChar, 1, 1, 1);
+	c->types.type_short = mkprim(c, TyShort, 2, 2, 0);
+	c->types.type_ushort = mkprim(c, TyUShort, 2, 2, 1);
+	c->types.type_int = mkprim(c, TyInt, 4, 4, 0);
+	c->types.type_uint = mkprim(c, TyUInt, 4, 4, 1);
 	/* Host ABI long: LLP64 (Windows) is 4; else host sizeof(long). */
-	if (c->target == TargetWindows) {
-		c->type_long = mkprim(c, TyLong, 4, 4, 0);
-		c->type_ulong = mkprim(c, TyULong, 4, 4, 1);
+	if (c->opt.target == TargetWindows) {
+		c->types.type_long = mkprim(c, TyLong, 4, 4, 0);
+		c->types.type_ulong = mkprim(c, TyULong, 4, 4, 1);
 	} else {
-		c->type_long = mkprim(c, TyLong, (int)sizeof(long), (int)sizeof(long), 0);
-		c->type_ulong = mkprim(c, TyULong, (int)sizeof(unsigned long),
+		c->types.type_long = mkprim(c, TyLong, (int)sizeof(long), (int)sizeof(long), 0);
+		c->types.type_ulong = mkprim(c, TyULong, (int)sizeof(unsigned long),
 				    (int)sizeof(unsigned long), 1);
 	}
 	/* Fixed 64-bit for int64_t and dialect literal suffixes l/ul. */
-	c->type_llong = mkprim(c, TyLLong, 8, 8, 0);
-	c->type_ullong = mkprim(c, TyULLong, 8, 8, 1);
-	c->type_float = mkprim(c, TyFloat, 4, 4, 0);
-	c->type_double = mkprim(c, TyDouble, 8, 8, 0);
-	c->type_bool = mkprim(c, TyBool, 1, 1, 0);
-	c->type_void_ptr = type_ptr(c, c->type_void);
+	c->types.type_llong = mkprim(c, TyLLong, 8, 8, 0);
+	c->types.type_ullong = mkprim(c, TyULLong, 8, 8, 1);
+	c->types.type_float = mkprim(c, TyFloat, 4, 4, 0);
+	c->types.type_double = mkprim(c, TyDouble, 8, 8, 0);
+	c->types.type_bool = mkprim(c, TyBool, 1, 1, 0);
+	c->types.type_void_ptr = type_ptr(c, c->types.type_void);
 }
 
 // Allocate a Type on the Compiler pool; nodes are never freed so Type* stays stable.
@@ -57,8 +61,8 @@ Type* type_new(Compiler* c, int kind) {
 	t->kind = kind;
 	t->len = -1;
 	t->emit_id = 0;
-	t->next = c->type_list;
-	c->type_list = t;
+	t->next = c->types.type_list;
+	c->types.type_list = t;
 	return t;
 }
 
@@ -156,10 +160,10 @@ Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly) {
 	static int next;
 
 	if (elem == NULL)
-		elem = c->type_void;
+		elem = c->types.type_void;
 	readonly = readonly ? 1 : 0;
 	poly = poly ? 1 : 0;
-	for (t = c->type_list; t; t = t->next)
+	for (t = c->types.type_list; t; t = t->next)
 		if (t->is_ranged && t->is_readonly == readonly && t->is_poly == poly && type_eq(t->base, elem))
 			return t;
 	t = type_new(c, TyStruct);
@@ -176,10 +180,10 @@ Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly) {
 		ptr->type->is_readonly = 1;
 	len = xmalloc(sizeof(*len));
 	len->name = xstrdup("len");
-	len->type = c->type_ullong; /* size_t */
+	len->type = c->types.type_ullong; /* size_t */
 	cap = xmalloc(sizeof(*cap));
 	cap->name = xstrdup("cap");
-	cap->type = c->type_ullong; /* size_t */
+	cap->type = c->types.type_ullong; /* size_t */
 	ptr->next = len;
 	len->next = cap;
 	t->fields = ptr;
@@ -187,11 +191,13 @@ Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly) {
 	return t;
 }
 
-Type* type_ranged_qual(Compiler* c, Type* elem, int readonly) {
+static Type*
+type_ranged_qual(Compiler* c, Type* elem, int readonly) {
 	return type_ranged_full(c, elem, readonly, 0);
 }
 
-Type* type_ranged(Compiler* c, Type* elem) {
+static Type*
+type_ranged(Compiler* c, Type* elem) {
 	return type_ranged_full(c, elem, 0, 0);
 }
 
@@ -220,7 +226,7 @@ Type* type_tuple(Compiler* c, Type** elts, int n) {
 
 	if (n <= 0)
 		return type_struct(c, TyStruct, NULL, (Span){0}, StNone);
-	for (t = c->type_list; t; t = t->next) {
+	for (t = c->types.type_list; t; t = t->next) {
 		if (tuple_matches(t, elts, n))
 			return t;
 	}
@@ -348,7 +354,7 @@ void type_layout_pending(Compiler* c) {
 
 	for (guard = 0; guard < 64; guard++) {
 		progress = 0;
-		for (t = c->type_list; t; t = t->next) {
+		for (t = c->types.type_list; t; t = t->next) {
 			if (t->laid_out)
 				continue;
 			if (t->kind != TyStruct && t->kind != TyUnion && t->kind != TyArray)
@@ -406,7 +412,8 @@ int is_int(Type* t) {
 }
 
 // True if t is an integer or floating-point type.
-int is_arith(Type* t) {
+static int
+is_arith(Type* t) {
 	return is_int(t) || (t && (t->kind == TyFloat || t->kind == TyDouble));
 }
 
@@ -446,7 +453,8 @@ int is_tuple(Type* t) {
 }
 
 // Signed integer kinds; excludes char and all unsigned variants.
-int is_signed_int(Type* t) {
+static int
+is_signed_int(Type* t) {
 	if (t == NULL || t->is_unsigned)
 		return 0;
 	switch (t->kind) {
@@ -482,7 +490,7 @@ Type* decay(Compiler* c, Type* t) {
 // Integer promotions and array/func decay used before usual_arith and comparisons.
 Type* promote(Compiler* c, Type* t) {
 	if (t == NULL)
-		return c->type_int;
+		return c->types.type_int;
 	if (t->kind == TyFloat || t->kind == TyDouble)
 		return t;
 	if (t->kind == TyPtr || t->kind == TyArray || t->kind == TyFunc)
@@ -493,28 +501,29 @@ Type* promote(Compiler* c, Type* t) {
 		return t;
 	if (t->kind == TyUInt && t->size >= 4)
 		return t;
-	return c->type_int;
+	return c->types.type_int;
 }
 
 // Common type for binary arithmetic after integer promotions on both operands.
-Type* usual_arith(Compiler* c, Type* a, Type* b) {
+static Type*
+usual_arith(Compiler* c, Type* a, Type* b) {
 	a = promote(c, a);
 	b = promote(c, b);
 	if (a->kind == TyDouble || b->kind == TyDouble)
-		return c->type_double;
+		return c->types.type_double;
 	if (a->kind == TyFloat || b->kind == TyFloat)
-		return c->type_float;
+		return c->types.type_float;
 	if (a->kind == TyULLong || b->kind == TyULLong)
-		return c->type_ullong;
+		return c->types.type_ullong;
 	if (a->kind == TyLLong || b->kind == TyLLong)
-		return c->type_llong;
+		return c->types.type_llong;
 	if (a->kind == TyULong || b->kind == TyULong)
-		return c->type_ulong;
+		return c->types.type_ulong;
 	if (a->kind == TyLong || b->kind == TyLong)
-		return c->type_long;
+		return c->types.type_long;
 	if (a->kind == TyUInt || b->kind == TyUInt)
-		return c->type_uint;
-	return c->type_int;
+		return c->types.type_uint;
+	return c->types.type_int;
 }
 
 // Structural type equality; aggregates compare by identity, char/uchar equated.
@@ -552,7 +561,8 @@ int type_eq(Type* a, Type* b) {
 }
 
 // Loose assignment compatibility (ints, ptrs, arith, same aggregate identity).
-int type_compat(Type* a, Type* b) {
+static int
+type_compat(Type* a, Type* b) {
 	if (type_eq(a, b))
 		return 1;
 	if (a == NULL || b == NULL)
@@ -578,15 +588,15 @@ int user_source(Compiler* c, Span sp) {
 
 	if (c == NULL || sp.file == NULL)
 		return 1;
-	if (c->unit_files_len > 0) {
-		for (i = 0; i < c->unit_files_len; i++)
-			if (c->unit_files[i] && strcmp(sp.file, c->unit_files[i]) == 0)
+	if (c->unit.unit_files_len > 0) {
+		for (i = 0; i < c->unit.unit_files_len; i++)
+			if (c->unit.unit_files[i] && strcmp(sp.file, c->unit.unit_files[i]) == 0)
 				return 1;
 		return 0;
 	}
-	if (c->infile == NULL)
+	if (c->paths.infile == NULL)
 		return 1;
-	return strcmp(sp.file, c->infile) == 0;
+	return strcmp(sp.file, c->paths.infile) == 0;
 }
 
 Node* type_expr(Compiler* c, Node* n);
@@ -689,7 +699,7 @@ check_embed_ranged_null(Compiler* c, Span sp, Node* x) {
 }
 
 // True if t is a pointer to void.
-int
+static int
 is_void_ptr(Type* t) {
 	return is_ptr(t) && t->base && t->base->kind == TyVoid;
 }
@@ -901,7 +911,7 @@ check_unnecessary_cast(Compiler* c, Type* expected, Node* n) {
 			; /* same-type cast is always unnecessary */
 		else if (n->a->kind == NdLit && is_int(to) && is_int(from) &&
 			 to->kind != TyEnum && from->kind != TyEnum &&
-			 to->size < c->type_int->size &&
+			 to->size < c->types.type_int->size &&
 			 cast_value_preserving(to, from, n->a))
 			/* (char)0x80 etc.: fits, then integer-promotes back to int */
 			;
@@ -920,55 +930,9 @@ check_unnecessary_cast(Compiler* c, Type* expected, Node* n) {
 		 type_name(from), type_name(to));
 }
 
-// Deref a pointer and project through anonymous embed to reach dst aggregate.
-Node* maybe_embed_deref_project(Compiler* c, Type* dst, Node* src) {
-	Type* from;
-	Node* load;
-
-	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
-		return src;
-	from = decay(c, src->type);
-	if (!is_ptr(from) || !is_aggr(dst) || !is_aggr(from->base))
-		return src;
-	if (anon_embed_offset(from->base, dst, NULL) != 1)
-		return src;
-	if (is_null_expr(src)) {
-		if (user_source(c, src->span))
-			error_at(c, src->span,
-				 "cannot project through null pointer to %s",
-				 type_name(from->base));
-		return src;
-	}
-	load = node1(NdDeref, src->span, src);
-	load->type = from->base;
-	load->is_lvalue = 1;
-	load = type_expr(c, load);
-	return maybe_embed_project(c, dst, load);
-}
-
-// Project src aggregate to outer dst when inner is uniquely anonymously embedded.
-Node* maybe_embed_project(Compiler* c, Type* dst, Node* src) {
-	Type* from;
-	Node *addr, *up, *deref;
-
-	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
-		return src;
-	from = src->type;
-	if (!is_aggr(dst) || !is_aggr(from) || type_eq(dst, from))
-		return src;
-	if (anon_embed_offset(from, dst, NULL) != 1)
-		return src;
-	addr = node1(NdAddr, src->span, src);
-	addr->type = type_ptr(c, from);
-	up = maybe_embed_upcast(c, type_ptr(c, dst), addr);
-	deref = node1(NdDeref, src->span, up);
-	deref->type = dst;
-	deref->is_lvalue = 0;
-	return type_expr(c, deref);
-}
-
 // Adjust pointer by anonymous-embed offset when upcasting to a base aggregate.
-Node* maybe_embed_upcast(Compiler* c, Type* dst, Node* src) {
+static Node*
+maybe_embed_upcast(Compiler* c, Type* dst, Node* src) {
 	Type *from, *to;
 	int off, r;
 	Node *n, *cp, *add, *lit;
@@ -993,15 +957,64 @@ Node* maybe_embed_upcast(Compiler* c, Type* dst, Node* src) {
 	}
 	lit = node(NdLit, src->span);
 	lit->int_val = off;
-	lit->type = c->type_llong;
+	lit->type = c->types.type_llong;
 	cp = node1(NdCast, src->span, src);
-	cp->type = type_ptr(c, c->type_char);
+	cp->type = type_ptr(c, c->types.type_char);
 	add = node2(NdBin, src->span, cp, lit);
 	add->op = PnPlus;
 	add->type = cp->type;
 	n = node1(NdCast, src->span, add);
 	n->type = to;
 	return n;
+}
+
+// Project src aggregate to outer dst when inner is uniquely anonymously embedded.
+static Node*
+maybe_embed_project(Compiler* c, Type* dst, Node* src) {
+	Type* from;
+	Node *addr, *up, *deref;
+
+	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
+		return src;
+	from = src->type;
+	if (!is_aggr(dst) || !is_aggr(from) || type_eq(dst, from))
+		return src;
+	if (anon_embed_offset(from, dst, NULL) != 1)
+		return src;
+	addr = node1(NdAddr, src->span, src);
+	addr->type = type_ptr(c, from);
+	up = maybe_embed_upcast(c, type_ptr(c, dst), addr);
+	deref = node1(NdDeref, src->span, up);
+	deref->type = dst;
+	deref->is_lvalue = 0;
+	return type_expr(c, deref);
+}
+
+// Deref a pointer and project through anonymous embed to reach dst aggregate.
+static Node*
+maybe_embed_deref_project(Compiler* c, Type* dst, Node* src) {
+	Type* from;
+	Node* load;
+
+	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
+		return src;
+	from = decay(c, src->type);
+	if (!is_ptr(from) || !is_aggr(dst) || !is_aggr(from->base))
+		return src;
+	if (anon_embed_offset(from->base, dst, NULL) != 1)
+		return src;
+	if (is_null_expr(src)) {
+		if (user_source(c, src->span))
+			error_at(c, src->span,
+				 "cannot project through null pointer to %s",
+				 type_name(from->base));
+		return src;
+	}
+	load = node1(NdDeref, src->span, src);
+	load->type = from->base;
+	load->is_lvalue = 1;
+	load = type_expr(c, load);
+	return maybe_embed_project(c, dst, load);
 }
 
 // AST name node for a compiler-inserted builtin (e.g. ranged()).
@@ -1015,7 +1028,8 @@ mk_builtin_name(Compiler* c, Span sp, const char* name) {
 }
 
 // Wrap array or string literal in ranged() when the target is a ranged type.
-Node* maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
+static Node*
+maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 	Node* call;
 
 	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
@@ -1042,7 +1056,8 @@ Node* maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 }
 
 // Take .ptr when a ranged value is used where T* or void* is expected.
-Node* maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
+static Node*
+maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 	Node* d;
 
 	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
@@ -1156,7 +1171,8 @@ void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src) {
 }
 
 // Error when a compile-time shift count is out of range for the lhs width.
-void check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count) {
+static void
+check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count) {
 	int64_t v;
 	int bits;
 	Type* pt;
@@ -1193,7 +1209,8 @@ signed_const_fits_unsigned(Compiler* c, Type* uty, int64_t v) {
 
 // Error on signed vs unsigned comparisons in user code, except when the signed
 // side is a non-negative constant that fits in the unsigned operand's type.
-void check_sign_compare(Compiler* c, Span sp, Node* a, Node* b) {
+static void
+check_sign_compare(Compiler* c, Span sp, Node* a, Node* b) {
 	Type *pa, *pb;
 	int sa, sb;
 	int64_t v;
@@ -1220,7 +1237,8 @@ void check_sign_compare(Compiler* c, Span sp, Node* a, Node* b) {
 }
 
 // Apply implicit conversions and arity checks for a direct function call.
-void check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len,
+static void
+check_call_args(Compiler* c, Span sp, Type* fn, Node** args, int args_len,
 		     int overload_call) {
 	int i, need;
 
@@ -1350,16 +1368,16 @@ int intern_bytes(Compiler* c, const void* bytes, int nbytes) {
 
 	if (nbytes < 0)
 		nbytes = 0;
-	off = c->strpool_len;
-	if (c->strpool_len + nbytes > c->strpool_cap) {
-		c->strpool_cap = c->strpool_cap ? c->strpool_cap * 2 : 256;
-		while (c->strpool_cap < c->strpool_len + nbytes)
-			c->strpool_cap *= 2;
-		c->strpool = xrealloc(c->strpool, c->strpool_cap);
+	off = c->unit.strpool_len;
+	if (c->unit.strpool_len + nbytes > c->unit.strpool_cap) {
+		c->unit.strpool_cap = c->unit.strpool_cap ? c->unit.strpool_cap * 2 : 256;
+		while (c->unit.strpool_cap < c->unit.strpool_len + nbytes)
+			c->unit.strpool_cap *= 2;
+		c->unit.strpool = xrealloc(c->unit.strpool, c->unit.strpool_cap);
 	}
 	if (nbytes > 0 && bytes != NULL)
-		memcpy(c->strpool + c->strpool_len, bytes, (size_t)nbytes);
-	c->strpool_len += nbytes;
+		memcpy(c->unit.strpool + c->unit.strpool_len, bytes, (size_t)nbytes);
+	c->unit.strpool_len += nbytes;
 	return off;
 }
 
@@ -1436,15 +1454,15 @@ int intern_str(Compiler* c, const char* raw, int* out_len) {
 	buf[n++] = 0;
 	if (out_len)
 		*out_len = n;
-	off = c->strpool_len;
-	if (c->strpool_len + n > c->strpool_cap) {
-		c->strpool_cap = c->strpool_cap ? c->strpool_cap * 2 : 256;
-		while (c->strpool_cap < c->strpool_len + n)
-			c->strpool_cap *= 2;
-		c->strpool = xrealloc(c->strpool, c->strpool_cap);
+	off = c->unit.strpool_len;
+	if (c->unit.strpool_len + n > c->unit.strpool_cap) {
+		c->unit.strpool_cap = c->unit.strpool_cap ? c->unit.strpool_cap * 2 : 256;
+		while (c->unit.strpool_cap < c->unit.strpool_len + n)
+			c->unit.strpool_cap *= 2;
+		c->unit.strpool = xrealloc(c->unit.strpool, c->unit.strpool_cap);
 	}
-	memcpy(c->strpool + c->strpool_len, buf, n);
-	c->strpool_len += n;
+	memcpy(c->unit.strpool + c->unit.strpool_len, buf, n);
+	c->unit.strpool_len += n;
 	free(buf);
 	return off;
 }
@@ -1887,22 +1905,22 @@ type_expr_call(Compiler* c, Node* n) {
 	if (n->a && n->a->kind == NdName && n->a->s)
 		bn = n->a->s;
 	if (bn && strcmp(bn, "__builtin_va_start") == 0) {
-		n->type = c->type_void;
+		n->type = c->types.type_void;
 		return n;
 	}
 	if (bn && strcmp(bn, "__builtin_va_end") == 0) {
-		n->type = c->type_void;
+		n->type = c->types.type_void;
 		return n;
 	}
 	if (bn && strcmp(bn, "__builtin_va_copy") == 0) {
-		n->type = c->type_void;
+		n->type = c->types.type_void;
 		return n;
 	}
 	if (bn && strcmp(bn, "__builtin_va_arg") == 0) {
 		if (n->children_len >= 2 && n->children[1] && n->children[1]->type && is_ptr(n->children[1]->type))
 			n->type = n->children[1]->type->base;
 		else
-			n->type = c->type_int;
+			n->type = c->types.type_int;
 		return n;
 	}
 	/* User funcs/methods named len/cap/ranged win over the builtins. */
@@ -1923,7 +1941,7 @@ type_expr_call(Compiler* c, Node* n) {
 			}
 			error_at(c, n->span,
 				 "ranged() with one argument requires a fixed array or string literal");
-			n->type = type_ranged(c, c->type_int);
+			n->type = type_ranged(c, c->types.type_int);
 			return n;
 		}
 		if (n->children_len == 2 || n->children_len == 3) {
@@ -1943,11 +1961,11 @@ type_expr_call(Compiler* c, Node* n) {
 				return n;
 			}
 			error_at(c, n->span, "ranged() with two or three arguments requires a pointer");
-			n->type = type_ranged(c, c->type_int);
+			n->type = type_ranged(c, c->types.type_int);
 			return n;
 		}
 		error_at(c, n->span, "ranged() takes one, two, or three arguments");
-		n->type = type_ranged(c, c->type_int);
+		n->type = type_ranged(c, c->types.type_int);
 		return n;
 	}
 	if (bn && strcmp(bn, "len") == 0 && !(n->a && n->a->symbol)) {
@@ -1956,7 +1974,7 @@ type_expr_call(Compiler* c, Node* n) {
 
 		if (n->children_len != 1) {
 			error_at(c, n->span, "len() takes one argument");
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		if (n->children[0])
@@ -1964,15 +1982,15 @@ type_expr_call(Compiler* c, Node* n) {
 		x = n->children[0];
 		lt = x ? x->type : NULL;
 		if (is_ranged(lt)) {
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		if (is_array(lt) && lt->len >= 0) {
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0) {
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		{
@@ -1984,17 +2002,17 @@ type_expr_call(Compiler* c, Node* n) {
 			if (er == 2) {
 				error_at(c, n->span,
 					 "ambiguous anonymous embed for len()");
-				n->type = c->type_ullong;
+				n->type = c->types.type_ullong;
 				return n;
 			}
 			if (er == 1) {
 				check_embed_ranged_null(c, n->span, x);
-				n->type = c->type_ullong;
+				n->type = c->types.type_ullong;
 				return n;
 			}
 		}
 		error_at(c, n->span, "len() requires a fixed or ranged array");
-		n->type = c->type_ullong;
+		n->type = c->types.type_ullong;
 		return n;
 	}
 	if (bn && strcmp(bn, "cap") == 0 && !(n->a && n->a->symbol)) {
@@ -2003,7 +2021,7 @@ type_expr_call(Compiler* c, Node* n) {
 
 		if (n->children_len != 1) {
 			error_at(c, n->span, "cap() takes one argument");
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		if (n->children[0])
@@ -2011,15 +2029,15 @@ type_expr_call(Compiler* c, Node* n) {
 		x = n->children[0];
 		lt = x ? x->type : NULL;
 		if (is_ranged(lt)) {
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		if (is_array(lt) && lt->len >= 0) {
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0) {
-			n->type = c->type_ullong;
+			n->type = c->types.type_ullong;
 			return n;
 		}
 		{
@@ -2031,17 +2049,17 @@ type_expr_call(Compiler* c, Node* n) {
 			if (er == 2) {
 				error_at(c, n->span,
 					 "ambiguous anonymous embed for cap()");
-				n->type = c->type_ullong;
+				n->type = c->types.type_ullong;
 				return n;
 			}
 			if (er == 1) {
 				check_embed_ranged_null(c, n->span, x);
-				n->type = c->type_ullong;
+				n->type = c->types.type_ullong;
 				return n;
 			}
 		}
 		error_at(c, n->span, "cap() requires a fixed or ranged array");
-		n->type = c->type_ullong;
+		n->type = c->types.type_ullong;
 		return n;
 	}
 	if (bn && strcmp(bn, "ptr") == 0 && !(n->a && n->a->symbol)) {
@@ -2050,7 +2068,7 @@ type_expr_call(Compiler* c, Node* n) {
 
 		if (n->children_len != 1) {
 			error_at(c, n->span, "ptr() takes one argument");
-			n->type = c->type_void_ptr;
+			n->type = c->types.type_void_ptr;
 			return n;
 		}
 		if (n->children[0])
@@ -2079,7 +2097,7 @@ type_expr_call(Compiler* c, Node* n) {
 			if (er == 2) {
 				error_at(c, n->span,
 					 "ambiguous anonymous embed for ptr()");
-				n->type = c->type_void_ptr;
+				n->type = c->types.type_void_ptr;
 				return n;
 			}
 			if (er == 1 && rg && rg->base) {
@@ -2089,7 +2107,7 @@ type_expr_call(Compiler* c, Node* n) {
 			}
 		}
 		error_at(c, n->span, "ptr() requires a fixed or ranged array");
-		n->type = c->type_void_ptr;
+		n->type = c->types.type_void_ptr;
 		return n;
 	}
 	if (ft && is_func(ft)) {
@@ -2113,7 +2131,7 @@ type_expr_call(Compiler* c, Node* n) {
 		}
 		n->type = instantiate_poly_return(c, ft->base, n->children, n->children_len);
 	} else
-		n->type = c->type_int;
+		n->type = c->types.type_int;
 	return n;
 }
 
@@ -2184,7 +2202,7 @@ type_expr_bin(Compiler* c, Node* n) {
 			n->type = usual_arith(c, lt, rt);
 		else {
 			valid = 0;
-			n->type = c->type_int;
+			n->type = c->types.type_int;
 		}
 	} else if (n->op == PnMinus) {
 		if (compatible_ptrs(lt, rt)) {
@@ -2192,7 +2210,7 @@ type_expr_bin(Compiler* c, Node* n) {
 				reject_void_ptr_arith(c, n->span, lt);
 				reject_void_ptr_arith(c, n->span, rt);
 			}
-			n->type = c->type_llong; /* ptrdiff_t: signed pointer-width */
+			n->type = c->types.type_llong; /* ptrdiff_t: signed pointer-width */
 		} else if (is_ptr(lt) && is_int(rt)) {
 			if (n->type == NULL)
 				reject_void_ptr_arith(c, n->span, lt);
@@ -2201,36 +2219,36 @@ type_expr_bin(Compiler* c, Node* n) {
 			n->type = usual_arith(c, lt, rt);
 		else {
 			valid = 0;
-			n->type = c->type_int;
+			n->type = c->types.type_int;
 		}
 	} else if (n->op == PnStar || n->op == PnSlash) {
 		valid = is_arith(lt) && is_arith(rt);
-		n->type = valid ? usual_arith(c, lt, rt) : c->type_int;
+		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_int;
 	} else if (n->op == PnPercent || n->op == PnAmp ||
 		   n->op == PnPipe || n->op == PnCaret) {
 		valid = is_int(lt) && is_int(rt);
-		n->type = valid ? usual_arith(c, lt, rt) : c->type_int;
+		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_int;
 	} else if (n->op == PnAmpAmp || n->op == PnPipePipe) {
 		valid = is_scalar(lt) && is_scalar(rt);
-		n->type = c->type_bool;
+		n->type = c->types.type_bool;
 	} else if (n->op == PnEqEq || n->op == PnBangEq) {
 		valid = (is_arith(lt) && is_arith(rt)) || compatible_ptrs(lt, rt) ||
 			(is_ptr(lt) && is_null_expr(n->b)) ||
 			(is_ptr(rt) && is_null_expr(n->a));
-		n->type = c->type_bool;
+		n->type = c->types.type_bool;
 	} else if (n->op == PnLt || n->op == PnGt || n->op == PnLe || n->op == PnGe) {
 		valid = (is_arith(lt) && is_arith(rt)) || compatible_ptrs(lt, rt);
 		if (n->type == NULL)
 			check_sign_compare(c, n->span, n->a, n->b);
-		n->type = c->type_bool;
+		n->type = c->types.type_bool;
 	} else if (n->op == PnShl || n->op == PnShr) {
 		valid = is_int(lt) && is_int(rt);
 		if (n->type == NULL)
 			check_shift_count(c, n->span, lt, n->b);
-		n->type = valid ? promote(c, lt) : c->type_int;
+		n->type = valid ? promote(c, lt) : c->types.type_int;
 	} else {
 		valid = 0;
-		n->type = c->type_int;
+		n->type = c->types.type_int;
 	}
 	if (enum_chk && !valid)
 		bad_binary_operands(c, n);
@@ -2286,7 +2304,7 @@ type_expr_assign(Compiler* c, Node* n) {
 	void_arith_chk = (n->op == PnPlusEq || n->op == PnMinusEq) && n->type == NULL;
 	n->a = type_expr(c, n->a);
 	n->b = type_expr(c, n->b);
-	n->type = n->a ? n->a->type : c->type_int;
+	n->type = n->a ? n->a->type : c->types.type_int;
 	n->is_lvalue = 0;
 	ptr_arith = n->a && is_ptr(n->a->type);
 	if (enum_chk && n->a && !is_modifiable_lvalue(n->a))
@@ -2335,9 +2353,9 @@ check_pkg_private_field(Compiler* c, Type* aggr, Field* f, Span sp) {
 
 	if (f == NULL || !f->pkg_private || aggr == NULL || aggr->pkg_root == NULL)
 		return;
-	if (c->infile == NULL)
+	if (c->paths.infile == NULL)
 		return;
-	pkg_file_root(c->infile, cur, sizeof(cur));
+	pkg_file_root(c->paths.infile, cur, sizeof(cur));
 	if (strcmp(cur, aggr->pkg_root) == 0)
 		return;
 	error_at(c, sp, "field '%s' is static (package-private)", f->name ? f->name : "");
@@ -2361,7 +2379,7 @@ type_expr_field(Compiler* c, Node* n) {
 		error_at(c, n->span,
 			 "T[..] is opaque; use len(), cap(), or ptr() (not .%s)",
 			 n->s);
-		n->type = c->type_void_ptr;
+		n->type = c->types.type_void_ptr;
 		return n;
 	}
 	f = find_field(lt, n->s, &off);
@@ -2399,7 +2417,7 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	case NdSizeofT:
 		n->int_val = type_size(c, n->type);
-		n->type = c->type_ullong;
+		n->type = c->types.type_ullong;
 		n->kind = NdLit;
 		return n;
 	case NdSizeof:
@@ -2410,7 +2428,7 @@ Node* type_expr(Compiler* c, Node* n) {
 				 n->a->symbol->name);
 		mark_symbol_used(n->a);
 		n->int_val = n->a && n->a->type ? type_size(c, n->a->type) : 0;
-		n->type = c->type_ullong;
+		n->type = c->types.type_ullong;
 		n->kind = NdLit;
 		n->a = NULL;
 		return n;
@@ -2447,7 +2465,7 @@ Node* type_expr(Compiler* c, Node* n) {
 		if (n->op == PnBang) {
 			if (nk && n->a && !is_scalar(decay(c, n->a->type)))
 				error_at(c, n->span, "operator '!' requires a scalar operand");
-			n->type = c->type_bool;
+			n->type = c->types.type_bool;
 			return n;
 		}
 		if (n->type == NULL && n->a && is_tagged_enum(n->a->type) &&
@@ -2465,7 +2483,7 @@ Node* type_expr(Compiler* c, Node* n) {
 					 punct_spell(n->op));
 			if (n->type == NULL && n->a)
 				reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
-			n->type = n->a ? n->a->type : c->type_int;
+			n->type = n->a ? n->a->type : c->types.type_int;
 			n->is_lvalue = 0;
 			return n;
 		}
@@ -2475,7 +2493,7 @@ Node* type_expr(Compiler* c, Node* n) {
 		      !is_arith(n->a->type))))
 			error_at(c, n->span, "invalid operand to unary operator '%s'",
 				 punct_spell(n->op));
-		n->type = n->a ? promote(c, n->a->type) : c->type_int;
+		n->type = n->a ? promote(c, n->a->type) : c->types.type_int;
 		return n;
 	case NdPost:
 		n->a = type_expr(c, n->a);
@@ -2493,7 +2511,7 @@ Node* type_expr(Compiler* c, Node* n) {
 				 punct_spell(n->op));
 		if (n->type == NULL && n->a && (n->op == PnPlusPlus || n->op == PnMinusMinus))
 			reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
-		n->type = n->a ? n->a->type : c->type_int;
+		n->type = n->a ? n->a->type : c->types.type_int;
 		return n;
 	case NdIndex:
 		nk = n->type == NULL;
@@ -2543,7 +2561,7 @@ Node* type_expr(Compiler* c, Node* n) {
 			if (er == 2) {
 				error_at(c, n->span,
 					 "ambiguous anonymous embed subrange");
-				n->type = type_ranged(c, c->type_int);
+				n->type = type_ranged(c, c->types.type_int);
 				return n;
 			}
 			if (er == 1 && rg) {
@@ -2558,7 +2576,7 @@ Node* type_expr(Compiler* c, Node* n) {
 			elem = lt->base;
 		else {
 			error_at(c, n->span, "subrange requires a fixed or ranged array");
-			n->type = type_ranged(c, c->type_int);
+			n->type = type_ranged(c, c->types.type_int);
 			return n;
 		}
 		if (n->b && n->b->type && !is_int(n->b->type))
@@ -2637,13 +2655,13 @@ Node* type_expr(Compiler* c, Node* n) {
 			if (nk && user_source(c, n->span))
 				error_at(c, n->span,
 					 "conditional expression arms have incompatible types");
-			n->type = lt ? lt : (rt ? rt : c->type_int);
+			n->type = lt ? lt : (rt ? rt : c->types.type_int);
 		}
 		return n;
 	case NdComma:
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
-		n->type = n->b ? n->b->type : c->type_int;
+		n->type = n->b ? n->b->type : c->types.type_int;
 		return n;
 	default:
 		return n;

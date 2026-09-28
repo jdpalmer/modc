@@ -10,6 +10,9 @@
  * single-item enum/union/`= { … }` bodies on one line with the opening brace.
  */
 #include "ast.h"
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct {
 	char* buf;
@@ -778,8 +781,8 @@ char* fmt_source(Compiler* c) {
 
 	memset(&o, 0, sizeof(o));
 	o.bol = 1;
-	tokens = c->tokens;
-	n = c->tokens_len;
+	tokens = c->lex.tokens;
+	n = c->lex.tokens_len;
 	if (n == 0)
 		return xstrdup("");
 

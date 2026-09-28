@@ -4,6 +4,7 @@
 #include "host_os.h"
 #include "ast.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

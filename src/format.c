@@ -6,6 +6,9 @@
  * is an error. printf("…\n") → puts; printf("%c", x) → putchar.
  */
 #include "ast.h"
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 
 enum {
 	FmtPrint = 0,
@@ -120,16 +123,16 @@ intern_decoded(Compiler* c, const char* bytes, int nbytes) {
 	int off, n;
 
 	n = nbytes + 1;
-	off = c->strpool_len;
-	if (c->strpool_len + n > c->strpool_cap) {
-		c->strpool_cap = c->strpool_cap ? c->strpool_cap * 2 : 256;
-		while (c->strpool_cap < c->strpool_len + n)
-			c->strpool_cap *= 2;
-		c->strpool = xrealloc(c->strpool, c->strpool_cap);
+	off = c->unit.strpool_len;
+	if (c->unit.strpool_len + n > c->unit.strpool_cap) {
+		c->unit.strpool_cap = c->unit.strpool_cap ? c->unit.strpool_cap * 2 : 256;
+		while (c->unit.strpool_cap < c->unit.strpool_len + n)
+			c->unit.strpool_cap *= 2;
+		c->unit.strpool = xrealloc(c->unit.strpool, c->unit.strpool_cap);
 	}
-	memcpy(c->strpool + c->strpool_len, bytes, (size_t)nbytes);
-	c->strpool[c->strpool_len + nbytes] = 0;
-	c->strpool_len += n;
+	memcpy(c->unit.strpool + c->unit.strpool_len, bytes, (size_t)nbytes);
+	c->unit.strpool[c->unit.strpool_len + nbytes] = 0;
+	c->unit.strpool_len += n;
 	return off;
 }
 
@@ -144,7 +147,7 @@ make_str_lit(Compiler* c, Span sp, const char* bytes, int nbytes) {
 	n->s[nbytes] = 0;
 	n->int_val = intern_decoded(c, bytes, nbytes);
 	pool_len = nbytes + 1;
-	n->type = type_array(c, c->type_char, (int64_t)pool_len);
+	n->type = type_array(c, c->types.type_char, (int64_t)pool_len);
 	n->type->is_readonly = 1;
 	return n;
 }
@@ -161,7 +164,7 @@ synth_len(Compiler* c, Span sp, Node* arg) {
 		Node* cast;
 
 		cast = node1(NdCast, sp, call);
-		cast->type = c->type_int;
+		cast->type = c->types.type_int;
 		cast->is_synth = 1;
 		return cast;
 	}
@@ -180,8 +183,8 @@ static const char*
 fmt_text(Compiler* c, Node* fmt) {
 	if (fmt == NULL || fmt->kind != NdStr)
 		return "";
-	if (c->strpool && fmt->int_val >= 0 && fmt->int_val < c->strpool_len)
-		return (const char*)(c->strpool + fmt->int_val);
+	if (c->unit.strpool && fmt->int_val >= 0 && fmt->int_val < c->unit.strpool_len)
+		return (const char*)(c->unit.strpool + fmt->int_val);
 	return fmt->s ? fmt->s : "";
 }
 

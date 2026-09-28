@@ -5,6 +5,8 @@
  * (symbols are defined during parse; resolved again in type_expr.)
  */
 #include "ast.h"
+#include <errno.h>
+#include <stdlib.h>
 #include "host_os.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -16,33 +18,34 @@ symbol_tab_rebuild(Compiler* c, int cap) {
 	Symbol* s;
 	unsigned i;
 
-	free(c->symbol_tab);
-	c->symbol_tab = xmalloc((size_t)cap * sizeof(Symbol*));
-	c->symbol_tab_cap = cap;
-	for (s = c->symbols; s; s = s->next) {
+	free(c->syms.symbol_tab);
+	c->syms.symbol_tab = xmalloc((size_t)cap * sizeof(Symbol*));
+	c->syms.symbol_tab_cap = cap;
+	for (s = c->syms.symbols; s; s = s->next) {
 		i = str_hash(s->name) & (unsigned)(cap - 1);
-		s->hash_next = c->symbol_tab[i];
-		c->symbol_tab[i] = s;
+		s->hash_next = c->syms.symbol_tab[i];
+		c->syms.symbol_tab[i] = s;
 	}
 }
 
-// Insert s into the symbol hash (s already linked on c->symbols).
+// Insert s into the symbol hash (s already linked on c->syms.symbols).
 static void
 symbol_tab_add(Compiler* c, Symbol* s) {
 	unsigned i;
 
-	c->symbols_len++;
-	if (c->symbol_tab_cap == 0 || c->symbols_len * 2 >= c->symbol_tab_cap) {
-		symbol_tab_rebuild(c, c->symbol_tab_cap ? c->symbol_tab_cap * 2 : 1024);
+	c->syms.symbols_len++;
+	if (c->syms.symbol_tab_cap == 0 || c->syms.symbols_len * 2 >= c->syms.symbol_tab_cap) {
+		symbol_tab_rebuild(c, c->syms.symbol_tab_cap ? c->syms.symbol_tab_cap * 2 : 1024);
 		return;
 	}
-	i = str_hash(s->name) & (unsigned)(c->symbol_tab_cap - 1);
-	s->hash_next = c->symbol_tab[i];
-	c->symbol_tab[i] = s;
+	i = str_hash(s->name) & (unsigned)(c->syms.symbol_tab_cap - 1);
+	s->hash_next = c->syms.symbol_tab[i];
+	c->syms.symbol_tab[i] = s;
 }
 
 // True if two .mc paths belong to the same package directory.
-int symbol_same_package(const char* file_a, const char* file_b) {
+static int
+symbol_same_package(const char* file_a, const char* file_b) {
 	char ra[HOST_PATH_MAX], rb[HOST_PATH_MAX], aa[HOST_PATH_MAX], ab[HOST_PATH_MAX];
 
 	if (file_a == NULL || file_b == NULL || file_a[0] == 0 || file_b[0] == 0)
@@ -65,15 +68,15 @@ symbol_visible(Compiler* c, Symbol* s) {
 	if (s->block != 0) {
 		if (s->dead)
 			return 0;
-		return s->block <= c->block;
+		return s->block <= c->syms.block;
 	}
 	if (s->header) {
-		if (c->infile == NULL || s->home == NULL)
+		if (c->paths.infile == NULL || s->home == NULL)
 			return 0;
-		return strcmp(c->infile, s->home) == 0;
+		return strcmp(c->paths.infile, s->home) == 0;
 	}
-	if (s->storage == StStatic && c->infile != NULL && s->home != NULL) {
-		if (!symbol_same_package(c->infile, s->home))
+	if (s->storage == StStatic && c->paths.infile != NULL && s->home != NULL) {
+		if (!symbol_same_package(c->paths.infile, s->home))
 			return 0;
 	}
 	return 1;
@@ -84,10 +87,10 @@ Symbol* symbol_lookup(Compiler* c, const char* name) {
 	Symbol *s, *tag = NULL;
 	unsigned i;
 
-	if (name == NULL || c->symbol_tab_cap == 0)
+	if (name == NULL || c->syms.symbol_tab_cap == 0)
 		return NULL;
-	i = str_hash(name) & (unsigned)(c->symbol_tab_cap - 1);
-	for (s = c->symbol_tab[i]; s; s = s->hash_next) {
+	i = str_hash(name) & (unsigned)(c->syms.symbol_tab_cap - 1);
+	for (s = c->syms.symbol_tab[i]; s; s = s->hash_next) {
 		if (s->hidden || s->dead || s->is_method || s->kind == SkLabel ||
 		    strcmp(s->name, name) != 0)
 			continue;
@@ -109,10 +112,10 @@ Symbol* symbol_lookup_tag(Compiler* c, const char* name) {
 	Symbol* s;
 	unsigned i;
 
-	if (name == NULL || c->symbol_tab_cap == 0)
+	if (name == NULL || c->syms.symbol_tab_cap == 0)
 		return NULL;
-	i = str_hash(name) & (unsigned)(c->symbol_tab_cap - 1);
-	for (s = c->symbol_tab[i]; s; s = s->hash_next) {
+	i = str_hash(name) & (unsigned)(c->syms.symbol_tab_cap - 1);
+	for (s = c->syms.symbol_tab[i]; s; s = s->hash_next) {
 		if (s->hidden || s->dead || s->kind != SkTag || strcmp(s->name, name) != 0)
 			continue;
 		if (symbol_visible(c, s))
@@ -131,7 +134,7 @@ symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 	const char* base;
 
 	if (s->block == 0 && !user_source(c, sp)) {
-		home = c->infile ? c->infile : "";
+		home = c->paths.infile ? c->paths.infile : "";
 		base = host_path_basename(home);
 		if (strcmp(base, "bridge.mc") == 0) {
 			s->header = 0;
@@ -143,7 +146,7 @@ symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 		return;
 	}
 	s->header = 0;
-	f = sp.file ? sp.file : c->infile;
+	f = sp.file ? sp.file : c->paths.infile;
 	s->home = xstrdup(f ? f : "");
 }
 
@@ -164,7 +167,7 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 
 	if (kind == SkTag) {
 		old = symbol_lookup_tag(c, name);
-		if (old && old->block == c->block) {
+		if (old && old->block == c->syms.block) {
 			if (old->type && t && old->type != t && old->type->complete && t->complete)
 				error_at(c, sp, "redefinition of %s", name);
 			if (t)
@@ -172,7 +175,7 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 			return old;
 		}
 		old = symbol_lookup(c, name);
-		if (old && old->block == c->block && old->kind != SkTag) {
+		if (old && old->block == c->syms.block && old->kind != SkTag) {
 			if (!header_tag_homonym_ok(c, old, sp) ||
 			    (old->kind != SkFunc && old->kind != SkVar))
 				error_at(c, sp, "redefinition of %s", name);
@@ -185,20 +188,20 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 		s->kind = kind;
 		s->type = t;
 		s->storage = storage;
-		s->block = c->block;
+		s->block = c->syms.block;
 		s->span = sp;
 		s->shadow = old;
 		symbol_set_home(c, s, sp);
-		s->next = c->symbols;
-		c->symbols = s;
+		s->next = c->syms.symbols;
+		c->syms.symbols = s;
 		symbol_tab_add(c, s);
 		return s;
 	}
 	if (kind == SkLabel) {
-		if (c->symbol_tab_cap) {
-			unsigned i = str_hash(name) & (unsigned)(c->symbol_tab_cap - 1);
-			for (s = c->symbol_tab[i]; s; s = s->hash_next) {
-				if (s->kind == SkLabel && s->owner == c->current_fn &&
+		if (c->syms.symbol_tab_cap) {
+			unsigned i = str_hash(name) & (unsigned)(c->syms.symbol_tab_cap - 1);
+			for (s = c->syms.symbol_tab[i]; s; s = s->hash_next) {
+				if (s->kind == SkLabel && s->owner == c->syms.current_fn &&
 				    strcmp(s->name, name) == 0) {
 					s->block = 0;
 					return s;
@@ -213,17 +216,17 @@ Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int stor
 		s->type = t;
 		s->storage = storage;
 		s->block = 0;
-		s->owner = c->current_fn;
+		s->owner = c->syms.current_fn;
 		s->span = sp;
 		s->shadow = symbol_lookup(c, name);
 		symbol_set_home(c, s, sp);
-		s->next = c->symbols;
-		c->symbols = s;
+		s->next = c->syms.symbols;
+		c->syms.symbols = s;
 		symbol_tab_add(c, s);
 		return s;
 	}
 	old = symbol_lookup(c, name);
-	if (old && old->block == c->block) {
+	if (old && old->block == c->syms.block) {
 		if (old->kind == SkLabel && kind == SkLabel)
 			return old;
 		if (kind == SkTypedef && old->kind == SkTypedef && !user_source(c, sp))
@@ -264,15 +267,15 @@ create:
 	s->kind = kind;
 	s->type = t;
 	s->storage = storage;
-	s->block = c->block;
+	s->block = c->syms.block;
 	s->span = sp;
-	s->owner = (kind == SkVar) ? c->current_fn : NULL;
+	s->owner = (kind == SkVar) ? c->syms.current_fn : NULL;
 	s->shadow = old;
 	symbol_set_home(c, s, sp);
-	s->next = c->symbols;
-	c->symbols = s;
+	s->next = c->syms.symbols;
+	c->syms.symbols = s;
 	symbol_tab_add(c, s);
-	if (kind == SkVar && old && old->kind == SkVar && c->current_fn && old->owner == c->current_fn && user_source(c, sp))
+	if (kind == SkVar && old && old->kind == SkVar && c->syms.current_fn && old->owner == c->syms.current_fn && user_source(c, sp))
 		error_at(c, sp, "'%s' shadows a previous declaration", name);
 	return s;
 }
@@ -420,7 +423,7 @@ static Symbol*
 find_func_overload(Compiler* c, const char* name, Type* t) {
 	Symbol* s;
 
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->hidden)
 			continue;
 		if (s->kind == SkFunc && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0 && type_eq(s->type, t))
@@ -434,7 +437,7 @@ static int
 linkname_taken(Compiler* c, const char* linkname) {
 	Symbol* s;
 
-	for (s = c->symbols; s; s = s->next)
+	for (s = c->syms.symbols; s; s = s->next)
 		if (!s->hidden && s->linkname && strcmp(s->linkname, linkname) == 0)
 			return 1;
 	return 0;
@@ -455,12 +458,12 @@ set_func_linkname(Compiler* c, Symbol* s, Span sp) {
 Symbol* symbol_define_func(Compiler* c, const char* name, Type* t, int storage, Span sp, int isoverload) {
 	Symbol *old, *s;
 
-	if (isoverload && c->block != 0) {
+	if (isoverload && c->syms.block != 0) {
 		error_at(c, sp, "overload functions must have file scope");
 		isoverload = 0;
 	}
 	old = symbol_lookup(c, name);
-	if (old && old->block == c->block) {
+	if (old && old->block == c->syms.block) {
 		if (isoverload || old->is_overload) {
 			if (isoverload != old->is_overload) {
 				error_at(c, sp, "cannot mix overload and non-overload declarations of %s", name);
@@ -497,13 +500,13 @@ create:
 	s->kind = SkFunc;
 	s->type = t;
 	s->storage = storage;
-	s->block = c->block;
+	s->block = c->syms.block;
 	s->span = sp;
 	s->is_overload = isoverload;
 	s->shadow = old;
 	symbol_set_home(c, s, sp);
-	s->next = c->symbols;
-	c->symbols = s;
+	s->next = c->syms.symbols;
+	c->syms.symbols = s;
 	symbol_tab_add(c, s);
 	if (isoverload)
 		set_func_linkname(c, s, sp);
@@ -553,7 +556,7 @@ Symbol* symbol_find_method(Compiler* c, const char* recv_tag, const char* name) 
 
 	if (recv_tag == NULL || name == NULL)
 		return NULL;
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->hidden || s->dead || !s->is_method || s->block != 0)
 			continue;
 		if (s->recv_tag == NULL || strcmp(s->recv_tag, recv_tag) != 0)
@@ -584,7 +587,7 @@ Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* metho
 	if (s)
 		return s;
 	hit = NULL;
-	for (ts = c->symbols; ts; ts = ts->next) {
+	for (ts = c->syms.symbols; ts; ts = ts->next) {
 		if (ts->hidden || ts->dead || !ts->is_method || ts->block != 0)
 			continue;
 		if (strcmp(ts->name, method) != 0 || ts->recv_tag == NULL)
@@ -609,7 +612,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	char pkg[128], buf[256];
 	Type* rt;
 
-	if (c->block != 0) {
+	if (c->syms.block != 0) {
 		error_at(c, sp, "methods must have file scope");
 		return NULL;
 	}
@@ -620,10 +623,10 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	rt = recv->base;
 	if (rt->pkg_private)
 		storage = StStatic;
-	if (rt->pkg_root && c->infile) {
+	if (rt->pkg_root && c->paths.infile) {
 		char root[1024];
 
-		pkg_file_root(c->infile, root, sizeof(root));
+		pkg_file_root(c->paths.infile, root, sizeof(root));
 		if (strcmp(root, rt->pkg_root) != 0)
 			error_at(c, sp, "method must be defined in the same package as %s", recv_tag);
 	}
@@ -638,7 +641,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	}
 	if (old)
 		error_at(c, sp, "duplicate method %s on %s", name, recv_tag);
-	pkg_mangle_from_file(c->infile ? c->infile : sp.file, pkg, sizeof(pkg));
+	pkg_mangle_from_file(c->paths.infile ? c->paths.infile : sp.file, pkg, sizeof(pkg));
 	if (pkg[0] == 0)
 		snprintf(pkg, sizeof(pkg), "main");
 	mangle_method(pkg, recv_tag, name, buf, sizeof(buf));
@@ -659,8 +662,8 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	s->linkname = xstrdup(buf);
 	s->shadow = symbol_lookup(c, name);
 	symbol_set_home(c, s, sp);
-	s->next = c->symbols;
-	c->symbols = s;
+	s->next = c->syms.symbols;
+	c->syms.symbols = s;
 	symbol_tab_add(c, s);
 	return s;
 }
@@ -669,7 +672,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 int symbol_has_overload(Compiler* c, const char* name) {
 	Symbol* s;
 
-	for (s = c->symbols; s; s = s->next)
+	for (s = c->syms.symbols; s; s = s->next)
 		if (!s->hidden && !s->dead && s->kind == SkFunc && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0)
 			return 1;
 	return 0;
@@ -786,7 +789,7 @@ Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int 
 
 	best = NULL;
 	bestscore = -1;
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->kind != SkFunc || s->block != 0 || !s->is_overload || strcmp(s->name, name) != 0)
 			continue;
 		score = overload_score(c, s->type, args, args_len);
@@ -818,7 +821,7 @@ Symbol* symbol_resolve_range_count(Compiler* c, Type* range_ty, Type** elem_out,
 		*elem_out = NULL;
 	if (range_ty == NULL)
 		return NULL;
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		Type *fn, *p0, *p1, *el;
 		int sc;
 
@@ -864,7 +867,7 @@ Symbol* symbol_resolve_range_at(Compiler* c, Type* range_ty, Type* elem, Span sp
 	bestscore = -1;
 	if (range_ty == NULL)
 		return NULL;
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		Type *fn, *p0, *p1;
 		int sc;
 
@@ -895,17 +898,17 @@ Symbol* symbol_resolve_range_at(Compiler* c, Type* range_ty, Type* elem, Span sp
 
 // Enter a nested scope (increment block counter).
 void symbol_push_block(Compiler* c) {
-	c->block++;
+	c->syms.block++;
 }
 
 // Leave a scope; mark block locals dead but keep them for later analysis.
 void symbol_pop_block(Compiler* c) {
 	Symbol* s;
 
-	for (s = c->symbols; s; s = s->next) {
-		if (s->block == c->block && s->kind != SkFunc)
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->block == c->syms.block && s->kind != SkFunc)
 			s->dead = 1;
 	}
-	c->block--;
+	c->syms.block--;
 }
 

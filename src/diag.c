@@ -9,6 +9,10 @@
  * xmalloc always zero-fills.
  */
 #include "ast.h"
+#include <errno.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Allocate n bytes zero-filled; n==0 is bumped to 1 so we never hand back a zero-size block.
 void* xmalloc(size_t n) {
@@ -99,18 +103,18 @@ intern_grow(Compiler* c) {
 	int j, oldn, cap;
 	unsigned i;
 
-	cap = c->intern_tab_cap ? c->intern_tab_cap * 2 : 1024;
-	old = c->intern_tab;
-	oldn = c->intern_tab_cap;
-	c->intern_tab = xmalloc((size_t)cap * sizeof(struct Intern*));
-	c->intern_tab_cap = cap;
+	cap = c->pp.intern_tab_cap ? c->pp.intern_tab_cap * 2 : 1024;
+	old = c->pp.intern_tab;
+	oldn = c->pp.intern_tab_cap;
+	c->pp.intern_tab = xmalloc((size_t)cap * sizeof(struct Intern*));
+	c->pp.intern_tab_cap = cap;
 	if (old) {
 		for (j = 0; j < oldn; j++) {
 			for (p = old[j]; p; p = n) {
 				n = p->hash_next;
 				i = p->hash & (unsigned)(cap - 1);
-				p->hash_next = c->intern_tab[i];
-				c->intern_tab[i] = p;
+				p->hash_next = c->pp.intern_tab[i];
+				c->pp.intern_tab[i] = p;
 			}
 		}
 		free(old);
@@ -125,11 +129,11 @@ str_intern_n(Compiler* c, const char* s, size_t n) {
 
 	if (s == NULL)
 		return NULL;
-	if (c->intern_tab_cap == 0 || c->interns_len * 2 >= c->intern_tab_cap)
+	if (c->pp.intern_tab_cap == 0 || c->pp.interns_len * 2 >= c->pp.intern_tab_cap)
 		intern_grow(c);
 	h = str_hash_n(s, n);
-	i = h & (unsigned)(c->intern_tab_cap - 1);
-	for (e = c->intern_tab[i]; e; e = e->hash_next)
+	i = h & (unsigned)(c->pp.intern_tab_cap - 1);
+	for (e = c->pp.intern_tab[i]; e; e = e->hash_next)
 		if (e->hash == h && e->len == n && memcmp(e->s, s, n) == 0)
 			return e->s;
 	e = xmalloc(sizeof(*e));
@@ -138,9 +142,9 @@ str_intern_n(Compiler* c, const char* s, size_t n) {
 	e->s[n] = 0;
 	e->len = n;
 	e->hash = h;
-	e->hash_next = c->intern_tab[i];
-	c->intern_tab[i] = e;
-	c->interns_len++;
+	e->hash_next = c->pp.intern_tab[i];
+	c->pp.intern_tab[i] = e;
+	c->pp.interns_len++;
 	return e->s;
 }
 
@@ -184,8 +188,8 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	char head[1100];
 	size_t need;
 
-	c->error_count++;
-	if (c->quiet_pp)
+	c->diag.error_count++;
+	if (c->diag.quiet_pp)
 		return;
 	va_start(ap, fmt);
 	vsnprintf(msg, sizeof(msg), fmt, ap);
@@ -195,34 +199,34 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 			sp.col > 0 ? sp.col : 1);
 	else
 		snprintf(head, sizeof(head), "error: ");
-	if (!c->quiet_diag) {
+	if (!c->diag.quiet_diag) {
 		fputs(head, stderr);
 		fputs(msg, stderr);
 		fputc('\n', stderr);
 	}
-	if (c->diag_log != NULL || c->quiet_diag) {
+	if (c->diag.diag_log != NULL || c->diag.quiet_diag) {
 		need = strlen(head) + strlen(msg) + 2;
-		if (c->diag_log_len + need + 1 > c->diag_log_cap) {
-			size_t cap = c->diag_log_cap ? c->diag_log_cap : 4096;
-			while (cap < c->diag_log_len + need + 1)
+		if (c->diag.diag_log_len + need + 1 > c->diag.diag_log_cap) {
+			size_t cap = c->diag.diag_log_cap ? c->diag.diag_log_cap : 4096;
+			while (cap < c->diag.diag_log_len + need + 1)
 				cap *= 2;
-			c->diag_log = xrealloc(c->diag_log, cap);
-			c->diag_log_cap = cap;
+			c->diag.diag_log = xrealloc(c->diag.diag_log, cap);
+			c->diag.diag_log_cap = cap;
 		}
-		if (c->diag_log) {
-			memcpy(c->diag_log + c->diag_log_len, head, strlen(head));
-			c->diag_log_len += strlen(head);
-			memcpy(c->diag_log + c->diag_log_len, msg, strlen(msg));
-			c->diag_log_len += strlen(msg);
-			c->diag_log[c->diag_log_len++] = '\n';
-			c->diag_log[c->diag_log_len] = 0;
+		if (c->diag.diag_log) {
+			memcpy(c->diag.diag_log + c->diag.diag_log_len, head, strlen(head));
+			c->diag.diag_log_len += strlen(head);
+			memcpy(c->diag.diag_log + c->diag.diag_log_len, msg, strlen(msg));
+			c->diag.diag_log_len += strlen(msg);
+			c->diag.diag_log[c->diag.diag_log_len++] = '\n';
+			c->diag.diag_log[c->diag.diag_log_len] = 0;
 		}
 	}
 
 	text = NULL;
-	for (i = 0; i < c->src_files_len; i++) {
-		if (c->src_files[i] && sp.file && strcmp(c->src_files[i], sp.file) == 0) {
-			text = c->src_text[i];
+	for (i = 0; i < c->unit.src_files_len; i++) {
+		if (c->unit.src_files[i] && sp.file && strcmp(c->unit.src_files[i], sp.file) == 0) {
+			text = c->unit.src_text[i];
 			break;
 		}
 	}
@@ -238,7 +242,7 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 		while (*p && *p != '\n')
 			p++;
 		len = (int)(p - line);
-		if (!c->quiet_diag) {
+		if (!c->diag.quiet_diag) {
 			fprintf(stderr, "  %.*s\n  ", len, line);
 			col = sp.col > 0 ? sp.col : 1;
 			for (i = 1; i < col && i <= len; i++)
@@ -247,7 +251,7 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 			fputc('\n', stderr);
 		}
 		/* Capture caret block for needle matching (optional). */
-		if (c->diag_log) {
+		if (c->diag.diag_log) {
 			char caret[1024];
 			int n;
 
@@ -262,21 +266,21 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 					caret[n] = 0;
 				}
 				need = (size_t)n;
-				if (c->diag_log_len + need + 1 > c->diag_log_cap) {
-					size_t cap = c->diag_log_cap ? c->diag_log_cap : 4096;
-					while (cap < c->diag_log_len + need + 1)
+				if (c->diag.diag_log_len + need + 1 > c->diag.diag_log_cap) {
+					size_t cap = c->diag.diag_log_cap ? c->diag.diag_log_cap : 4096;
+					while (cap < c->diag.diag_log_len + need + 1)
 						cap *= 2;
-					c->diag_log = xrealloc(c->diag_log, cap);
-					c->diag_log_cap = cap;
+					c->diag.diag_log = xrealloc(c->diag.diag_log, cap);
+					c->diag.diag_log_cap = cap;
 				}
-				memcpy(c->diag_log + c->diag_log_len, caret, need);
-				c->diag_log_len += need;
-				c->diag_log[c->diag_log_len] = 0;
+				memcpy(c->diag.diag_log + c->diag.diag_log_len, caret, need);
+				c->diag.diag_log_len += need;
+				c->diag.diag_log[c->diag.diag_log_len] = 0;
 			}
 		}
 	}
-	if (c->error_count >= MaxErr)
-		c->fatal = 1;
+	if (c->diag.error_count >= MaxErr)
+		c->diag.fatal = 1;
 }
 
 // error_at with the span taken from a token (or a dummy location when t is NULL).
@@ -290,7 +294,7 @@ void error_tok(Compiler* c, Tok* t, const char* fmt, ...) {
 	if (t)
 		error_at(c, t->span, "%s", buf);
 	else
-		error_at(c, (Span){c->infile, 1, 1, 1}, "%s", buf);
+		error_at(c, (Span){c->paths.infile, 1, 1, 1}, "%s", buf);
 }
 
 // Allocate a fresh AST node with kind and source span; children are added via node_add.

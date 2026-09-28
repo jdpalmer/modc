@@ -21,7 +21,7 @@ cmd_check(Compiler* c, CliOpts* o, int argc, char** argv) {
 		return 1;
 	apply_cli(c, o);
 	o->check_only = 1;
-	c->check_only = 1;
+	c->opt.check_only = 1;
 	if (o->files_len == 0) {
 		fprintf(stderr, "modc check: no input files\n");
 		return 1;
@@ -197,22 +197,22 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	const char* wine;
 	int use_wine;
 
-	c->c_libs_len = 0;
-	c->frameworks_len = 0;
-	c->csources_len = 0;
+	c->paths.c_libs_len = 0;
+	c->paths.frameworks_len = 0;
+	c->paths.csources_len = 0;
 	if (host_mkdtemp(dir, sizeof(dir), "modc-run") != 0) {
 		fprintf(stderr, "modc: cannot create temp dir: %s\n", strerror(errno));
 		return 1;
 	}
 	use_wine = 0;
 #ifndef _WIN32
-	if (c->target == TargetWindows)
+	if (c->opt.target == TargetWindows)
 		use_wine = 1;
 #endif
 #ifdef _WIN32
 	snprintf(prog, sizeof(prog), "%s/prog.exe", dir);
 #else
-	if (c->target == TargetWindows)
+	if (c->opt.target == TargetWindows)
 		snprintf(prog, sizeof(prog), "%s/prog.exe", dir);
 	else
 		snprintf(prog, sizeof(prog), "%s/prog", dir);
@@ -448,7 +448,7 @@ doc_print_package(Compiler* c, const char* want) {
 	int n;
 
 	n = 0;
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (!doc_sym_exported(s))
 			continue;
 		if (want && strcmp(s->name, want) != 0)
@@ -508,7 +508,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 		return 1;
 	apply_cli(c, o);
 	o->check_only = 1;
-	c->check_only = 1;
+	c->opt.check_only = 1;
 	if (o->files_len > 1) {
 		fprintf(stderr, "modc doc: at most one target\n");
 		return 1;
@@ -542,7 +542,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 				if (n > 0)
 					return 0;
 				reset_comp_state(c);
-				c->check_only = 1;
+				c->opt.check_only = 1;
 			} else
 				return 1;
 		}
@@ -587,23 +587,23 @@ format_one(Compiler* c, const char* path) {
 		fprintf(stderr, "modc format: cannot read %s: %s\n", path, strerror(errno));
 		return 1;
 	}
-	c->tokens = NULL;
-	c->tokens_len = 0;
-	c->tokens_cap = 0;
-	c->pos = 0;
-	c->error_count = 0;
-	c->fatal = 0;
-	c->pending_doc = NULL;
-	c->keep_comments = 1;
-	c->infile = xstrdup(path);
+	c->lex.tokens = NULL;
+	c->lex.tokens_len = 0;
+	c->lex.tokens_cap = 0;
+	c->lex.pos = 0;
+	c->diag.error_count = 0;
+	c->diag.fatal = 0;
+	c->lex.pending_doc = NULL;
+	c->lex.keep_comments = 1;
+	c->paths.infile = xstrdup(path);
 	lex_file(c, path, text, 1);
 	free(text);
-	if (c->error_count) {
-		c->keep_comments = 0;
+	if (c->diag.error_count) {
+		c->lex.keep_comments = 0;
 		return 1;
 	}
 	out = fmt_source(c);
-	c->keep_comments = 0;
+	c->lex.keep_comments = 0;
 	if (out == NULL)
 		return 1;
 	writepath = host_realpath(path, resolved, sizeof(resolved)) == 0 ? resolved : path;

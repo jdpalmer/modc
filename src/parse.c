@@ -8,6 +8,11 @@
  * for type_check_unit and emit. Entry: parse_unit. Token cursor: peek / take.
  */
 #include "ast.h"
+#include <ctype.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <string.h>
 
 static int switch_depth;
 static int loop_depth;
@@ -16,46 +21,52 @@ static int pending_pointee_const;
 static int pending_poly;
 
 // Current token; never advances. Past EOF, returns the final TkEof.
-Tok* peek(Compiler* c) {
-	if (c->pos >= c->tokens_len)
-		return &c->tokens[c->tokens_len - 1];
-	return &c->tokens[c->pos];
+static Tok*
+peek(Compiler* c) {
+	if (c->lex.pos >= c->lex.tokens_len)
+		return &c->lex.tokens[c->lex.tokens_len - 1];
+	return &c->lex.tokens[c->lex.pos];
 }
 
 // Lookahead n tokens ahead of pos (0 == peek).
-Tok* peekn(Compiler* c, int n) {
+static Tok*
+peekn(Compiler* c, int n) {
 	int i;
 
-	i = c->pos + n;
-	if (i >= c->tokens_len)
-		return &c->tokens[c->tokens_len - 1];
-	return &c->tokens[i];
+	i = c->lex.pos + n;
+	if (i >= c->lex.tokens_len)
+		return &c->lex.tokens[c->lex.tokens_len - 1];
+	return &c->lex.tokens[i];
 }
 
 // Consume and return the current token (no-op at EOF).
-Tok* take(Compiler* c) {
+static Tok*
+take(Compiler* c) {
 	Tok* t;
 
 	t = peek(c);
-	if (t->kind != TkEof && c->pos < c->tokens_len)
-		c->pos++;
+	if (t->kind != TkEof && c->lex.pos < c->lex.tokens_len)
+		c->lex.pos++;
 	return t;
 }
 
 // True when the current token is the given punctuator.
-int at(Compiler* c, int punct) {
+static int
+at(Compiler* c, int punct) {
 	Tok* t = peek(c);
 	return t->kind == TkPunct && t->punct == punct;
 }
 
 // True when the current token is the given keyword.
-int atkw(Compiler* c, int kw) {
+static int
+atkw(Compiler* c, int kw) {
 	Tok* t = peek(c);
 	return t->kind == TkKw && t->kw == kw;
 }
 
 // Consume the punctuator if present; returns whether it matched.
-int eat(Compiler* c, int punct) {
+static int
+eat(Compiler* c, int punct) {
 	if (at(c, punct)) {
 		take(c);
 		return 1;
@@ -64,7 +75,8 @@ int eat(Compiler* c, int punct) {
 }
 
 // Consume the keyword if present; returns whether it matched.
-int eatkw(Compiler* c, int kw) {
+static int
+eatkw(Compiler* c, int kw) {
 	if (atkw(c, kw)) {
 		take(c);
 		return 1;
@@ -98,7 +110,7 @@ skip_to_balance(Compiler* c) {
 			return;
 		} else
 			take(c);
-		if (c->fatal)
+		if (c->diag.fatal)
 			return;
 	}
 }
@@ -117,7 +129,7 @@ skip_braced(Compiler* c) {
 		else if (at(c, PnRbrace))
 			depth--;
 		take(c);
-		if (c->fatal)
+		if (c->diag.fatal)
 			return;
 	}
 }
@@ -152,7 +164,7 @@ skip_toplevel_semi(Compiler* c) {
 			return;
 		} else
 			take(c);
-		if (c->fatal)
+		if (c->diag.fatal)
 			return;
 	}
 }
@@ -169,7 +181,7 @@ static Symbol*
 find_prescan_func(Compiler* c, const char* name, Type* ty, int isoverload) {
 	Symbol* s;
 
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->hidden || s->dead || s->kind != SkFunc || s->block != 0 || s->is_method)
 			continue;
 		if (strcmp(s->name, name) != 0)
@@ -184,7 +196,8 @@ find_prescan_func(Compiler* c, const char* name, Type* ty, int isoverload) {
 }
 
 // True when a token can start a typename in a cast or declaration.
-int is_typename_tok(Compiler* c, Tok* t) {
+static int
+is_typename_tok(Compiler* c, Tok* t) {
 	Symbol* s;
 
 	if (t->kind == TkKw) {
@@ -344,7 +357,7 @@ parse_struct(Compiler* c, int kind, int outer_storage) {
 		saw = 0;
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw)
-			base = c->type_int;
+			base = c->types.type_int;
 		fname = NULL;
 		if (at(c, PnColon))
 			ft = base;
@@ -391,15 +404,15 @@ parse_struct(Compiler* c, int kind, int outer_storage) {
 			}
 		}
 		expect(c, PnSemi, "';'");
-		if (c->fatal)
+		if (c->diag.fatal)
 			break;
 	}
 	expect(c, PnRbrace, "'}'");
 	t->complete = 1;
-	if (tag && user_source(c, sp) && c->infile) {
+	if (tag && user_source(c, sp) && c->paths.infile) {
 		char root[1024];
 
-		pkg_file_root(c->infile, root, sizeof(root));
+		pkg_file_root(c->paths.infile, root, sizeof(root));
 		t->pkg_root = xstrdup(root);
 	}
 	type_layout(c, t);
@@ -439,7 +452,7 @@ parse_enum(Compiler* c, int outer_storage) {
 
 	sp = peek(c)->span;
 	tag = NULL;
-	et = c->type_int;
+	et = c->types.type_int;
 	estorage = outer_storage == StStatic ? StStatic : StNone;
 	if (peek(c)->kind == TkIdent)
 		tag = take(c)->s;
@@ -477,7 +490,7 @@ parse_enum(Compiler* c, int outer_storage) {
 		return et;
 	}
 	/* Anonymous enum: enumerators carry StStatic; do not mark type_int. */
-	return c->type_int;
+	return c->types.type_int;
 }
 
 // Consume a C-only keyword in user code and diagnose (headers may use it).
@@ -721,13 +734,13 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 			Type* it = NULL;
 
 			if (strcmp(in, "__int64") == 0 || strcmp(in, "_int64") == 0)
-				it = c->type_llong;
+				it = c->types.type_llong;
 			else if (strcmp(in, "__int32") == 0 || strcmp(in, "_int32") == 0)
-				it = c->type_int;
+				it = c->types.type_int;
 			else if (strcmp(in, "__int16") == 0 || strcmp(in, "_int16") == 0)
-				it = c->type_short;
+				it = c->types.type_short;
 			else if (strcmp(in, "__int8") == 0 || strcmp(in, "_int8") == 0)
-				it = c->type_char;
+				it = c->types.type_char;
 			if (it) {
 				take(c);
 				t = it;
@@ -754,13 +767,13 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	if (t)
 		return t;
 	if (nvoid)
-		return c->type_void;
+		return c->types.type_void;
 	if (nbool)
-		return c->type_bool;
+		return c->types.type_bool;
 	if (nfloat)
-		return c->type_float;
+		return c->types.type_float;
 	if (ndouble)
-		return c->type_double;
+		return c->types.type_double;
 	if (nchar) {
 		if (nsigned && user_source(c, signed_sp.file ? signed_sp : peek(c)->span))
 			error_at(c, signed_sp.file ? signed_sp : peek(c)->span,
@@ -769,29 +782,29 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 			error_at(c, unsigned_sp.file ? unsigned_sp : peek(c)->span,
 				 "%%C char is already unsigned; use char, not unsigned char");
 		/* Header `unsigned char` maps to %C char. */
-		return c->type_char;
+		return c->types.type_char;
 	}
 	if (nshort)
-		return nunsigned ? c->type_ushort : c->type_short;
+		return nunsigned ? c->types.type_ushort : c->types.type_short;
 	if (nlong >= 2) {
 		/* long long — fixed 64-bit; headers only (stdint uses this for int64_t). */
 		if (user_source(c, long_sp.file ? long_sp : peek(c)->span))
 			error_at(c, long_sp.file ? long_sp : peek(c)->span,
 				 "long long is not used in %%C; use int64_t");
-		return nunsigned ? c->type_ullong : c->type_llong;
+		return nunsigned ? c->types.type_ullong : c->types.type_llong;
 	}
 	if (nlong == 1) {
 		/* Host ABI long — headers only (Win32 LLP64 vs Unix LP64). */
 		if (user_source(c, long_sp.file ? long_sp : peek(c)->span))
 			error_at(c, long_sp.file ? long_sp : peek(c)->span,
 				 "long is for headers; use int64_t");
-		return nunsigned ? c->type_ulong : c->type_long;
+		return nunsigned ? c->types.type_ulong : c->types.type_long;
 	}
 	if (nunsigned)
-		return c->type_uint;
+		return c->types.type_uint;
 	if (nint || nsigned || *saw_type)
-		return c->type_int;
-	return c->type_int;
+		return c->types.type_int;
+	return c->types.type_int;
 }
 
 // True when '(' begins a nested declarator like (*fp)(int), not a param list.
@@ -853,7 +866,7 @@ parse_param_list(Compiler* c, Type* ret) {
 			if (user_source(c, psp))
 				error_at(c, psp,
 					 "parameter must have a type; %%C does not allow untyped parameters");
-			base = c->type_int;
+			base = c->types.type_int;
 		}
 		nm = NULL;
 		ty = parse_declarator(c, base, &nm, 1);
@@ -987,7 +1000,7 @@ parse_declarator(Compiler* c, Type* base, char** name, int abstract) {
 	while (eat_vendor_attr(c))
 		;
 	if (looks_nested(c)) {
-		save = c->pos;
+		save = c->lex.pos;
 		take(c); /* skip '(' */
 		{
 			char* dummy = NULL;
@@ -1000,12 +1013,12 @@ parse_declarator(Compiler* c, Type* base, char** name, int abstract) {
 		}
 		expect(c, PnRparen, "')'");
 		ty = parse_suffix(c, base);
-		end = c->pos;
-		c->pos = save;
+		end = c->lex.pos;
+		c->lex.pos = save;
 		take(c);
 		ty = parse_declarator(c, ty, name, abstract);
 		expect(c, PnRparen, "')'");
-		c->pos = end;
+		c->lex.pos = end;
 		return ty;
 	}
 	if (peek(c)->kind != TkIdent && at(c, PnLbrack)) {
@@ -1051,7 +1064,7 @@ peek_tuple_type(Compiler* c) {
 
 	if (!at(c, PnLparen))
 		return 0;
-	save = c->pos;
+	save = c->lex.pos;
 	save_pc = pending_pointee_const;
 	save_poly = pending_poly;
 	take(c);
@@ -1061,14 +1074,14 @@ peek_tuple_type(Compiler* c) {
 		storage = StNone;
 		saw = 0;
 		if (!is_typename(c) && !atkw(c, KwVoid)) {
-			c->pos = save;
+			c->lex.pos = save;
 			pending_pointee_const = save_pc;
 			pending_poly = save_poly;
 			return 0;
 		}
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw) {
-			c->pos = save;
+			c->lex.pos = save;
 			pending_pointee_const = save_pc;
 			pending_poly = save_poly;
 			return 0;
@@ -1077,7 +1090,7 @@ peek_tuple_type(Compiler* c) {
 		ty = parse_declarator(c, base, &dummy, 1);
 		(void)ty;
 		if (peek(c)->kind == TkIdent) {
-			c->pos = save;
+			c->lex.pos = save;
 			pending_pointee_const = save_pc;
 			pending_poly = save_poly;
 			return 0;
@@ -1088,14 +1101,14 @@ peek_tuple_type(Compiler* c) {
 		break;
 	}
 	if (!at(c, PnRparen) || n == 0) {
-		c->pos = save;
+		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	r = peek(c)->kind == TkIdent || at(c, PnLparen);
-	c->pos = save;
+	c->lex.pos = save;
 	pending_pointee_const = save_pc;
 	pending_poly = save_poly;
 	return r;
@@ -1125,51 +1138,51 @@ peek_method_receiver(Compiler* c) {
 		return 0;
 	if (peek_tuple_type(c))
 		return 0;
-	save = c->pos;
+	save = c->lex.pos;
 	save_pc = pending_pointee_const;
 	save_poly = pending_poly;
 	take(c);
 	if (!is_typename(c) && !atkw(c, KwStruct) && !atkw(c, KwUnion) && !atkw(c, KwEnum)) {
-		c->pos = save;
+		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
 		return 0;
 	}
 	ty = parse_receiver_type(c);
 	if (!is_ptr(ty)) {
-		c->pos = save;
+		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
 		return 0;
 	}
 	if (peek(c)->kind != TkIdent) {
-		c->pos = save;
+		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	if (!at(c, PnRparen)) {
-		c->pos = save;
+		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	if (!at(c, PnDot)) {
-		c->pos = save;
+		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
 		return 0;
 	}
 	take(c);
 	if (peek(c)->kind != TkIdent) {
-		c->pos = save;
+		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
 		return 0;
 	}
-	c->pos = save;
+	c->lex.pos = save;
 	pending_pointee_const = save_pc;
 	pending_poly = save_poly;
 	return 1;
@@ -1257,12 +1270,12 @@ static int
 peek_method_decl(Compiler* c) {
 	int save, save_pc, save_poly, r;
 
-	save = c->pos;
+	save = c->lex.pos;
 	save_pc = pending_pointee_const;
 	save_poly = pending_poly;
 	skip_method_ret_prefix(c);
 	r = peek_method_receiver(c);
-	c->pos = save;
+	c->lex.pos = save;
 	pending_pointee_const = save_pc;
 	pending_poly = save_poly;
 	return r;
@@ -1342,7 +1355,7 @@ parse_tuple_type(Compiler* c) {
 		saw = 0;
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw)
-			base = c->type_int;
+			base = c->types.type_int;
 		dummy = NULL;
 		ty = parse_declarator(c, base, &dummy, 1);
 		elts[n++] = ty;
@@ -1404,7 +1417,7 @@ parse_tuple_bindings(Compiler* c, TupleBind* out, int max, int allauto) {
 			saw = 0;
 			base = parse_declspec(c, &storage, &saw);
 			if (!saw)
-				base = c->type_int;
+				base = c->types.type_int;
 			base = parse_pointers(c, base);
 			if (peek(c)->kind != TkIdent) {
 				error_tok(c, peek(c), "expected binding name");
@@ -1429,18 +1442,18 @@ peek_destruct_decl(Compiler* c) {
 	int save, r, n, storage, saw;
 	Type* base;
 
-	save = c->pos;
+	save = c->lex.pos;
 	if (atkw(c, KwAuto)) {
 		take(c);
 		if (!at(c, PnLparen)) {
-			c->pos = save;
+			c->lex.pos = save;
 			return 0;
 		}
 		take(c);
 		n = 0;
 		while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
 			if (peek(c)->kind != TkIdent) {
-				c->pos = save;
+				c->lex.pos = save;
 				return 0;
 			}
 			take(c);
@@ -1450,35 +1463,35 @@ peek_destruct_decl(Compiler* c) {
 			break;
 		}
 		if (!at(c, PnRparen) || n == 0) {
-			c->pos = save;
+			c->lex.pos = save;
 			return 0;
 		}
 		take(c);
 		r = at(c, PnEq);
-		c->pos = save;
+		c->lex.pos = save;
 		return r;
 	}
 	if (!at(c, PnLparen)) {
-		c->pos = save;
+		c->lex.pos = save;
 		return 0;
 	}
 	take(c);
 	n = 0;
 	while (!at(c, PnRparen) && peek(c)->kind != TkEof) {
 		if (!is_typename(c) && !atkw(c, KwVoid)) {
-			c->pos = save;
+			c->lex.pos = save;
 			return 0;
 		}
 		storage = StNone;
 		saw = 0;
 		base = parse_declspec(c, &storage, &saw);
 		if (!saw) {
-			c->pos = save;
+			c->lex.pos = save;
 			return 0;
 		}
 		base = parse_pointers(c, base);
 		if (peek(c)->kind != TkIdent) {
-			c->pos = save;
+			c->lex.pos = save;
 			return 0;
 		}
 		take(c);
@@ -1488,12 +1501,12 @@ peek_destruct_decl(Compiler* c) {
 		break;
 	}
 	if (!at(c, PnRparen) || n == 0) {
-		c->pos = save;
+		c->lex.pos = save;
 		return 0;
 	}
 	take(c);
 	r = at(c, PnEq);
-	c->pos = save;
+	c->lex.pos = save;
 	return r;
 }
 
@@ -1502,19 +1515,19 @@ static int
 peek_auto_local(Compiler* c) {
 	int save, r;
 
-	save = c->pos;
+	save = c->lex.pos;
 	if (!atkw(c, KwAuto)) {
-		c->pos = save;
+		c->lex.pos = save;
 		return 0;
 	}
 	take(c);
 	if (peek(c)->kind != TkIdent || at(c, PnLparen)) {
-		c->pos = save;
+		c->lex.pos = save;
 		return 0;
 	}
 	take(c);
 	r = at(c, PnEq);
-	c->pos = save;
+	c->lex.pos = save;
 	return r;
 }
 
@@ -1547,7 +1560,7 @@ parse_destruct_decl(Compiler* c, Span sp, int allauto) {
 		error_at(c, sp, "destructuring arity mismatch");
 
 	outer = node(NdBlock, sp);
-	outer->int_val = c->block;
+	outer->int_val = c->syms.block;
 	snprintf(tname, sizeof(tname), "__td%d", ntmp++);
 	tmp = symbol_define(c, tname, SkVar, tuplety, StLocal, sp);
 	d = node(NdDecl, sp);
@@ -1593,7 +1606,7 @@ is_cast_lparen(Compiler* c) {
 	n = peekn(c, 1);
 	if (!is_typename_tok(c, n))
 		return 0;
-	save = c->pos;
+	save = c->lex.pos;
 	take(c);
 	/* typename then ) */
 	{
@@ -1606,7 +1619,7 @@ is_cast_lparen(Compiler* c) {
 		parse_declarator(c, b, &nm, 1);
 		r = at(c, PnRparen);
 	}
-	c->pos = save;
+	c->lex.pos = save;
 	return r;
 }
 
@@ -1651,7 +1664,7 @@ type_number_lit(Compiler* c, Span sp, const char* s, int64_t* out) {
 
 	*out = 0;
 	if (s == NULL || s[0] == 0)
-		return c->type_int;
+		return c->types.type_int;
 
 	i = 0;
 	isfloat = 0;
@@ -1693,24 +1706,24 @@ type_number_lit(Compiler* c, Span sp, const char* s, int64_t* out) {
 
 	if (suf_is(suf, "ull") || suf_is(suf, "llu") || suf_is(suf, "ll")) {
 		error_at(c, sp, "%%C does not support ll suffix; use l or ul (int64_t)");
-		return c->type_llong;
+		return c->types.type_llong;
 	}
 	if (suf_is(suf, "f")) {
 		if (ishex || isbin) {
 			error_at(c, sp, "invalid suffix on integer literal");
-			return c->type_int;
+			return c->types.type_int;
 		}
-		return c->type_float;
+		return c->types.type_float;
 	}
 	if (isfloat) {
 		if (suf[0] == 0)
-			return c->type_double;
+			return c->types.type_double;
 		if (suf_is(suf, "l")) {
 			error_at(c, sp, "%%C does not support long double");
-			return c->type_double;
+			return c->types.type_double;
 		}
 		error_at(c, sp, "invalid suffix on floating literal");
-		return c->type_double;
+		return c->types.type_double;
 	}
 	/* integer value */
 	if (isbin) {
@@ -1728,21 +1741,21 @@ type_number_lit(Compiler* c, Span sp, const char* s, int64_t* out) {
 
 	if (suf[0] == 0) {
 		if (*out >= -2147483647LL - 1 && *out <= 2147483647LL)
-			return c->type_int;
-		return c->type_llong; /* fixed 64-bit, not host long */
+			return c->types.type_int;
+		return c->types.type_llong; /* fixed 64-bit, not host long */
 	}
 	if (suf_is(suf, "ul") || suf_is(suf, "lu"))
-		return c->type_ullong;
+		return c->types.type_ullong;
 	if (suf_is(suf, "us"))
-		return c->type_ushort;
+		return c->types.type_ushort;
 	if (suf_is(suf, "u"))
-		return c->type_uint;
+		return c->types.type_uint;
 	if (suf_is(suf, "l"))
-		return c->type_llong;
+		return c->types.type_llong;
 	if (suf_is(suf, "s"))
-		return c->type_short;
+		return c->types.type_short;
 	error_at(c, sp, "invalid suffix on integer literal");
-	return c->type_int;
+	return c->types.type_int;
 }
 
 /* ---- expressions ---- */
@@ -1766,7 +1779,7 @@ parse_primary(Compiler* c) {
 		take(c);
 		n = node(NdLit, t->span);
 		n->int_val = t->int_val;
-		n->type = c->type_int;
+		n->type = c->types.type_int;
 		n->is_char_lit = 1;
 		return n;
 	}
@@ -1790,7 +1803,7 @@ parse_primary(Compiler* c) {
 
 			n->int_val = intern_str(c, acc, &nbytes);
 			/* Array bound is decoded size (incl. NUL), not source spelling. */
-			n->type = type_array(c, c->type_char, (int64_t)nbytes);
+			n->type = type_array(c, c->types.type_char, (int64_t)nbytes);
 			n->type->is_readonly = 1;
 		}
 		return n;
@@ -1800,7 +1813,7 @@ parse_primary(Compiler* c) {
 		n = node(NdStr, t->span);
 		n->int_val = t->int_val;
 		n->is_embed = 1;
-		n->type = type_array(c, c->type_char, (int64_t)t->kw);
+		n->type = type_array(c, c->types.type_char, (int64_t)t->kw);
 		n->type->is_readonly = 1;
 		return n;
 	}
@@ -1809,7 +1822,7 @@ parse_primary(Compiler* c) {
 		t = take(c);
 		n = node(NdLit, t->span);
 		n->int_val = v;
-		n->type = c->type_bool;
+		n->type = c->types.type_bool;
 		return n;
 	}
 	if (t->kind == TkIdent) {
@@ -1820,7 +1833,7 @@ parse_primary(Compiler* c) {
 				skip_paren_group(c);
 			n = node(NdLit, t->span);
 			n->int_val = 0;
-			n->type = c->type_int;
+			n->type = c->types.type_int;
 			return n;
 		}
 		take(c);
@@ -1846,7 +1859,7 @@ parse_primary(Compiler* c) {
 			if (!user_source(c, t->span) && t->s) {
 				Type* ft;
 
-				ft = type_func(c, c->type_int, NULL, 0, 1);
+				ft = type_func(c, c->types.type_int, NULL, 0, 1);
 				s = symbol_define(c, t->s, SkFunc, ft, StExtern, t->span);
 				n->symbol = s;
 				n->type = ft;
@@ -1858,7 +1871,7 @@ parse_primary(Compiler* c) {
 			if (s->kind == SkEnumCon) {
 				n->kind = NdLit;
 				n->int_val = s->int_val;
-				n->type = s->type ? s->type : c->type_int;
+				n->type = s->type ? s->type : c->types.type_int;
 			} else if (s->kind == SkVar || s->kind == SkFunc)
 				n->is_lvalue = s->kind == SkVar;
 		}
@@ -1882,7 +1895,7 @@ parse_primary(Compiler* c) {
 	error_tok(c, t, "expected expression");
 	take(c);
 	n = node(NdLit, t->span);
-	n->type = c->type_int;
+	n->type = c->types.type_int;
 	return n;
 }
 
@@ -2258,11 +2271,11 @@ parse_init_elem(Compiler* c) {
 			expect(c, PnEq, "'='");
 		des = IdIndexEq;
 	} else if (peek(c)->kind == TkIdent && !at(c, PnLbrace)) {
-		save = c->pos;
+		save = c->lex.pos;
 		take(c);
 		while (eat(c, PnDot)) {
 			if (peek(c)->kind != TkIdent) {
-				c->pos = save;
+				c->lex.pos = save;
 				break;
 			}
 			take(c);
@@ -2274,7 +2287,7 @@ parse_init_elem(Compiler* c) {
 			fields_len = 0;
 			/* continue parsing the init value to recover */
 		} else
-			c->pos = save;
+			c->lex.pos = save;
 	}
 	in = parse_init(c);
 	in->designator = des;
@@ -2323,20 +2336,20 @@ parse_init(Compiler* c) {
 
 // Record a file-scope global declaration node for later emission.
 static void add_global(Compiler* c, Node* n) {
-	if (c->globals_len >= c->globals_cap) {
-		c->globals_cap = c->globals_cap ? c->globals_cap * 2 : 16;
-		c->globals = xrealloc(c->globals, c->globals_cap * sizeof(Node*));
+	if (c->unit.globals_len >= c->unit.globals_cap) {
+		c->unit.globals_cap = c->unit.globals_cap ? c->unit.globals_cap * 2 : 16;
+		c->unit.globals = xrealloc(c->unit.globals, c->unit.globals_cap * sizeof(Node*));
 	}
-	c->globals[c->globals_len++] = n;
+	c->unit.globals[c->unit.globals_len++] = n;
 }
 
 // Record a function definition node for later emission.
 static void add_func(Compiler* c, Node* n) {
-	if (c->funcs_len >= c->funcs_cap) {
-		c->funcs_cap = c->funcs_cap ? c->funcs_cap * 2 : 16;
-		c->funcs = xrealloc(c->funcs, c->funcs_cap * sizeof(Node*));
+	if (c->unit.funcs_len >= c->unit.funcs_cap) {
+		c->unit.funcs_cap = c->unit.funcs_cap ? c->unit.funcs_cap * 2 : 16;
+		c->unit.funcs = xrealloc(c->unit.funcs, c->unit.funcs_cap * sizeof(Node*));
 	}
-	c->funcs[c->funcs_len++] = n;
+	c->unit.funcs[c->unit.funcs_len++] = n;
 }
 
 // Parse a compound statement and optionally push/pop a symbol scope.
@@ -2350,17 +2363,17 @@ parse_compound(Compiler* c, int scoped) {
 	if (!scoped)
 		symbol_push_block(c);
 	blk = node(NdBlock, sp);
-	blk->int_val = c->block;
-	parent = c->current_scope;
+	blk->int_val = c->syms.block;
+	parent = c->syms.current_scope;
 	blk->scope = parent;
-	c->current_scope = blk;
-	while (!at(c, PnRbrace) && peek(c)->kind != TkEof && !c->fatal) {
+	c->syms.current_scope = blk;
+	while (!at(c, PnRbrace) && peek(c)->kind != TkEof && !c->diag.fatal) {
 		s = parse_stmt(c);
 		if (s)
 			node_add(blk, s);
 	}
 	expect(c, PnRbrace, "'}'");
-	c->current_scope = parent;
+	c->syms.current_scope = parent;
 	if (!scoped)
 		symbol_pop_block(c);
 	return blk;
@@ -2501,7 +2514,7 @@ range_for_info(Compiler* c, Span sp, Node* range, RangeInfo* ri) {
 			return 0;
 		}
 		ri->elem = t->base;
-		ri->count = mklitnode(sp, t->len, c->type_ullong);
+		ri->count = mklitnode(sp, t->len, c->types.type_ullong);
 		ri->base = range;
 		return 1;
 	}
@@ -2518,7 +2531,7 @@ range_for_info(Compiler* c, Span sp, Node* range, RangeInfo* ri) {
 	if (is_ptr(t)) {
 		if (range->kind == NdName && range->symbol && range->symbol->array_param && range->symbol->param_fixed_len >= 0) {
 			ri->elem = t->base;
-			ri->count = mklitnode(sp, range->symbol->param_fixed_len, c->type_ullong);
+			ri->count = mklitnode(sp, range->symbol->param_fixed_len, c->types.type_ullong);
 			ri->base = range;
 			return 1;
 		}
@@ -2550,40 +2563,40 @@ peek_range_for(Compiler* c) {
 	Type *base, *ty;
 	char* name;
 
-	save = c->pos;
+	save = c->lex.pos;
 	if (atkw(c, KwAuto)) {
 		take(c);
 		if (at(c, PnStar))
 			take(c);
 		if (peek(c)->kind != TkIdent) {
-			c->pos = save;
+			c->lex.pos = save;
 			return 0;
 		}
 		take(c);
 		r = at(c, PnColon);
-		c->pos = save;
+		c->lex.pos = save;
 		return r;
 	}
 	if (!is_typename(c)) {
-		c->pos = save;
+		c->lex.pos = save;
 		return 0;
 	}
 	storage = StNone;
 	saw = 0;
 	base = parse_declspec(c, &storage, &saw);
 	if (!saw) {
-		c->pos = save;
+		c->lex.pos = save;
 		return 0;
 	}
 	name = NULL;
 	ty = parse_declarator(c, base, &name, 0);
 	(void)ty;
 	if (name == NULL) {
-		c->pos = save;
+		c->lex.pos = save;
 		return 0;
 	}
 	r = at(c, PnColon);
-	c->pos = save;
+	c->lex.pos = save;
 	return r;
 }
 
@@ -2620,7 +2633,7 @@ parse_range_for(Compiler* c, Span sp) {
 		saw = 0;
 		vtype = parse_declspec(c, &storage, &saw);
 		if (!saw)
-			vtype = c->type_int;
+			vtype = c->types.type_int;
 		vname = NULL;
 		vtype = parse_declarator(c, vtype, &vname, 0);
 		if (vname == NULL)
@@ -2653,7 +2666,7 @@ parse_range_for(Compiler* c, Span sp) {
 
 	symbol_push_block(c);
 	outer = node(NdBlock, sp);
-	outer->int_val = c->block;
+	outer->int_val = c->syms.block;
 
 	if (ri.needtmp) {
 		rsym = symbol_define(c, rname, SkVar, range->type, StLocal, sp);
@@ -2682,7 +2695,7 @@ parse_range_for(Compiler* c, Span sp) {
 		args[1] = typed_addr(c, sp, mknames(psym, sp));
 		countcall = mkcall_resolved(c, sp, cs, args, 2);
 
-		nsym = symbol_define(c, nname, SkVar, countcall->type ? countcall->type : c->type_ullong,
+		nsym = symbol_define(c, nname, SkVar, countcall->type ? countcall->type : c->types.type_ullong,
 				  StLocal, sp);
 		xdecl = node(NdDecl, sp);
 		xdecl->symbol = nsym;
@@ -2699,17 +2712,17 @@ parse_range_for(Compiler* c, Span sp) {
 		if (is_ranged(range->type))
 			ri.count = typed_dot(c, sp, ri.base, "len");
 		else if (is_array(range->type))
-			ri.count = mklitnode(sp, range->type->len, c->type_ullong);
+			ri.count = mklitnode(sp, range->type->len, c->types.type_ullong);
 	}
 
-	isym = symbol_define(c, iname, SkVar, c->type_ullong, StLocal, sp);
+	isym = symbol_define(c, iname, SkVar, c->types.type_ullong, StLocal, sp);
 	vsym = symbol_define(c, vname, SkVar, vtype ? vtype : ri.elem, StLocal, sp);
 	loop_depth++;
 	body = parse_braced_body(c, "for");
 	loop_depth--;
 
 	bodyblk = node(NdBlock, sp);
-	bodyblk->int_val = c->block;
+	bodyblk->int_val = c->syms.block;
 	if (ri.use_hooks && ats) {
 		args[0] = ri.base;
 		args[1] = mknames(isym, sp);
@@ -2731,7 +2744,7 @@ parse_range_for(Compiler* c, Span sp) {
 		node_add(bodyblk, body);
 
 	f = node(NdFor, sp);
-	f->a = typed_assign(c, sp, mknames(isym, sp), mklitnode(sp, 0, c->type_ullong));
+	f->a = typed_assign(c, sp, mknames(isym, sp), mklitnode(sp, 0, c->types.type_ullong));
 	f->b = typed_bin(c, PnLt, sp, mknames(isym, sp), ri.count);
 	{
 		Node* inc;
@@ -2884,7 +2897,7 @@ peek_for_init_decl(Compiler* c) {
 	Tok* t;
 	Symbol* s;
 
-	save = c->pos;
+	save = c->lex.pos;
 	r = 0;
 	if (peek_auto_local(c)) {
 		r = 1;
@@ -2909,7 +2922,7 @@ peek_for_init_decl(Compiler* c) {
 			r = 1;
 	}
 out:
-	c->pos = save;
+	c->lex.pos = save;
 	return r;
 }
 
@@ -3014,7 +3027,7 @@ parse_for_init_decl(Compiler* c) {
 	}
 	require_local_init(c, sp, name, storage, d->init);
 	if (storage == StStatic) {
-		s->int_val = ++c->static_seq;
+		s->int_val = ++c->unit.static_seq;
 		add_global(c, d);
 	}
 	return d;
@@ -3160,7 +3173,7 @@ parse_stmt(Compiler* c) {
 				/* stash high as NdLit in b for emit */
 				n->b = node(NdLit, sp);
 				n->b->int_val = hi;
-				n->b->type = c->type_int;
+				n->b->type = c->types.type_int;
 			}
 		}
 		expect(c, PnColon, "':'");
@@ -3192,7 +3205,7 @@ parse_stmt(Compiler* c) {
 	}
 	if (eatkw(c, KwDefer)) {
 		n = node(NdDefer, sp);
-		n->scope = c->current_scope;
+		n->scope = c->syms.current_scope;
 		n->a = parse_stmt(c);
 		if (defer_has_control(n->a))
 			error_at(c, sp,
@@ -3204,7 +3217,7 @@ parse_stmt(Compiler* c) {
 		if (!at(c, PnSemi)) {
 			Type* rt;
 
-			rt = c->current_fn && c->current_fn->type ? c->current_fn->type->base : NULL;
+			rt = c->syms.current_fn && c->syms.current_fn->type ? c->syms.current_fn->type->base : NULL;
 			if (at(c, PnLparen) && rt && is_tuple(rt))
 				n->a = parse_tuple_lit(c, rt, sp);
 			else
@@ -3225,7 +3238,7 @@ parse_stmt(Compiler* c) {
 		n = node(NdGoto, sp);
 		n->s = t->s;
 		n->symbol = s;
-		n->scope = c->current_scope;
+		n->scope = c->syms.current_scope;
 		expect(c, PnSemi, "';'");
 		return n;
 	}
@@ -3237,13 +3250,13 @@ parse_stmt(Compiler* c) {
 			error_at(c, t->span, "duplicate label '%s'", t->s);
 		else {
 			s->defined = 1;
-			s->label_scope = c->current_scope;
+			s->label_scope = c->syms.current_scope;
 			s->span = t->span;
 		}
 		n = node(NdLabel, sp);
 		n->s = t->s;
 		n->symbol = s;
-		n->scope = c->current_scope;
+		n->scope = c->syms.current_scope;
 		n->a = parse_stmt(c);
 		return n;
 	}
@@ -3614,7 +3627,7 @@ parse_local_decl(Compiler* c, Node* blk) {
 			}
 			require_local_init(c, sp, name, st, d->init);
 			if (st == StStatic) {
-				s->int_val = ++c->static_seq;
+				s->int_val = ++c->unit.static_seq;
 				add_global(c, d);
 			}
 			node_add(blk, d);
@@ -3706,7 +3719,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 	name = NULL;
 	if (peek_method_decl(c)) {
 		ismethod = 1;
-		if (in_func || c->block != 0) {
+		if (in_func || c->syms.block != 0) {
 			free(doc);
 			error_at(c, sp, "methods must have file scope");
 			skip_to_balance(c);
@@ -3733,7 +3746,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 	if (storage == StTypedef) {
 		for (;;) {
 			s = symbol_define(c, name, SkTypedef, ty, StTypedef, sp);
-			if (!in_func && c->block == 0 && storage != StStatic && doc) {
+			if (!in_func && c->syms.block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
 			}
@@ -3793,17 +3806,17 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			}
 		}
 		s->defined = 1;
-		if (!in_func && c->block == 0 && storage != StStatic)
+		if (!in_func && c->syms.block == 0 && storage != StStatic)
 			s->doc = doc;
 		else
 			free(doc);
 		if (storage == StStatic && s->linkname == NULL && !ismethod) {
 			char buf[160];
 
-			snprintf(buf, sizeof(buf), "__f%d_%s", ++c->static_seq, name);
+			snprintf(buf, sizeof(buf), "__f%d_%s", ++c->unit.static_seq, name);
 			s->linkname = xstrdup(buf);
 		}
-		c->current_fn = s;
+		c->syms.current_fn = s;
 		symbol_push_block(c);
 		for (i = 0; i < ty->params_len; i++) {
 			if (ty->param_names && ty->param_names[i]) {
@@ -3824,7 +3837,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 		fn->a = body;
 		s->node = fn;
 		add_func(c, fn);
-		c->current_fn = NULL;
+		c->syms.current_fn = NULL;
 		(void)in_func;
 		return;
 	}
@@ -3837,14 +3850,14 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			else
 				s = symbol_define_func(c, name, ty, storage == StStatic ? StStatic : StExtern, sp,
 						    isoverload);
-			if (!in_func && c->block == 0 && storage != StStatic && doc) {
+			if (!in_func && c->syms.block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
 			}
 			(void)s;
 		} else {
 			s = symbol_define(c, name, SkVar, ty, storage, sp);
-			if (!in_func && c->block == 0 && storage != StStatic && doc) {
+			if (!in_func && c->syms.block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
 			}
@@ -3859,7 +3872,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 				s->defined = 1;
 				validate_initializer(c, s->type, d->init, sp);
 			}
-			if (c->block == 0)
+			if (c->syms.block == 0)
 				add_global(c, d);
 		}
 		if (!eat(c, PnComma)) {
@@ -3956,12 +3969,12 @@ prescan_unit_type_names(Compiler* c) {
 	Symbol* s;
 	Type *ty, *tagged;
 
-	n = c->tokens_len;
+	n = c->lex.tokens_len;
 	depth = 0;
 	for (i = 0; i < n; i++) {
 		int tag_storage;
 
-		t = &c->tokens[i];
+		t = &c->lex.tokens[i];
 		if (t->kind == TkPunct) {
 			if (t->punct == PnLbrace)
 				depth++;
@@ -3975,7 +3988,7 @@ prescan_unit_type_names(Compiler* c) {
 			continue;
 		tag_storage = StNone;
 		if (t->kind == TkKw && t->kw == KwStatic) {
-			n1 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
+			n1 = (i + 1 < n) ? &c->lex.tokens[i + 1] : NULL;
 			if (n1 && n1->kind == TkKw &&
 			    (n1->kw == KwStruct || n1->kw == KwUnion || n1->kw == KwEnum)) {
 				tag_storage = StStatic;
@@ -3985,7 +3998,7 @@ prescan_unit_type_names(Compiler* c) {
 				continue;
 		}
 		if (t->kind == TkKw && (t->kw == KwStruct || t->kw == KwUnion || t->kw == KwEnum)) {
-			n1 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
+			n1 = (i + 1 < n) ? &c->lex.tokens[i + 1] : NULL;
 			if (n1 && n1->kind == TkIdent && n1->s)
 				(void)type_struct(c, t->kw == KwUnion ? TyUnion : (t->kw == KwEnum ? TyEnum : TyStruct),
 						  n1->s, n1->span, tag_storage);
@@ -4002,7 +4015,7 @@ prescan_unit_type_names(Compiler* c) {
 
 			start = i + 1;
 			for (i++; i < n; i++) {
-				n1 = &c->tokens[i];
+				n1 = &c->lex.tokens[i];
 				if (n1->kind == TkPunct) {
 					if (n1->punct == PnLbrace || n1->punct == PnLparen || n1->punct == PnLbrack)
 						d++;
@@ -4013,14 +4026,14 @@ prescan_unit_type_names(Compiler* c) {
 				}
 				if (d == 0 && n1->kind == TkKw &&
 				    (n1->kw == KwStruct || n1->kw == KwUnion || n1->kw == KwEnum)) {
-					Tok* n2 = (i + 1 < n) ? &c->tokens[i + 1] : NULL;
+					Tok* n2 = (i + 1 < n) ? &c->lex.tokens[i + 1] : NULL;
 					if (n2 && n2->kind == TkIdent && n2->s) {
 						int k = n1->kw == KwUnion ? TyUnion : (n1->kw == KwEnum ? TyEnum : TyStruct);
 						tagged = type_struct(c, k, n2->s, n2->span, StNone);
 					}
 				}
 			}
-			last = typedef_declarator_name(c->tokens, start, i);
+			last = typedef_declarator_name(c->lex.tokens, start, i);
 		}
 		if (last == NULL)
 			continue;
@@ -4045,8 +4058,8 @@ prescan_unit_type_names(Compiler* c) {
 // Parse typedefs and tag definitions (bodies); stubs should already exist.
 void
 prescan_unit_type_bodies(Compiler* c) {
-	c->pos = 0;
-	while (peek(c)->kind != TkEof && !c->fatal) {
+	c->lex.pos = 0;
+	while (peek(c)->kind != TkEof && !c->diag.fatal) {
 		if (at(c, PnSemi)) {
 			take(c);
 			continue;
@@ -4066,29 +4079,29 @@ prescan_unit_type_bodies(Compiler* c) {
 		}
 		if (atkw(c, KwTypedef) || atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
 			parse_decl_or_def(c, 0);
-			if (c->error_count && peek(c)->kind != TkEof)
+			if (c->diag.error_count && peek(c)->kind != TkEof)
 				skip_to_balance(c);
 			continue;
 		}
 		if (atkw(c, KwStatic) || atkw(c, KwExtern)) {
-			int pos0 = c->pos;
+			int pos0 = c->lex.pos;
 
 			take(c);
 			if (atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
-				c->pos = pos0;
+				c->lex.pos = pos0;
 				parse_decl_or_def(c, 0);
-				if (c->error_count && peek(c)->kind != TkEof)
+				if (c->diag.error_count && peek(c)->kind != TkEof)
 					skip_to_balance(c);
 				continue;
 			}
-			c->pos = pos0;
+			c->lex.pos = pos0;
 		}
 		skip_toplevel_semi(c);
 	}
 }
 
 // One-file type prescan: stubs then bodies.
-void
+static void
 prescan_unit_types(Compiler* c) {
 	prescan_unit_type_names(c);
 	prescan_unit_type_bodies(c);
@@ -4097,8 +4110,8 @@ prescan_unit_types(Compiler* c) {
 // Second pass: file-scope function / method signatures (bodies skipped).
 void
 prescan_unit_funcs(Compiler* c) {
-	c->pos = 0;
-	while (peek(c)->kind != TkEof && !c->fatal) {
+	c->lex.pos = 0;
+	while (peek(c)->kind != TkEof && !c->diag.fatal) {
 		if (at(c, PnSemi)) {
 			take(c);
 			continue;
@@ -4113,13 +4126,13 @@ prescan_unit_funcs(Compiler* c) {
 			continue;
 		}
 		prescan_toplevel(c);
-		if (c->error_count && peek(c)->kind != TkEof)
+		if (c->diag.error_count && peek(c)->kind != TkEof)
 			skip_to_balance(c);
 	}
 }
 
 // Prescan: types, then file-scope function signatures (skip bodies).
-void
+static void
 prescan_unit(Compiler* c) {
 	prescan_unit_types(c);
 	prescan_unit_funcs(c);
@@ -4133,9 +4146,9 @@ typedef_decl_names_known(Compiler* c) {
 	Tok* t;
 	Symbol* s;
 
-	pos0 = c->pos;
+	pos0 = c->lex.pos;
 	take(c); /* typedef */
-	start = c->pos;
+	start = c->lex.pos;
 	depth = 0;
 	while (peek(c)->kind != TkEof) {
 		t = peek(c);
@@ -4150,19 +4163,19 @@ typedef_decl_names_known(Compiler* c) {
 			}
 		}
 		take(c);
-		if (c->fatal)
+		if (c->diag.fatal)
 			break;
 	}
-	end = c->pos;
-	last = typedef_declarator_name(c->tokens, start, end);
+	end = c->lex.pos;
+	last = typedef_declarator_name(c->lex.tokens, start, end);
 	if (last == NULL) {
-		c->pos = pos0;
+		c->lex.pos = pos0;
 		return 0;
 	}
 	s = symbol_lookup(c, last);
 	if (s && (s->kind == SkTypedef || (s->kind == SkTag && s->type && s->type->complete)))
 		return 1;
-	c->pos = pos0;
+	c->lex.pos = pos0;
 	return 0;
 }
 
@@ -4180,11 +4193,11 @@ skip_parsed_type_decl(Compiler* c) {
 			return 1;
 		return 0;
 	}
-	pos0 = c->pos;
+	pos0 = c->lex.pos;
 	if (atkw(c, KwStatic) || atkw(c, KwExtern)) {
 		take(c);
 		if (!(atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum))) {
-			c->pos = pos0;
+			c->lex.pos = pos0;
 			return 0;
 		}
 	}
@@ -4197,7 +4210,7 @@ skip_parsed_type_decl(Compiler* c) {
 	if (t->kind == TkIdent && t->s) {
 		s = symbol_lookup_tag(c, t->s);
 		if (s && s->type && s->type->complete) {
-			c->pos = pos0;
+			c->lex.pos = pos0;
 			skip_toplevel_semi(c);
 			return 1;
 		}
@@ -4210,14 +4223,14 @@ skip_parsed_type_decl(Compiler* c) {
 		t = peekn(c, 1);
 		if (t && t->kind == TkIdent && t->s) {
 			s = symbol_lookup(c, t->s);
-			if (s && s->kind == SkEnumCon && s->block == c->block) {
-				c->pos = pos0;
+			if (s && s->kind == SkEnumCon && s->block == c->syms.block) {
+				c->lex.pos = pos0;
 				skip_toplevel_semi(c);
 				return 1;
 			}
 		}
 	}
-	c->pos = pos0;
+	c->lex.pos = pos0;
 	if (atkw(c, KwTypedef) && typedef_decl_names_known(c))
 		return 1;
 	return 0;
@@ -4233,7 +4246,7 @@ prescan_toplevel(Compiler* c) {
 	Symbol* s;
 	Span sp;
 
-	pos0 = c->pos;
+	pos0 = c->lex.pos;
 	sp = peek(c)->span;
 	isoverload = 0;
 	ismethod = 0;
@@ -4265,15 +4278,15 @@ prescan_toplevel(Compiler* c) {
 		return;
 	}
 	if (atkw(c, KwStatic) || atkw(c, KwExtern)) {
-		int p0 = c->pos;
+		int p0 = c->lex.pos;
 
 		take(c);
 		if (atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
-			c->pos = p0;
+			c->lex.pos = p0;
 			skip_toplevel_semi(c);
 			return;
 		}
-		c->pos = p0;
+		c->lex.pos = p0;
 	}
 	storage = StNone;
 	saw = 0;
@@ -4299,17 +4312,17 @@ prescan_toplevel(Compiler* c) {
 	} else
 		ty = parse_declarator(c, base, &name, 1);
 	if (name == NULL || !is_func(ty)) {
-		c->pos = pos0;
+		c->lex.pos = pos0;
 		skip_toplevel_semi(c);
 		return;
 	}
 	if (eat(c, PnComma)) {
-		c->pos = pos0;
+		c->lex.pos = pos0;
 		skip_toplevel_semi(c);
 		return;
 	}
 	if (storage == StTypedef) {
-		c->pos = pos0;
+		c->lex.pos = pos0;
 		skip_toplevel_semi(c);
 		return;
 	}
@@ -4333,8 +4346,8 @@ prescan_toplevel(Compiler* c) {
 
 // Top-level: imports then decl/def until EOF (main parse entry).
 void parse_unit(Compiler* c) {
-	c->pos = 0;
-	while (peek(c)->kind != TkEof && !c->fatal) {
+	c->lex.pos = 0;
+	while (peek(c)->kind != TkEof && !c->diag.fatal) {
 		if (at(c, PnSemi)) {
 			take(c);
 			continue;
@@ -4353,7 +4366,7 @@ void parse_unit(Compiler* c) {
 		if (skip_parsed_type_decl(c))
 			continue;
 		parse_decl_or_def(c, 0);
-		if (c->error_count && peek(c)->kind != TkEof) {
+		if (c->diag.error_count && peek(c)->kind != TkEof) {
 			/* recover at next likely declaration */
 			if (!is_typename(c) && !is_storage(c) && peek(c)->kind != TkEof)
 				skip_to_balance(c);

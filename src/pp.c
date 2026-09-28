@@ -3,13 +3,17 @@
  *
  * Compilation pipeline: lex → [pp] → parse → type check → emit → QBE
  *
- * Consumes the lexer Tok stream and rewrites c->tokens in place. Conditional
+ * Consumes the lexer Tok stream and rewrites c->lex.tokens in place. Conditional
  * stack is IfOn / IfWait / IfDone. Macro expansion follows Prosser-ish
  * argument expand / # / ## rules. After pp_run, parse sees a flat token list
  * with no directives left. #embed injects a TkEmbed blob (bytes in strpool).
  */
 #include "ast.h"
 #include "host_os.h"
+#include <ctype.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #ifdef _WIN32
 #include <windows.h>
@@ -193,11 +197,11 @@ make_line_tok(Span sp) {
 // Lazy-init the macro-name bloom filter bitset.
 static void
 macro_bits_ensure(Compiler* c) {
-	if (c->macro_bits_cap != 0)
+	if (c->pp.macro_bits_cap != 0)
 		return;
 	/* 2^20 bits ≈ 128KiB; keeps false-positive rate low with ~20k macros. */
-	c->macro_bits_cap = 32768;
-	c->macro_bits = xmalloc((size_t)c->macro_bits_cap * sizeof(uint32_t));
+	c->pp.macro_bits_cap = 32768;
+	c->pp.macro_bits = xmalloc((size_t)c->pp.macro_bits_cap * sizeof(uint32_t));
 }
 
 // Mark hash h present in the macro bloom filter.
@@ -206,9 +210,9 @@ macro_bit_set(Compiler* c, unsigned h) {
 	unsigned nbits;
 
 	macro_bits_ensure(c);
-	nbits = (unsigned)c->macro_bits_cap * 32u;
+	nbits = (unsigned)c->pp.macro_bits_cap * 32u;
 	h &= nbits - 1u;
-	c->macro_bits[h >> 5] |= 1u << (h & 31u);
+	c->pp.macro_bits[h >> 5] |= 1u << (h & 31u);
 }
 
 // Record that some macro name starts with name[0] (fast reject).
@@ -219,7 +223,7 @@ macro_start_set(Compiler* c, const char* name) {
 	if (name == NULL || name[0] == 0)
 		return;
 	ch = (unsigned char)name[0];
-	c->macro_start[ch >> 5] |= 1u << (ch & 31u);
+	c->pp.macro_start[ch >> 5] |= 1u << (ch & 31u);
 }
 
 // True if the bloom filter says a macro with hash h might exist.
@@ -227,51 +231,51 @@ static int
 macro_bit_may(Compiler* c, unsigned h) {
 	unsigned nbits;
 
-	if (c->macro_bits_cap == 0)
+	if (c->pp.macro_bits_cap == 0)
 		return 0;
-	nbits = (unsigned)c->macro_bits_cap * 32u;
+	nbits = (unsigned)c->pp.macro_bits_cap * 32u;
 	h &= nbits - 1u;
-	return (c->macro_bits[h >> 5] & (1u << (h & 31u))) != 0;
+	return (c->pp.macro_bits[h >> 5] & (1u << (h & 31u))) != 0;
 }
 
-// Rebuild the macro hash from c->macros (capacity must be power of two).
+// Rebuild the macro hash from c->pp.macros (capacity must be power of two).
 static void
 macro_tab_rebuild(Compiler* c, int cap) {
 	Macro *m;
 	unsigned i, h;
 
-	free(c->macro_tab);
-	c->macro_tab = xmalloc((size_t)cap * sizeof(Macro*));
-	c->macro_tab_cap = cap;
+	free(c->pp.macro_tab);
+	c->pp.macro_tab = xmalloc((size_t)cap * sizeof(Macro*));
+	c->pp.macro_tab_cap = cap;
 	macro_bits_ensure(c);
-	memset(c->macro_bits, 0, (size_t)c->macro_bits_cap * sizeof(uint32_t));
-	memset(c->macro_start, 0, sizeof(c->macro_start));
-	for (m = c->macros; m; m = m->next) {
+	memset(c->pp.macro_bits, 0, (size_t)c->pp.macro_bits_cap * sizeof(uint32_t));
+	memset(c->pp.macro_start, 0, sizeof(c->pp.macro_start));
+	for (m = c->pp.macros; m; m = m->next) {
 		h = str_hash(m->name);
 		macro_bit_set(c, h);
 		macro_start_set(c, m->name);
 		i = h & (unsigned)(cap - 1);
-		m->hash_next = c->macro_tab[i];
-		c->macro_tab[i] = m;
+		m->hash_next = c->pp.macro_tab[i];
+		c->pp.macro_tab[i] = m;
 	}
 }
 
-// Insert m into the macro hash (m already linked on c->macros).
+// Insert m into the macro hash (m already linked on c->pp.macros).
 static void
 macro_tab_add(Compiler* c, Macro* m) {
 	unsigned i, h;
 
-	c->macros_len++;
+	c->pp.macros_len++;
 	h = str_hash(m->name);
 	macro_bit_set(c, h);
 	macro_start_set(c, m->name);
-	if (c->macro_tab_cap == 0 || c->macros_len * 2 >= c->macro_tab_cap) {
-		macro_tab_rebuild(c, c->macro_tab_cap ? c->macro_tab_cap * 2 : 256);
+	if (c->pp.macro_tab_cap == 0 || c->pp.macros_len * 2 >= c->pp.macro_tab_cap) {
+		macro_tab_rebuild(c, c->pp.macro_tab_cap ? c->pp.macro_tab_cap * 2 : 256);
 		return;
 	}
-	i = h & (unsigned)(c->macro_tab_cap - 1);
-	m->hash_next = c->macro_tab[i];
-	c->macro_tab[i] = m;
+	i = h & (unsigned)(c->pp.macro_tab_cap - 1);
+	m->hash_next = c->pp.macro_tab[i];
+	c->pp.macro_tab[i] = m;
 }
 
 // Remove name from the macro hash only (list unlink is separate).
@@ -280,15 +284,15 @@ macro_tab_del(Compiler* c, const char* name) {
 	Macro *m, **pp;
 	unsigned i;
 
-	if (c->macro_tab_cap == 0 || name == NULL)
+	if (c->pp.macro_tab_cap == 0 || name == NULL)
 		return;
 	name = str_intern(c, name);
-	i = str_hash(name) & (unsigned)(c->macro_tab_cap - 1);
-	pp = &c->macro_tab[i];
+	i = str_hash(name) & (unsigned)(c->pp.macro_tab_cap - 1);
+	pp = &c->pp.macro_tab[i];
 	while ((m = *pp) != NULL) {
 		if (m->name == name) {
 			*pp = m->hash_next;
-			c->macros_len--;
+			c->pp.macros_len--;
 			return;
 		}
 		pp = &m->hash_next;
@@ -304,7 +308,7 @@ undef_macro(Compiler* c, const char* name) {
 		return;
 	name = str_intern(c, name);
 	macro_tab_del(c, name);
-	pp = &c->macros;
+	pp = &c->pp.macros;
 	while ((m = *pp) != NULL) {
 		if (m->name == name) {
 			*pp = m->next;
@@ -320,19 +324,19 @@ find_macro(Compiler* c, const char* name) {
 	Macro* m;
 	unsigned i, h;
 
-	if (name == NULL || c->macro_tab_cap == 0)
+	if (name == NULL || c->pp.macro_tab_cap == 0)
 		return NULL;
 	/* Cheap reject: no macro's name starts with this character. */
 	{
 		unsigned char ch = (unsigned char)name[0];
-		if ((c->macro_start[ch >> 5] & (1u << (ch & 31u))) == 0)
+		if ((c->pp.macro_start[ch >> 5] & (1u << (ch & 31u))) == 0)
 			return NULL;
 	}
 	h = str_hash(name);
 	if (!macro_bit_may(c, h))
 		return NULL;
-	i = h & (unsigned)(c->macro_tab_cap - 1);
-	for (m = c->macro_tab[i]; m; m = m->hash_next)
+	i = h & (unsigned)(c->pp.macro_tab_cap - 1);
+	for (m = c->pp.macro_tab[i]; m; m = m->hash_next)
 		if (m->name == name)
 			return m;
 	return NULL;
@@ -341,18 +345,19 @@ find_macro(Compiler* c, const char* name) {
 // Drop the macro list pointer and hash table (does not free Macro bodies).
 void
 pp_clear_macros(Compiler* c) {
-	free(c->macro_tab);
-	c->macro_tab = NULL;
-	c->macro_tab_cap = 0;
-	c->macros_len = 0;
-	c->macros = NULL;
-	if (c->macro_bits)
-		memset(c->macro_bits, 0, (size_t)c->macro_bits_cap * sizeof(uint32_t));
-	memset(c->macro_start, 0, sizeof(c->macro_start));
+	free(c->pp.macro_tab);
+	c->pp.macro_tab = NULL;
+	c->pp.macro_tab_cap = 0;
+	c->pp.macros_len = 0;
+	c->pp.macros = NULL;
+	if (c->pp.macro_bits)
+		memset(c->pp.macro_bits, 0, (size_t)c->pp.macro_bits_cap * sizeof(uint32_t));
+	memset(c->pp.macro_start, 0, sizeof(c->pp.macro_start));
 }
 
 // True when a name is currently #defined (used by #if defined()).
-int pp_defined(Compiler* c, const char* name) {
+static int
+pp_defined(Compiler* c, const char* name) {
 	if (name == NULL)
 		return 0;
 	return find_macro(c, str_intern(c, name)) != NULL;
@@ -361,11 +366,11 @@ int pp_defined(Compiler* c, const char* name) {
 // Append one token to the preprocessor output stream.
 static void
 emit_tok(Compiler* c, Tok t) {
-	if (c->tokens_len >= c->tokens_cap) {
-		c->tokens_cap = c->tokens_cap ? c->tokens_cap * 2 : 256;
-		c->tokens = xrealloc(c->tokens, c->tokens_cap * sizeof(Tok));
+	if (c->lex.tokens_len >= c->lex.tokens_cap) {
+		c->lex.tokens_cap = c->lex.tokens_cap ? c->lex.tokens_cap * 2 : 256;
+		c->lex.tokens = xrealloc(c->lex.tokens, c->lex.tokens_cap * sizeof(Tok));
 	}
-	c->tokens[c->tokens_len++] = t;
+	c->lex.tokens[c->lex.tokens_len++] = t;
 }
 
 // True when t is a '#' punctuator (start of a directive).
@@ -429,32 +434,32 @@ once_tab_add(Compiler* c, const char* path) {
 
 	if (path == NULL)
 		return;
-	if (c->once_tab_cap == 0 || c->once_files_len * 2 >= c->once_tab_cap) {
+	if (c->pp.once_tab_cap == 0 || c->pp.once_files_len * 2 >= c->pp.once_tab_cap) {
 		struct PpOnce **old, *p, *n;
 		int j, oldn;
 
-		cap = c->once_tab_cap ? c->once_tab_cap * 2 : 256;
-		old = c->once_tab;
-		oldn = c->once_tab_cap;
-		c->once_tab = xmalloc((size_t)cap * sizeof(struct PpOnce*));
-		c->once_tab_cap = cap;
+		cap = c->pp.once_tab_cap ? c->pp.once_tab_cap * 2 : 256;
+		old = c->pp.once_tab;
+		oldn = c->pp.once_tab_cap;
+		c->pp.once_tab = xmalloc((size_t)cap * sizeof(struct PpOnce*));
+		c->pp.once_tab_cap = cap;
 		if (old) {
 			for (j = 0; j < oldn; j++) {
 				for (p = old[j]; p; p = n) {
 					n = p->hash_next;
 					i = str_hash(p->path) & (unsigned)(cap - 1);
-					p->hash_next = c->once_tab[i];
-					c->once_tab[i] = p;
+					p->hash_next = c->pp.once_tab[i];
+					c->pp.once_tab[i] = p;
 				}
 			}
 			free(old);
 		}
 	}
-	i = str_hash(path) & (unsigned)(c->once_tab_cap - 1);
+	i = str_hash(path) & (unsigned)(c->pp.once_tab_cap - 1);
 	e = xmalloc(sizeof(*e));
 	e->path = (char*)path; /* aliases once_files[] entry */
-	e->hash_next = c->once_tab[i];
-	c->once_tab[i] = e;
+	e->hash_next = c->pp.once_tab[i];
+	c->pp.once_tab[i] = e;
 }
 
 // True when a header was already included via #pragma once.
@@ -463,10 +468,10 @@ already_once(Compiler* c, const char* resolved) {
 	struct PpOnce* e;
 	unsigned i;
 
-	if (resolved == NULL || c->once_tab_cap == 0)
+	if (resolved == NULL || c->pp.once_tab_cap == 0)
 		return 0;
-	i = str_hash(resolved) & (unsigned)(c->once_tab_cap - 1);
-	for (e = c->once_tab[i]; e; e = e->hash_next)
+	i = str_hash(resolved) & (unsigned)(c->pp.once_tab_cap - 1);
+	for (e = c->pp.once_tab[i]; e; e = e->hash_next)
 		if (strcmp(e->path, resolved) == 0)
 			return 1;
 	return 0;
@@ -479,10 +484,10 @@ mark_once(Compiler* c, const char* resolved) {
 
 	if (resolved == NULL || already_once(c, resolved))
 		return;
-	if (c->once_files_len % 8 == 0)
-		c->once_files = xrealloc(c->once_files, (c->once_files_len + 8) * sizeof(char*));
+	if (c->pp.once_files_len % 8 == 0)
+		c->pp.once_files = xrealloc(c->pp.once_files, (c->pp.once_files_len + 8) * sizeof(char*));
 	p = xstrdup(resolved);
-	c->once_files[c->once_files_len++] = p;
+	c->pp.once_files[c->pp.once_files_len++] = p;
 	once_tab_add(c, p);
 }
 
@@ -493,18 +498,18 @@ include_tab_grow(Compiler* c) {
 	int j, oldn, cap;
 	unsigned i;
 
-	cap = c->include_tab_cap ? c->include_tab_cap * 2 : 512;
-	old = c->include_tab;
-	oldn = c->include_tab_cap;
-	c->include_tab = xmalloc((size_t)cap * sizeof(struct PpInc*));
-	c->include_tab_cap = cap;
+	cap = c->pp.include_tab_cap ? c->pp.include_tab_cap * 2 : 512;
+	old = c->pp.include_tab;
+	oldn = c->pp.include_tab_cap;
+	c->pp.include_tab = xmalloc((size_t)cap * sizeof(struct PpInc*));
+	c->pp.include_tab_cap = cap;
 	if (old) {
 		for (j = 0; j < oldn; j++) {
 			for (p = old[j]; p; p = n) {
 				n = p->hash_next;
 				i = str_hash(p->key) & (unsigned)(cap - 1);
-				p->hash_next = c->include_tab[i];
-				c->include_tab[i] = p;
+				p->hash_next = c->pp.include_tab[i];
+				c->pp.include_tab[i] = p;
 			}
 		}
 		free(old);
@@ -517,10 +522,10 @@ inc_lookup(Compiler* c, const char* key) {
 	struct PpInc* e;
 	unsigned i;
 
-	if (c->include_tab_cap == 0 || key == NULL)
+	if (c->pp.include_tab_cap == 0 || key == NULL)
 		return NULL;
-	i = str_hash(key) & (unsigned)(c->include_tab_cap - 1);
-	for (e = c->include_tab[i]; e; e = e->hash_next)
+	i = str_hash(key) & (unsigned)(c->pp.include_tab_cap - 1);
+	for (e = c->pp.include_tab[i]; e; e = e->hash_next)
 		if (strcmp(e->key, key) == 0)
 			return e;
 	return NULL;
@@ -532,20 +537,20 @@ inc_insert(Compiler* c, const char* key, const char* path) {
 	struct PpInc* e;
 	unsigned i;
 
-	if (c->include_tab_cap == 0)
+	if (c->pp.include_tab_cap == 0)
 		include_tab_grow(c);
 	e = xmalloc(sizeof(*e));
 	e->key = xstrdup(key);
 	e->path = path ? xstrdup(path) : NULL;
-	i = str_hash(key) & (unsigned)(c->include_tab_cap - 1);
-	e->hash_next = c->include_tab[i];
-	c->include_tab[i] = e;
+	i = str_hash(key) & (unsigned)(c->pp.include_tab_cap - 1);
+	e->hash_next = c->pp.include_tab[i];
+	c->pp.include_tab[i] = e;
 	/* grow occasionally */
 	{
 		int bucket = 0;
-		for (e = c->include_tab[i]; e; e = e->hash_next)
+		for (e = c->pp.include_tab[i]; e; e = e->hash_next)
 			bucket++;
-		if (bucket > 8 && c->include_tab_cap < 65536)
+		if (bucket > 8 && c->pp.include_tab_cap < 65536)
 			include_tab_grow(c);
 	}
 }
@@ -577,20 +582,20 @@ find_include_raw(Compiler* c, const char* fromfile, const char* name, int angled
 			return p;
 		free(p);
 	}
-	if (c->modc_include) {
-		p = join_path(c->modc_include, name);
+	if (c->paths.modc_include) {
+		p = join_path(c->paths.modc_include, name);
 		if (file_exists(p))
 			return p;
 		free(p);
 	}
-	for (i = 0; i < c->incpaths_len; i++) {
-		p = join_path(c->incpaths[i], name);
+	for (i = 0; i < c->paths.incpaths_len; i++) {
+		p = join_path(c->paths.incpaths[i], name);
 		if (file_exists(p))
 			return p;
 		free(p);
 	}
-	for (i = 0; i < c->sysincpaths_len; i++) {
-		p = join_path(c->sysincpaths[i], name);
+	for (i = 0; i < c->paths.sysincpaths_len; i++) {
+		p = join_path(c->paths.sysincpaths[i], name);
 		if (file_exists(p))
 			return p;
 		free(p);
@@ -608,10 +613,10 @@ find_include_raw(Compiler* c, const char* fromfile, const char* name, int angled
 				memcpy(fw, name, nfw);
 				fw[nfw] = 0;
 				snprintf(hdr, sizeof(hdr), "%s", slash + 1);
-				for (i = 0; i < c->framework_paths_len; i++) {
+				for (i = 0; i < c->paths.framework_paths_len; i++) {
 					snprintf(cand, sizeof(cand),
 						 "%s/%s.framework/Headers/%s",
-						 c->framework_paths[i], fw, hdr);
+						 c->paths.framework_paths[i], fw, hdr);
 					if (file_exists(cand))
 						return xstrdup(cand);
 				}
@@ -745,12 +750,12 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 		free(path);
 		return;
 	}
-	saved = c->tokens;
-	nsave = c->tokens_len;
-	capsave = c->tokens_cap;
-	c->tokens = NULL;
-	c->tokens_len = 0;
-	c->tokens_cap = 0;
+	saved = c->lex.tokens;
+	nsave = c->lex.tokens_len;
+	capsave = c->lex.tokens_cap;
+	c->lex.tokens = NULL;
+	c->lex.tokens_len = 0;
+	c->lex.tokens_cap = 0;
 	if (pp_prof)
 		t0 = pp_now();
 	lex_file(c, path, text, 1);
@@ -758,12 +763,12 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 		t1 = pp_now();
 		pp_t_lex += t1 - t0;
 	}
-	itoks = c->tokens;
-	tokens_len = c->tokens_len;
-	cap = c->tokens_cap;
-	c->tokens = saved;
-	c->tokens_len = nsave;
-	c->tokens_cap = capsave;
+	itoks = c->lex.tokens;
+	tokens_len = c->lex.tokens_len;
+	cap = c->lex.tokens_cap;
+	c->lex.tokens = saved;
+	c->lex.tokens_len = nsave;
+	c->lex.tokens_cap = capsave;
 	/* drop trailing TkEof */
 	if (tokens_len > 0 && itoks[tokens_len - 1].kind == TkEof)
 		tokens_len--;
@@ -790,13 +795,13 @@ static void
 note_dep_file(Compiler* c, const char* path) {
 	if (path == NULL)
 		return;
-	if (c->src_files_len % 8 == 0) {
-		c->src_files = xrealloc(c->src_files, (c->src_files_len + 8) * sizeof(char*));
-		c->src_text = xrealloc(c->src_text, (c->src_files_len + 8) * sizeof(char*));
+	if (c->unit.src_files_len % 8 == 0) {
+		c->unit.src_files = xrealloc(c->unit.src_files, (c->unit.src_files_len + 8) * sizeof(char*));
+		c->unit.src_text = xrealloc(c->unit.src_text, (c->unit.src_files_len + 8) * sizeof(char*));
 	}
-	c->src_files[c->src_files_len] = xstrdup(path);
-	c->src_text[c->src_files_len] = NULL;
-	c->src_files_len++;
+	c->unit.src_files[c->unit.src_files_len] = xstrdup(path);
+	c->unit.src_text[c->unit.src_files_len] = NULL;
+	c->unit.src_files_len++;
 }
 
 // #embed "file" [limit(N)]: inject one TkEmbed (raw bytes in the string pool).
@@ -985,8 +990,8 @@ do_define(Compiler* c, Tok* src, int src_files_len, int* i, int skipping) {
 		}
 	}
 	undef_macro(c, m->name);
-	m->next = c->macros;
-	c->macros = m;
+	m->next = c->pp.macros;
+	c->pp.macros = m;
 	macro_tab_add(c, m);
 }
 
@@ -1931,7 +1936,7 @@ subst_body(Compiler* c, Macro* m, Tok** args, int* argn, int args_len, Tok** out
 	*out_len = n;
 }
 
-// Fully expand a token list into a buffer (does not emit to c->tokens).
+// Fully expand a token list into a buffer (does not emit to c->lex.tokens).
 static void
 expand_list_into(Compiler* c, Tok* src, int src_files_len, Tok** out, int* out_len) {
 	int i, n, cap, ni, nfully;
@@ -2031,15 +2036,15 @@ expand_into(Compiler* c, Tok* src, int src_files_len, int i, int* ni, int rec) {
 	nfully = 0;
 	expand_into_buf(c, src, src_files_len, i, ni, &fully, &nfully);
 	if (nfully > 0) {
-		if (c->tokens_len + nfully > c->tokens_cap) {
-			int ncap = c->tokens_cap ? c->tokens_cap : 256;
-			while (ncap < c->tokens_len + nfully)
+		if (c->lex.tokens_len + nfully > c->lex.tokens_cap) {
+			int ncap = c->lex.tokens_cap ? c->lex.tokens_cap : 256;
+			while (ncap < c->lex.tokens_len + nfully)
 				ncap *= 2;
-			c->tokens = xrealloc(c->tokens, (size_t)ncap * sizeof(Tok));
-			c->tokens_cap = ncap;
+			c->lex.tokens = xrealloc(c->lex.tokens, (size_t)ncap * sizeof(Tok));
+			c->lex.tokens_cap = ncap;
 		}
-		memcpy(c->tokens + c->tokens_len, fully, (size_t)nfully * sizeof(Tok));
-		c->tokens_len += nfully;
+		memcpy(c->lex.tokens + c->lex.tokens_len, fully, (size_t)nfully * sizeof(Tok));
+		c->lex.tokens_len += nfully;
 	}
 	pp_arena_reset();
 }
@@ -2137,7 +2142,7 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 
 	i = 0;
 	while (i < src_files_len) {
-		if (c->fatal)
+		if (c->diag.fatal)
 			break;
 		t = &src[i];
 		if (t->kind == TkEof)
@@ -2276,7 +2281,7 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 						break;
 				}
 				error_tok(c, t, "%s", msg);
-				c->fatal = 1;
+				c->diag.fatal = 1;
 				skip_nl(src, src_files_len, &i);
 				continue;
 			}
@@ -2331,7 +2336,7 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 								}
 								path = pragma_collect_csource(c, src, src_files_len, &i);
 								if (path) {
-									pkg_add_csource(c, c->infile, path);
+									pkg_add_csource(c, c->paths.infile, path);
 									free(path);
 								}
 							}
@@ -2390,9 +2395,9 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 void pp_define_cli(Compiler* c, const char* def) {
 	if (def == NULL || def[0] == 0)
 		return;
-	if (c->cli_defs_len % 8 == 0)
-		c->cli_defs = xrealloc(c->cli_defs, (c->cli_defs_len + 8) * sizeof(char*));
-	c->cli_defs[c->cli_defs_len++] = xstrdup(def);
+	if (c->paths.cli_defs_len % 8 == 0)
+		c->paths.cli_defs = xrealloc(c->paths.cli_defs, (c->paths.cli_defs_len + 8) * sizeof(char*));
+	c->paths.cli_defs[c->paths.cli_defs_len++] = xstrdup(def);
 	pp_define(c, def);
 }
 
@@ -2431,34 +2436,34 @@ void pp_clear_once(Compiler* c) {
 	struct PpOnce *o, *on;
 	struct PpInc *e, *en;
 
-	for (i = 0; i < c->once_files_len; i++)
-		free(c->once_files[i]);
-	free(c->once_files);
-	c->once_files = NULL;
-	c->once_files_len = 0;
-	if (c->once_tab) {
-		for (i = 0; i < c->once_tab_cap; i++) {
-			for (o = c->once_tab[i]; o; o = on) {
+	for (i = 0; i < c->pp.once_files_len; i++)
+		free(c->pp.once_files[i]);
+	free(c->pp.once_files);
+	c->pp.once_files = NULL;
+	c->pp.once_files_len = 0;
+	if (c->pp.once_tab) {
+		for (i = 0; i < c->pp.once_tab_cap; i++) {
+			for (o = c->pp.once_tab[i]; o; o = on) {
 				on = o->hash_next;
 				free(o); /* path aliases once_files */
 			}
 		}
-		free(c->once_tab);
-		c->once_tab = NULL;
-		c->once_tab_cap = 0;
+		free(c->pp.once_tab);
+		c->pp.once_tab = NULL;
+		c->pp.once_tab_cap = 0;
 	}
-	if (c->include_tab) {
-		for (i = 0; i < c->include_tab_cap; i++) {
-			for (e = c->include_tab[i]; e; e = en) {
+	if (c->pp.include_tab) {
+		for (i = 0; i < c->pp.include_tab_cap; i++) {
+			for (e = c->pp.include_tab[i]; e; e = en) {
 				en = e->hash_next;
 				free(e->key);
 				free(e->path);
 				free(e);
 			}
 		}
-		free(c->include_tab);
-		c->include_tab = NULL;
-		c->include_tab_cap = 0;
+		free(c->pp.include_tab);
+		c->pp.include_tab = NULL;
+		c->pp.include_tab_cap = 0;
 	}
 }
 
@@ -2467,11 +2472,11 @@ void pp_init(Compiler* c) {
 	int win, apple, linux_;
 
 	win = apple = linux_ = 0;
-	if (c->target == TargetWindows)
+	if (c->opt.target == TargetWindows)
 		win = 1;
-	else if (c->target == TargetMacos)
+	else if (c->opt.target == TargetMacos)
 		apple = 1;
-	else if (c->target == TargetLinux)
+	else if (c->opt.target == TargetLinux)
 		linux_ = 1;
 	else {
 #ifdef __APPLE__
@@ -2496,7 +2501,7 @@ void pp_init(Compiler* c) {
 		pp_define(c, "_M_X64=100");
 	}
 	/* Architecture: for Windows cross, amd64; else mirror the host that built modc. */
-	if (c->target == TargetWindows) {
+	if (c->opt.target == TargetWindows) {
 		pp_define(c, "__x86_64__");
 		pp_define(c, "__amd64__");
 	} else {
@@ -2525,7 +2530,7 @@ void pp_init(Compiler* c) {
 	(void)c;
 }
 
-// Run the preprocessor: rewrite c->tokens to a flat, directive-free token stream.
+// Run the preprocessor: rewrite c->lex.tokens to a flat, directive-free token stream.
 void pp_run(Compiler* c) {
 	Tok* src;
 	int src_files_len, skipstack[64], nsp;
@@ -2537,23 +2542,23 @@ void pp_run(Compiler* c) {
 	pp_t_emit = pp_t_expand = pp_t_dir = 0;
 	pp_n_emit = pp_n_expand = pp_n_dir = 0;
 	pp_arena_clear();
-	src = c->tokens;
-	src_files_len = c->tokens_len;
-	c->tokens = NULL;
-	c->tokens_len = 0;
-	c->tokens_cap = src_files_len > 256 ? src_files_len + src_files_len / 2 : 256;
-	c->tokens = xmalloc_raw((size_t)c->tokens_cap * sizeof(Tok));
+	src = c->lex.tokens;
+	src_files_len = c->lex.tokens_len;
+	c->lex.tokens = NULL;
+	c->lex.tokens_len = 0;
+	c->lex.tokens_cap = src_files_len > 256 ? src_files_len + src_files_len / 2 : 256;
+	c->lex.tokens = xmalloc_raw((size_t)c->lex.tokens_cap * sizeof(Tok));
 	nsp = 0;
 	process(c, src, src_files_len, skipstack, &nsp);
 	memset(&eof, 0, sizeof(eof));
 	eof.kind = TkEof;
-	eof.span.file = c->infile;
+	eof.span.file = c->paths.infile;
 	emit_tok(c, eof);
 	pp_arena_clear();
 	if (pp_prof)
 		fprintf(stderr,
 			"modc pp: open=%d once_skip=%d miss=%d tokens_len=%d macros_len=%d\n"
 			"         emit_toks=%llu expands=%llu dirs=%llu  expand=%.3fs emit=%.3fs find=%.3fs read=%.3fs lex=%.3fs\n",
-			pp_ninc_open, pp_ninc_once, pp_ninc_miss, c->tokens_len, c->macros_len,
+			pp_ninc_open, pp_ninc_once, pp_ninc_miss, c->lex.tokens_len, c->pp.macros_len,
 			pp_n_emit, pp_n_expand, pp_n_dir, pp_t_expand, pp_t_emit, pp_t_find, pp_t_read, pp_t_lex);
 }

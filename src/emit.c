@@ -11,6 +11,10 @@
  * evaluated so the deferred code cannot clobber it.
  */
 #include "ast.h"
+#include <errno.h>
+#include <inttypes.h>
+#include <stdlib.h>
+#include <string.h>
 #include "host_os.h"
 
 typedef struct Val Val;
@@ -1201,26 +1205,26 @@ emitlval(Compiler* c, Node* n) {
 
 			agg = emitexpr(c, n->a);
 			if (agg.cls != 'l' && agg.cls != '@')
-				agg = coerce(agg, 'l', c->type_void_ptr);
+				agg = coerce(agg, 'l', c->types.type_void_ptr);
 			p = vtmp('l', type_ptr(c, n->a->type->base));
 			fprintf(outf, "\t%s =l loadl %s\n", p.text, agg.text);
 			i = emitexpr(c, n->b);
 			if (i.cls != 'l')
-				i = coerce(i, 'l', c->type_llong);
-			if (c->bounds_check) {
+				i = coerce(i, 'l', c->types.type_llong);
+			if (c->opt.bounds_check) {
 				lenoff = 8;
 				if (n->a->type->fields && n->a->type->fields->next)
 					lenoff = n->a->type->fields->next->offset;
-				s = vtmp('l', c->type_void_ptr);
+				s = vtmp('l', c->types.type_void_ptr);
 				fprintf(outf, "\t%s =l add %s, %d\n", s.text, agg.text, lenoff);
-				lenv = vtmp('l', c->type_ullong);
+				lenv = vtmp('l', c->types.type_ullong);
 				fprintf(outf, "\t%s =l loadl %s\n", lenv.text, s.text);
 				emit_index_bounds(i, lenv);
 			}
 			b = p;
 			step = type_size(c, n->a->type->base);
 			if (step != 1) {
-				s = vtmp('l', c->type_llong);
+				s = vtmp('l', c->types.type_llong);
 				if (step > 0 && (step & (step - 1)) == 0) {
 					int sh = 0;
 					int64_t st = step;
@@ -1248,17 +1252,17 @@ emitlval(Compiler* c, Node* n) {
 		else
 			step = 4;
 		if (i.cls != 'l')
-			i = coerce(i, 'l', c->type_llong);
+			i = coerce(i, 'l', c->types.type_llong);
 		if (b.cls != 'l')
-			b = coerce(b, 'l', c->type_void_ptr);
-		if (c->bounds_check && bt && bt->kind == TyArray && bt->len >= 0) {
+			b = coerce(b, 'l', c->types.type_void_ptr);
+		if (c->opt.bounds_check && bt && bt->kind == TyArray && bt->len >= 0) {
 			Val lenv;
 
-			lenv = vimm('l', bt->len, c->type_ullong);
+			lenv = vimm('l', bt->len, c->types.type_ullong);
 			emit_index_bounds(i, lenv);
 		}
 		if (step != 1) {
-			s = vtmp('l', c->type_llong);
+			s = vtmp('l', c->types.type_llong);
 			if (step > 0 && (step & (step - 1)) == 0) {
 				int sh = 0;
 				int64_t st = step;
@@ -1380,7 +1384,7 @@ emitexpr_assign(Compiler* c, Node* n) {
 		    (n->op == PnPlusEq || n->op == PnMinusEq)) {
 			step = n->a->type->base ? type_size(c, n->a->type->base) : 1;
 			if (step != 1) {
-				scaled = vtmp(l.cls, c->type_llong);
+				scaled = vtmp(l.cls, c->types.type_llong);
 				fprintf(outf, "\t%s =%c mul %s, %d\n",
 					scaled.text, scaled.cls, r.text, step);
 				r = scaled;
@@ -1547,7 +1551,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 	}
 	if (bn && strcmp(bn, "__builtin_va_arg") == 0) {
 		l = emitexpr(c, n->children[0]);
-		want = n->type ? n->type : c->type_int;
+		want = n->type ? n->type : c->types.type_int;
 		v = vtmp(qbe_class(want), want);
 		fprintf(outf, "\t%s =%c vaarg %s\n", v.text, v.cls, l.text);
 		return v;
@@ -1574,7 +1578,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 			p.cls = 'l';
 		}
 		if (p.cls != 'l')
-			p = coerce(p, 'l', c->type_void_ptr);
+			p = coerce(p, 'l', c->types.type_void_ptr);
 		fprintf(outf, "\tstorel %s, %s\n", p.text, slot.text);
 		lenoff = 8;
 		capoff = 16;
@@ -1584,7 +1588,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 			if (f->name && strcmp(f->name, "cap") == 0)
 				capoff = f->offset;
 		}
-		ln = vtmp('l', c->type_ullong);
+		ln = vtmp('l', c->types.type_ullong);
 		fprintf(outf, "\t%s =l add %s, %d\n", ln.text, slot.text, lenoff);
 		alen = 0;
 		if (n->children_len == 1 && n->children[0] && n->children[0]->kind == NdStr && n->children[0]->type && n->children[0]->type->base && (n->children[0]->type->base->kind == TyChar || n->children[0]->type->base->kind == TyUChar) && n->children[0]->type->len > 0) {
@@ -1595,23 +1599,23 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		} else if (n->children_len == 1 && n->children[0] && is_array(n->children[0]->type))
 			alen = n->children[0]->type->len;
 		if (n->children_len == 1 && alen > 0)
-			r = vimm('l', alen, c->type_ullong);
+			r = vimm('l', alen, c->types.type_ullong);
 		else if (n->children_len >= 2) {
 			r = emitexpr(c, n->children[1]);
 			if (r.cls != 'l')
-				r = coerce(r, 'l', c->type_ullong);
+				r = coerce(r, 'l', c->types.type_ullong);
 		} else
-			r = vimm('l', 0, c->type_ullong);
+			r = vimm('l', 0, c->types.type_ullong);
 		fprintf(outf, "\tstorel %s, %s\n", r.text, ln.text);
 		/* cap: third arg, else same as len (full view). */
-		cp = vtmp('l', c->type_ullong);
+		cp = vtmp('l', c->types.type_ullong);
 		fprintf(outf, "\t%s =l add %s, %d\n", cp.text, slot.text, capoff);
 		if (n->children_len >= 3) {
 			Val cv;
 
 			cv = emitexpr(c, n->children[2]);
 			if (cv.cls != 'l')
-				cv = coerce(cv, 'l', c->type_ullong);
+				cv = coerce(cv, 'l', c->types.type_ullong);
 			fprintf(outf, "\tstorel %s, %s\n", cv.text, cp.text);
 		} else
 			fprintf(outf, "\tstorel %s, %s\n", r.text, cp.text);
@@ -1630,21 +1634,21 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		if (x && is_ranged(x->type)) {
 			base = emitexpr(c, x);
 			if (base.cls != 'l' && base.cls != '@')
-				base = coerce(base, 'l', c->type_void_ptr);
+				base = coerce(base, 'l', c->types.type_void_ptr);
 			lenoff = 8;
 			for (f = x->type->fields; f; f = f->next)
 				if (f->name && strcmp(f->name, "len") == 0)
 					lenoff = f->offset;
-			off = vtmp('l', c->type_void_ptr);
+			off = vtmp('l', c->types.type_void_ptr);
 			fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, lenoff);
-			ln = vtmp('l', c->type_ullong);
+			ln = vtmp('l', c->types.type_ullong);
 			fprintf(outf, "\t%s =l loadl %s\n", ln.text, off.text);
 			return ln;
 		}
 		if (x && is_array(x->type) && x->type->len >= 0)
-			return vimm('l', x->type->len, c->type_ullong);
+			return vimm('l', x->type->len, c->types.type_ullong);
 		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0)
-			return vimm('l', x->symbol->param_fixed_len, c->type_ullong);
+			return vimm('l', x->symbol->param_fixed_len, c->types.type_ullong);
 		if (x) {
 			Type* ag;
 
@@ -1658,10 +1662,10 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 					else
 						base = emitexpr(c, x);
 					if (base.cls != 'l' && base.cls != '@')
-						base = coerce(base, 'l', c->type_void_ptr);
-					off = vtmp('l', c->type_void_ptr);
+						base = coerce(base, 'l', c->types.type_void_ptr);
+					off = vtmp('l', c->types.type_void_ptr);
 					fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, lenoff);
-					ln = vtmp('l', c->type_ullong);
+					ln = vtmp('l', c->types.type_ullong);
 					fprintf(outf, "\t%s =l loadl %s\n", ln.text, off.text);
 					return ln;
 				}
@@ -1682,21 +1686,21 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		if (x && is_ranged(x->type)) {
 			base = emitexpr(c, x);
 			if (base.cls != 'l' && base.cls != '@')
-				base = coerce(base, 'l', c->type_void_ptr);
+				base = coerce(base, 'l', c->types.type_void_ptr);
 			capoff = 16;
 			for (f = x->type->fields; f; f = f->next)
 				if (f->name && strcmp(f->name, "cap") == 0)
 					capoff = f->offset;
-			off = vtmp('l', c->type_void_ptr);
+			off = vtmp('l', c->types.type_void_ptr);
 			fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, capoff);
-			cv = vtmp('l', c->type_ullong);
+			cv = vtmp('l', c->types.type_ullong);
 			fprintf(outf, "\t%s =l loadl %s\n", cv.text, off.text);
 			return cv;
 		}
 		if (x && is_array(x->type) && x->type->len >= 0)
-			return vimm('l', x->type->len, c->type_ullong);
+			return vimm('l', x->type->len, c->types.type_ullong);
 		if (x && x->kind == NdName && x->symbol && x->symbol->array_param && x->symbol->param_fixed_len >= 0)
-			return vimm('l', x->symbol->param_fixed_len, c->type_ullong);
+			return vimm('l', x->symbol->param_fixed_len, c->types.type_ullong);
 		if (x) {
 			Type* ag;
 
@@ -1708,10 +1712,10 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 					else
 						base = emitexpr(c, x);
 					if (base.cls != 'l' && base.cls != '@')
-						base = coerce(base, 'l', c->type_void_ptr);
-					off = vtmp('l', c->type_void_ptr);
+						base = coerce(base, 'l', c->types.type_void_ptr);
+					off = vtmp('l', c->types.type_void_ptr);
 					fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, capoff);
-					cv = vtmp('l', c->type_ullong);
+					cv = vtmp('l', c->types.type_ullong);
 					fprintf(outf, "\t%s =l loadl %s\n", cv.text, off.text);
 					return cv;
 				}
@@ -1732,22 +1736,22 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		if (x && is_ranged(x->type)) {
 			base = emitexpr(c, x);
 			if (base.cls != 'l' && base.cls != '@')
-				base = coerce(base, 'l', c->type_void_ptr);
+				base = coerce(base, 'l', c->types.type_void_ptr);
 			ptroff = 0;
 			for (f = x->type->fields; f; f = f->next)
 				if (f->name && strcmp(f->name, "ptr") == 0)
 					ptroff = f->offset;
 			if (ptroff == 0) {
-				p = vtmp('l', n->type ? n->type : c->type_void_ptr);
+				p = vtmp('l', n->type ? n->type : c->types.type_void_ptr);
 				fprintf(outf, "\t%s =l loadl %s\n", p.text, base.text);
 				return p;
 			}
 			{
 				Val off;
 
-				off = vtmp('l', c->type_void_ptr);
+				off = vtmp('l', c->types.type_void_ptr);
 				fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, ptroff);
-				p = vtmp('l', n->type ? n->type : c->type_void_ptr);
+				p = vtmp('l', n->type ? n->type : c->types.type_void_ptr);
 				fprintf(outf, "\t%s =l loadl %s\n", p.text, off.text);
 				return p;
 			}
@@ -1755,7 +1759,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		if (x && is_array(x->type)) {
 			p = emitexpr(c, x);
 			if (p.cls != 'l')
-				p = coerce(p, 'l', n->type ? n->type : c->type_void_ptr);
+				p = coerce(p, 'l', n->type ? n->type : c->types.type_void_ptr);
 			return p;
 		}
 		if (x) {
@@ -1769,13 +1773,13 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 					else
 						base = emitexpr(c, x);
 					if (base.cls != 'l' && base.cls != '@')
-						base = coerce(base, 'l', c->type_void_ptr);
+						base = coerce(base, 'l', c->types.type_void_ptr);
 					{
 						Val off;
 
-						off = vtmp('l', c->type_void_ptr);
+						off = vtmp('l', c->types.type_void_ptr);
 						fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, ptroff);
-						p = vtmp('l', n->type ? n->type : c->type_void_ptr);
+						p = vtmp('l', n->type ? n->type : c->types.type_void_ptr);
 						fprintf(outf, "\t%s =l loadl %s\n", p.text, off.text);
 						return p;
 					}
@@ -1872,7 +1876,7 @@ emitexpr_bin(Compiler* c, Node* n) {
 		emitlbl(tfalse);
 		emitjmp(tjoin);
 		emitlbl(tjoin);
-		v = vtmp('w', c->type_bool);
+		v = vtmp('w', c->types.type_bool);
 		fprintf(outf, "\t%s =w phi @L%d 1, @L%d 0\n", v.text, ttrue, tfalse);
 		return v;
 	}
@@ -1891,7 +1895,7 @@ emitexpr_bin(Compiler* c, Node* n) {
 			l = coerce(l, cls, n->a->type);
 		if (r.cls != cls)
 			r = coerce(r, cls, n->b->type);
-		v = vtmp('w', c->type_bool);
+		v = vtmp('w', c->types.type_bool);
 		{
 			int uns = (n->a->type && (n->a->type->is_unsigned || is_ptr(n->a->type))) || (n->b->type && (n->b->type->is_unsigned || is_ptr(n->b->type)));
 			fprintf(outf, "\t%s =w %s %s, %s\n",
@@ -1905,9 +1909,9 @@ emitexpr_bin(Compiler* c, Node* n) {
 		if (is_ptr(n->a->type) && is_int(n->b->type)) {
 			int step = n->a->type->base ? type_size(c, n->a->type->base) : 1;
 			if (r.cls != 'l')
-				r = coerce(r, 'l', c->type_llong);
+				r = coerce(r, 'l', c->types.type_llong);
 			if (step != 1) {
-				Val sc = vtmp('l', c->type_llong);
+				Val sc = vtmp('l', c->types.type_llong);
 				fprintf(outf, "\t%s =l mul %s, %d\n", sc.text, r.text, step);
 				r = sc;
 			}
@@ -1921,9 +1925,9 @@ emitexpr_bin(Compiler* c, Node* n) {
 		if (n->op == PnPlus && is_int(n->a->type) && is_ptr(n->b->type)) {
 			int step = n->b->type->base ? type_size(c, n->b->type->base) : 1;
 			if (l.cls != 'l')
-				l = coerce(l, 'l', c->type_llong);
+				l = coerce(l, 'l', c->types.type_llong);
 			if (step != 1) {
-				Val sc = vtmp('l', c->type_llong);
+				Val sc = vtmp('l', c->types.type_llong);
 				fprintf(outf, "\t%s =l mul %s, %d\n", sc.text, l.text, step);
 				l = sc;
 			}
@@ -1939,10 +1943,10 @@ emitexpr_bin(Compiler* c, Node* n) {
 				l = coerce(l, 'l', n->a->type);
 			if (r.cls != 'l')
 				r = coerce(r, 'l', n->b->type);
-			v = vtmp('l', c->type_llong);
+			v = vtmp('l', c->types.type_llong);
 			fprintf(outf, "\t%s =l sub %s, %s\n", v.text, l.text, r.text);
 			if (step > 1) {
-				Val q = vtmp('l', c->type_llong);
+				Val q = vtmp('l', c->types.type_llong);
 				fprintf(outf, "\t%s =l div %s, %d\n", q.text, v.text, step);
 				v = q;
 			}
@@ -1974,7 +1978,7 @@ emitexpr_tuple(Compiler* c, Node* n) {
 	slot = vtmp('l', n->type);
 	fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, w);
 	for (f = n->type->fields, i = 0; f && i < n->children_len; f = f->next, i++) {
-		off = vtmp('l', c->type_void_ptr);
+		off = vtmp('l', c->types.type_void_ptr);
 		fprintf(outf, "\t%s =l add %s, %d\n", off.text, slot.text, f->offset);
 		r = emitexpr(c, n->children[i]);
 		if (is_array(f->type) || is_aggr(f->type)) {
@@ -2116,7 +2120,7 @@ emitexpr(Compiler* c, Node* n) {
 		Field* f;
 
 		ensure_aggregate(n->type);
-		elem = n->type && n->type->base ? n->type->base : c->type_int;
+		elem = n->type && n->type->base ? n->type->base : c->types.type_int;
 		stride = type_size(c, elem);
 		if (stride < 1)
 			stride = 1;
@@ -2126,52 +2130,52 @@ emitexpr(Compiler* c, Node* n) {
 		if (is_ranged(bt) && bt->base) {
 			base = emitexpr(c, n->a);
 			if (base.cls != 'l' && base.cls != '@')
-				base = coerce(base, 'l', c->type_void_ptr);
+				base = coerce(base, 'l', c->types.type_void_ptr);
 			ptr = vtmp('l', type_ptr(c, bt->base));
 			fprintf(outf, "\t%s =l loadl %s\n", ptr.text, base.text);
 			lenoff = 8;
 			if (bt->fields && bt->fields->next)
 				lenoff = bt->fields->next->offset;
-			off = vtmp('l', c->type_void_ptr);
+			off = vtmp('l', c->types.type_void_ptr);
 			fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, lenoff);
-			lenv = vtmp('l', c->type_ullong);
+			lenv = vtmp('l', c->types.type_ullong);
 			fprintf(outf, "\t%s =l loadl %s\n", lenv.text, off.text);
 		} else if (is_array(bt) && bt->base) {
 			ptr = emitexpr(c, n->a);
 			if (ptr.cls != 'l')
 				ptr = coerce(ptr, 'l', type_ptr(c, bt->base));
-			lenv = vimm('l', bt->len >= 0 ? bt->len : 0, c->type_ullong);
+			lenv = vimm('l', bt->len >= 0 ? bt->len : 0, c->types.type_ullong);
 		} else {
 			ptr = emitexpr(c, n->a);
-			lenv = vimm('l', 0, c->type_ullong);
+			lenv = vimm('l', 0, c->types.type_ullong);
 		}
 		if (n->b) {
 			lo = emitexpr(c, n->b);
 			if (lo.cls != 'l')
-				lo = coerce(lo, 'l', c->type_ullong);
+				lo = coerce(lo, 'l', c->types.type_ullong);
 		} else
-			lo = vimm('l', 0, c->type_ullong);
+			lo = vimm('l', 0, c->types.type_ullong);
 		if (n->c) {
 			hi = emitexpr(c, n->c);
 			if (hi.cls != 'l')
-				hi = coerce(hi, 'l', c->type_ullong);
+				hi = coerce(hi, 'l', c->types.type_ullong);
 		} else
 			hi = lenv;
-		tmp = vtmp('l', c->type_ullong);
+		tmp = vtmp('l', c->types.type_ullong);
 		if (stride != 1)
 			fprintf(outf, "\t%s =l mul %s, %d\n", tmp.text, lo.text, stride);
 		else
 			fprintf(outf, "\t%s =l copy %s\n", tmp.text, lo.text);
 		off = vtmp('l', type_ptr(c, elem));
 		fprintf(outf, "\t%s =l add %s, %s\n", off.text, ptr.text, tmp.text);
-		tmp = vtmp('l', c->type_ullong);
+		tmp = vtmp('l', c->types.type_ullong);
 		fprintf(outf, "\t%s =l sub %s, %s\n", tmp.text, hi.text, lo.text);
 		fprintf(outf, "\tstorel %s, %s\n", off.text, slot.text);
 		lenoff = 8;
 		for (f = n->type->fields; f; f = f->next)
 			if (f->name && strcmp(f->name, "len") == 0)
 				lenoff = f->offset;
-		off = vtmp('l', c->type_void_ptr);
+		off = vtmp('l', c->types.type_void_ptr);
 		fprintf(outf, "\t%s =l add %s, %d\n", off.text, slot.text, lenoff);
 		fprintf(outf, "\tstorel %s, %s\n", tmp.text, off.text);
 		/* Subrange is a closed view: cap == len (no parent spare). */
@@ -2182,7 +2186,7 @@ emitexpr(Compiler* c, Node* n) {
 			for (f = n->type->fields; f; f = f->next)
 				if (f->name && strcmp(f->name, "cap") == 0)
 					capoff = f->offset;
-			cpoff = vtmp('l', c->type_void_ptr);
+			cpoff = vtmp('l', c->types.type_void_ptr);
 			fprintf(outf, "\t%s =l add %s, %d\n", cpoff.text, slot.text, capoff);
 			fprintf(outf, "\tstorel %s, %s\n", tmp.text, cpoff.text);
 		}
@@ -2203,7 +2207,7 @@ emitexpr(Compiler* c, Node* n) {
 		l = emitexpr(c, n->a);
 		if (n->op == PnBang) {
 			l = asbool(l);
-			v = vtmp('w', c->type_bool);
+			v = vtmp('w', c->types.type_bool);
 			fprintf(outf, "\t%s =w ceqw %s, 0\n", v.text, l.text);
 			return v;
 		}
@@ -2857,7 +2861,7 @@ emitstmt_ret(Compiler* c, Node* n) {
 
 			t = newlbl();
 			if (arms[i].lo == arms[i].hi) {
-				cmp = vtmp('w', c->type_int);
+				cmp = vtmp('w', c->types.type_int);
 				if (cls == 'l')
 					fprintf(outf, "\t%s =w ceql %s, %" PRId64 "\n",
 						cmp.text, v.text, (int64_t)arms[i].lo);
@@ -2867,9 +2871,9 @@ emitstmt_ret(Compiler* c, Node* n) {
 				emitjnz(cmp.text, arms[i].lbl, t);
 			} else {
 				/* x >= lo && x <= hi (signed); value first, imm second */
-				tlo = vtmp('w', c->type_int);
-				thi = vtmp('w', c->type_int);
-				cmp = vtmp('w', c->type_int);
+				tlo = vtmp('w', c->types.type_int);
+				thi = vtmp('w', c->types.type_int);
+				cmp = vtmp('w', c->types.type_int);
 				if (cls == 'l') {
 					fprintf(outf, "\t%s =w csgel %s, %" PRId64 "\n",
 						tlo.text, v.text, (int64_t)arms[i].lo);
@@ -2948,7 +2952,7 @@ emitfunc(Compiler* c, Node* fn) {
 
 	s = fn->symbol;
 	ty = fn->type;
-	ret = ty ? ty->base : c->type_int;
+	ret = ty ? ty->base : c->types.type_int;
 	tempno = 0;
 	lblno = 0;
 	curlbl = 0;
@@ -3232,7 +3236,7 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 			w = type_size(c, t);
 			for (k = 0; k < w && k < n; k++)
 				addgi(off + k, 1, 1,
-				      c->strpool[(int)in->expr->int_val + k], NULL, 0);
+				      c->unit.strpool[(int)in->expr->int_val + k], NULL, 0);
 			return;
 		}
 		w = t->base ? type_size(c, t->base) : 4;
@@ -3375,13 +3379,13 @@ static void
 emitstrdata(Compiler* c) {
 	int i;
 
-	if (c->strpool_len <= 0)
+	if (c->unit.strpool_len <= 0)
 		return;
 	fprintf(outf, "data $%s = { b", emit_str_symbol);
-	for (i = 0; i < c->strpool_len; i++) {
+	for (i = 0; i < c->unit.strpool_len; i++) {
 		if (i > 0 && i % 64 == 0)
 			fputs(",\n\tb", outf);
-		fprintf(outf, " %u", (unsigned)c->strpool[i]);
+		fprintf(outf, " %u", (unsigned)c->unit.strpool[i]);
 	}
 	fputs(" }\n\n", outf);
 }
@@ -3412,7 +3416,7 @@ emitsuall(Compiler* c) {
 
 	do {
 		progress = 0;
-		for (t = c->type_list; t; t = t->next) {
+		for (t = c->types.type_list; t; t = t->next) {
 			if (su_ready(t)) {
 				emitsutype(c, t);
 				t->emit_id = -t->emit_id;
@@ -3427,7 +3431,7 @@ static void
 reset_su_ids(Compiler* c) {
 	Type* t;
 
-	for (t = c->type_list; t; t = t->next)
+	for (t = c->types.type_list; t; t = t->next)
 		if (t->emit_id < 0)
 			t->emit_id = -t->emit_id;
 }
@@ -3465,14 +3469,14 @@ int emit_qbe(Compiler* c, FILE* out) {
 	outf = out;
 	emit_str_symbol = "__string";
 	emit_pkg_filter = NULL;
-	for (i = 0; i < c->funcs_len; i++)
-		collect(c, c->funcs[i]);
+	for (i = 0; i < c->unit.funcs_len; i++)
+		collect(c, c->unit.funcs[i]);
 	emitsuall(c);
 	emitstrdata(c);
-	for (i = 0; i < c->globals_len; i++)
-		emitgsym(c, c->globals[i]);
-	for (i = 0; i < c->funcs_len; i++)
-		emitfunc(c, c->funcs[i]);
+	for (i = 0; i < c->unit.globals_len; i++)
+		emitgsym(c, c->unit.globals[i]);
+	for (i = 0; i < c->unit.funcs_len; i++)
+		emitfunc(c, c->unit.funcs[i]);
 	reset_su_ids(c);
 	return 0;
 }
@@ -3487,20 +3491,20 @@ int emit_qbe_pkg(Compiler* c, FILE* out, const char* pkg_dir, const char* str_sy
 	tempno = 0;
 	lblno = 0;
 	isites_len = 0;
-	for (i = 0; i < c->funcs_len; i++)
-		if (node_in_pkg(c->funcs[i], pkg_dir))
-			collect(c, c->funcs[i]);
-	for (i = 0; i < c->globals_len; i++)
-		if (node_in_pkg(c->globals[i], pkg_dir))
-			collect(c, c->globals[i]);
+	for (i = 0; i < c->unit.funcs_len; i++)
+		if (node_in_pkg(c->unit.funcs[i], pkg_dir))
+			collect(c, c->unit.funcs[i]);
+	for (i = 0; i < c->unit.globals_len; i++)
+		if (node_in_pkg(c->unit.globals[i], pkg_dir))
+			collect(c, c->unit.globals[i]);
 	emitsuall(c);
 	emitstrdata(c);
-	for (i = 0; i < c->globals_len; i++)
-		if (node_in_pkg(c->globals[i], pkg_dir))
-			emitgsym(c, c->globals[i]);
-	for (i = 0; i < c->funcs_len; i++)
-		if (node_in_pkg(c->funcs[i], pkg_dir))
-			emitfunc(c, c->funcs[i]);
+	for (i = 0; i < c->unit.globals_len; i++)
+		if (node_in_pkg(c->unit.globals[i], pkg_dir))
+			emitgsym(c, c->unit.globals[i]);
+	for (i = 0; i < c->unit.funcs_len; i++)
+		if (node_in_pkg(c->unit.funcs[i], pkg_dir))
+			emitfunc(c, c->unit.funcs[i]);
 	reset_su_ids(c);
 	emit_str_symbol = "__string";
 	emit_pkg_filter = NULL;

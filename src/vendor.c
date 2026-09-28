@@ -5,6 +5,10 @@
  * vendor/ tree for the existing import resolver.
  */
 #include "ast.h"
+#include <ctype.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #include "host_os.h"
 
 enum { MaxIniSect = 128,

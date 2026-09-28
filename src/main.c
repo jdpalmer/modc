@@ -339,16 +339,16 @@ static void
 init_modc_include(Compiler* c, const char* argv0) {
 	char* inst;
 
-	c->modc_include = getenv("MODC_INCLUDE");
-	if (c->modc_include && c->modc_include[0])
+	c->paths.modc_include = getenv("MODC_INCLUDE");
+	if (c->paths.modc_include && c->paths.modc_include[0])
 		return;
 	inst = discover_install_include(argv0);
 	if (inst) {
-		c->modc_include = inst;
+		c->paths.modc_include = inst;
 		return;
 	}
 #ifdef MODC_INCLUDE
-	c->modc_include = MODC_INCLUDE;
+	c->paths.modc_include = MODC_INCLUDE;
 #endif
 }
 
@@ -357,16 +357,16 @@ static void
 init_modc_pkg(Compiler* c, const char* argv0) {
 	char* inst;
 
-	c->modc_pkg = getenv("MODC_PKG");
-	if (c->modc_pkg && c->modc_pkg[0])
+	c->paths.modc_pkg = getenv("MODC_PKG");
+	if (c->paths.modc_pkg && c->paths.modc_pkg[0])
 		return;
 	inst = discover_install_pkg(argv0);
 	if (inst) {
-		c->modc_pkg = inst;
+		c->paths.modc_pkg = inst;
 		return;
 	}
 #ifdef MODC_PKG
-	c->modc_pkg = MODC_PKG;
+	c->paths.modc_pkg = MODC_PKG;
 #endif
 }
 
@@ -375,10 +375,10 @@ static void
 add_sysinc(Compiler* c, const char* path) {
 	if (!dir_exists(path))
 		return;
-	if (c->sysincpaths_len % 8 == 0)
-		c->sysincpaths = xrealloc(c->sysincpaths,
-					  (c->sysincpaths_len + 8) * sizeof(char*));
-	c->sysincpaths[c->sysincpaths_len++] = xstrdup(path);
+	if (c->paths.sysincpaths_len % 8 == 0)
+		c->paths.sysincpaths = xrealloc(c->paths.sysincpaths,
+					  (c->paths.sysincpaths_len + 8) * sizeof(char*));
+	c->paths.sysincpaths[c->paths.sysincpaths_len++] = xstrdup(path);
 }
 
 // Split a PATH-like include list (; on Win32, : elsewhere) into system includes.
@@ -431,10 +431,10 @@ static void
 add_syslib(Compiler* c, const char* path) {
 	if (path == NULL || path[0] == 0)
 		return;
-	if (c->syslibpaths_len % 8 == 0)
-		c->syslibpaths = xrealloc(c->syslibpaths,
-					  (c->syslibpaths_len + 8) * sizeof(char*));
-	c->syslibpaths[c->syslibpaths_len++] = xstrdup(path);
+	if (c->paths.syslibpaths_len % 8 == 0)
+		c->paths.syslibpaths = xrealloc(c->paths.syslibpaths,
+					  (c->paths.syslibpaths_len + 8) * sizeof(char*));
+	c->paths.syslibpaths[c->paths.syslibpaths_len++] = xstrdup(path);
 }
 
 /* Add $prefix/include and $prefix/lib when present. Returns 1 if either exists. */
@@ -568,13 +568,13 @@ discover_windows_sysincludes(Compiler* c, int verbose) {
 
 	inc = getenv("INCLUDE");
 	if (inc && inc[0]) {
-		before = c->sysincpaths_len;
+		before = c->paths.sysincpaths_len;
 		add_sysinc_from_env(c, inc);
 		if (verbose) {
 			int i;
 
-			for (i = before; i < c->sysincpaths_len; i++)
-				fprintf(stderr, "system include: %s\n", c->sysincpaths[i]);
+			for (i = before; i < c->paths.sysincpaths_len; i++)
+				fprintf(stderr, "system include: %s\n", c->paths.sysincpaths[i]);
 		}
 		return;
 	}
@@ -611,7 +611,7 @@ discover_sysincludes(Compiler* c, int verbose) {
 		add_sysinc_from_env(c, env);
 		return;
 	}
-	if (c->no_system_includes)
+	if (c->paths.no_system_includes)
 		return;
 	env = getenv("MODC_SYSROOT");
 	if (env && env[0]) {
@@ -619,19 +619,19 @@ discover_sysincludes(Compiler* c, int verbose) {
 		return;
 	}
 	/* --target=windows|linux|macos: only add includes matching that OS. */
-	if (c->target == TargetWindows) {
+	if (c->opt.target == TargetWindows) {
 #ifdef _WIN32
 		discover_windows_sysincludes(c, verbose);
 #endif
 		return;
 	}
-	if (c->target == TargetMacos) {
+	if (c->opt.target == TargetMacos) {
 #ifdef __APPLE__
 		discover_macos_sysincludes(c, verbose);
 #endif
 		return;
 	}
-	if (c->target == TargetLinux) {
+	if (c->opt.target == TargetLinux) {
 #ifdef __linux__
 		discover_linux_sysincludes(c, verbose);
 #endif
@@ -653,20 +653,20 @@ void
 apply_cli(Compiler* c, CliOpts* o) {
 	int i;
 
-	c->no_system_includes = o->no_system_includes;
+	c->paths.no_system_includes = o->no_system_includes;
 	for (i = 0; i < o->incpaths_len; i++) {
-		if (c->incpaths_len % 8 == 0)
-			c->incpaths = xrealloc(c->incpaths, (c->incpaths_len + 8) * sizeof(char*));
-		c->incpaths[c->incpaths_len++] = o->incpaths[i];
+		if (c->paths.incpaths_len % 8 == 0)
+			c->paths.incpaths = xrealloc(c->paths.incpaths, (c->paths.incpaths_len + 8) * sizeof(char*));
+		c->paths.incpaths[c->paths.incpaths_len++] = o->incpaths[i];
 	}
-	c->check_only = o->check_only;
-	c->bounds_check = o->bounds_check;
-	c->target = o->target;
+	c->opt.check_only = o->check_only;
+	c->opt.bounds_check = o->bounds_check;
+	c->opt.target = o->target;
 	discover_sysincludes(c, o->verbose);
-	if (o->verbose && c->modc_include && c->modc_include[0])
-		fprintf(stderr, "modc include: %s\n", c->modc_include);
-	if (o->verbose && c->modc_pkg && c->modc_pkg[0])
-		fprintf(stderr, "modc pkg: %s\n", c->modc_pkg);
+	if (o->verbose && c->paths.modc_include && c->paths.modc_include[0])
+		fprintf(stderr, "modc include: %s\n", c->paths.modc_include);
+	if (o->verbose && c->paths.modc_pkg && c->paths.modc_pkg[0])
+		fprintf(stderr, "modc pkg: %s\n", c->paths.modc_pkg);
 	if (o->verbose && o->target != TargetHost) {
 		const char* tname;
 

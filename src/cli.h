@@ -6,7 +6,12 @@
 
 #include "ast.h"
 #include "host_os.h"
-
+#include <ctype.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #ifndef PATH_MAX
 #define PATH_MAX HOST_PATH_MAX
 #endif

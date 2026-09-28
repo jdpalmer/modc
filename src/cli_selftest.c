@@ -34,9 +34,9 @@ next_line(char** pp) {
 }
 static void
 diag_clear(Compiler* c) {
-	if (c->diag_log)
-		c->diag_log[0] = 0;
-	c->diag_log_len = 0;
+	if (c->diag.diag_log)
+		c->diag.diag_log[0] = 0;
+	c->diag.diag_log_len = 0;
 }
 
 static void
@@ -46,11 +46,11 @@ selftest_reset(Compiler* c) {
 	pp_clear_once(c);
 	pp_init(c);
 	diag_clear(c);
-	c->error_count = 0;
-	c->fatal = 0;
-	c->cli_defs_len = 0;
+	c->diag.error_count = 0;
+	c->diag.fatal = 0;
+	c->paths.cli_defs_len = 0;
 	/* Fresh process semantics for mangled statics (__fN_*) and .qbe.expect. */
-	c->static_seq = 0;
+	c->unit.static_seq = 0;
 }
 
 static int
@@ -291,7 +291,7 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc) {
 	o.verbose = base->verbose;
 	o.target = base->target;
 	selftest_reset(c);
-	c->quiet_diag = 1;
+	c->diag.quiet_diag = 1;
 	diag_clear(c);
 	save = text;
 	for (line = next_line(&save); line; line = next_line(&save)) {
@@ -310,13 +310,13 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc) {
 	if (flags[0] && apply_flags_line(c, &o, flags))
 		return 1;
 	apply_cli(c, &o);
-	c->check_only = 1;
-	c->quiet_diag = 1;
+	c->opt.check_only = 1;
+	c->diag.quiet_diag = 1;
 	diag_clear(c);
-	saw_error = compile_file(c, mc, NULL) != 0 || c->error_count != 0;
+	saw_error = compile_file(c, mc, NULL) != 0 || c->diag.error_count != 0;
 	if (!saw_error) {
 		fprintf(stderr, "FAIL: %s: expected check to fail\n", mc);
-		c->quiet_diag = 0;
+		c->diag.quiet_diag = 0;
 		return 1;
 	}
 	if (read_file_str(mc, &text, &len))
@@ -344,13 +344,13 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc) {
 			continue;
 		saw_needle = 1;
 		expand_root(raw, needle, sizeof(needle));
-		if (!file_contains(c->diag_log, needle)) {
+		if (!file_contains(c->diag.diag_log, needle)) {
 			fprintf(stderr, "FAIL: %s: missing needle: %s\n", mc, needle);
 			missing = 1;
 		}
 	}
 	free(text);
-	c->quiet_diag = 0;
+	c->diag.quiet_diag = 0;
 	if (!saw_needle) {
 		fprintf(stderr, "FAIL: %s: no // fail: F: needle\n", mc);
 		return 1;
@@ -512,7 +512,7 @@ run_check_ok(Compiler* c, CliOpts* base, const char* mc) {
 	if (flags[0] && apply_flags_line(c, &o, flags))
 		return 1;
 	apply_cli(c, &o);
-	c->check_only = 1;
+	c->opt.check_only = 1;
 	if (compile_file(c, mc, NULL)) {
 		fprintf(stderr, "FAIL: check %s: expected success\n", mc);
 		return 1;

@@ -5,6 +5,9 @@
  * Entry: type_check_unit. Runs after parse+type_expr on a finished AST.
  */
 #include "ast.h"
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 
 /* ---- definite assignment (da_) ---- */
@@ -494,7 +497,7 @@ switch_enum_exhaustive(Compiler* c, Type* et, Node* body) {
 	swcases_collect(body, &sc);
 	if (sc.has_default || sc.overflow)
 		return sc.has_default;
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->hidden || s->dead)
 			continue;
 		if (s->kind != SkEnumCon || s->type == NULL || !type_eq(s->type, et))
@@ -523,7 +526,7 @@ check_switch_enum_exhaust(Compiler* c, Node* sw) {
 	swcases_collect(sw->b, &sc);
 	if (sc.has_default || sc.overflow)
 		return;
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->hidden || s->dead)
 			continue;
 		if (s->kind != SkEnumCon || s->type == NULL || !type_eq(s->type, et))
@@ -1048,7 +1051,7 @@ check_unused_func(Compiler* c, Node* fn) {
 		return;
 	owner = fn->symbol;
 	mark_symbol_used(fn->a);
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->owner != owner || s->kind != SkVar || s->used)
 			continue;
 		if (is_compiler_temp_name(s->name))
@@ -1084,7 +1087,7 @@ method_receiver_param(Compiler* c, Node* fn) {
 	    fs->type->param_names[0] == NULL)
 		return NULL;
 	rname = fs->type->param_names[0];
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		/* Params are marked dead after the function block closes; still valid. */
 		if (s->owner != fs || s->kind != SkVar || s->storage != StParam)
 			continue;
@@ -1333,8 +1336,8 @@ check_global_initializers(Compiler* c) {
 	int i;
 	Node* d;
 
-	for (i = 0; i < c->globals_len; i++) {
-		d = c->globals[i];
+	for (i = 0; i < c->unit.globals_len; i++) {
+		d = c->unit.globals[i];
 		if (d && d->kind == NdDecl && d->init)
 			check_global_init(c, d->init);
 	}
@@ -1405,8 +1408,8 @@ static void
 check_emitter_limits(Compiler* c) {
 	int i;
 
-	for (i = 0; i < c->funcs_len; i++)
-		check_emitter_limits_node(c, c->funcs[i], 0, 0);
+	for (i = 0; i < c->unit.funcs_len; i++)
+		check_emitter_limits_node(c, c->unit.funcs[i], 0, 0);
 }
 
 /* ---- type_check_unit ---- */
@@ -1458,7 +1461,7 @@ static void
 check_pkg_private_leaks(Compiler* c) {
 	Symbol* s;
 
-	for (s = c->symbols; s; s = s->next) {
+	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->dead || s->hidden || s->header || s->block != 0)
 			continue;
 		if (s->storage == StStatic || s->storage == StLocal || s->storage == StParam)
@@ -1487,14 +1490,14 @@ void type_check_unit(Compiler* c) {
 	check_global_initializers(c);
 	check_emitter_limits(c);
 	check_pkg_private_leaks(c);
-	for (i = 0; i < c->funcs_len; i++) {
-		check_uninit_func(c, c->funcs[i]);
-		check_falloff_func(c, c->funcs[i]);
-		check_enum_exhaust_func(c, c->funcs[i]);
-		check_goto_over_decl(c, c->funcs[i]);
-		check_unseq_func(c, c->funcs[i]);
-		check_discard_tuple_func(c, c->funcs[i]);
-		check_method_receiver_func(c, c->funcs[i]);
-		check_unused_func(c, c->funcs[i]);
+	for (i = 0; i < c->unit.funcs_len; i++) {
+		check_uninit_func(c, c->unit.funcs[i]);
+		check_falloff_func(c, c->unit.funcs[i]);
+		check_enum_exhaust_func(c, c->unit.funcs[i]);
+		check_goto_over_decl(c, c->unit.funcs[i]);
+		check_unseq_func(c, c->unit.funcs[i]);
+		check_discard_tuple_func(c, c->unit.funcs[i]);
+		check_method_receiver_func(c, c->unit.funcs[i]);
+		check_unused_func(c, c->unit.funcs[i]);
 	}
 }
