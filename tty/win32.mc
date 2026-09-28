@@ -18,6 +18,9 @@ static struct TtySaved tty_saved[TtySavedMax];
 static DWORD tty_saved_in_cp;
 static DWORD tty_saved_out_cp;
 static int tty_cp_saved;
+static HANDLE tty_out_handle;
+static DWORD tty_desired_out_mode;
+static int tty_out_configured;
 
 static WinSize tty_wsz0() {
 	WinSize z = { 0 };
@@ -92,7 +95,10 @@ bool tty_set_raw(File* f) {
 	s.desired_mode = mode;
 	s.editor = 1;
 	if (tty_is_console(hout) && GetConsoleMode(hout, &out_mode)) {
-		(void)SetConsoleMode(hout, out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+		tty_out_handle = hout;
+		tty_desired_out_mode = out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+		(void)SetConsoleMode(hout, tty_desired_out_mode);
+		tty_out_configured = 1;
 	}
 	if (!tty_cp_saved) {
 		tty_saved_in_cp = GetConsoleCP();
@@ -120,6 +126,9 @@ bool tty_set_cooked(File* f) {
 	s.valid = 0;
 	s.editor = 0;
 	s.desired_mode = 0;
+	tty_out_configured = 0;
+	tty_desired_out_mode = 0;
+	tty_out_handle = 0;
 	if (tty_cp_saved) {
 		(void)SetConsoleCP(tty_saved_in_cp);
 		(void)SetConsoleOutputCP(tty_saved_out_cp);
@@ -128,23 +137,26 @@ bool tty_set_cooked(File* f) {
 	return true;
 }
 
-/* Re-apply editor input mode if Windows Terminal reset it after ANSI output. */
+/* Re-apply editor input/output modes if Windows Terminal reset them after ANSI. */
 void tty_reapply_editor_mode(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
 	struct TtySaved* s = 0;
 	DWORD current = 0;
-	if (!tty_is_console(h)) {
-		return;
+	if (tty_is_console(h)) {
+		s = tty_slot(h, 0);
+		if (s != 0 && s.valid && s.editor && s.desired_mode != 0) {
+			if (GetConsoleMode(h, &current) && current != s.desired_mode) {
+				(void)SetConsoleMode(h, s.desired_mode);
+			}
+		}
 	}
-	s = tty_slot(h, 0);
-	if (s == 0 || !s.valid || !s.editor || s.desired_mode == 0) {
-		return;
-	}
-	if (!GetConsoleMode(h, &current)) {
-		return;
-	}
-	if (current != s.desired_mode) {
-		(void)SetConsoleMode(h, s.desired_mode);
+	/* Output VT processing: without it, CSI fragments print as literal "?2". */
+	if (tty_out_configured && tty_out_handle != 0 &&
+		tty_out_handle != INVALID_HANDLE_VALUE && tty_desired_out_mode != 0) {
+		if (GetConsoleMode(tty_out_handle, &current) &&
+			current != tty_desired_out_mode) {
+			(void)SetConsoleMode(tty_out_handle, tty_desired_out_mode);
+		}
 	}
 }
 
