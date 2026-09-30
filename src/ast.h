@@ -836,6 +836,8 @@ void pkg_file_root(const char* mcfile, char* out, size_t out_len);
 void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len);
 int pkg_list_tests(const char* root, char*** out, int* out_len);
 int pkg_resolve_spec(Compiler* c, const char* spec, char* out, size_t out_len);
+/* Resolve top-level import "spec" strings in path to absolute package roots. */
+int pkg_import_roots(Compiler* c, const char* path, char*** out_roots, int* out_n);
 int vendor_cmd(int argc, char** argv);
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);
@@ -852,6 +854,10 @@ int cache_read_str(const char* path, char* out, size_t out_len);
 int cache_write_deps(const char* path, char** files, int nfiles);
 int cache_deps_valid(const char* path);
 int cache_depfile_to_deps(const char* depfile, const char* path);
+/* Write public API of package pkg_dir from Compiler into path. 0 ok. */
+int export_write_pkg(Compiler* c, const char* pkg_dir, const char* path);
+/* Load export file into Compiler (symbols/types). 0 ok. */
+int export_load(Compiler* c, const char* path);
 char* fmt_source(Compiler* c);
 
 #endif

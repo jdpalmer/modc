@@ -520,6 +520,50 @@ scan_imports(Compiler* c, const char* path, char*** imps, int* nimps) {
 	return 0;
 }
 
+// Resolve top-level imports in path to unique absolute package directory roots.
+int
+pkg_import_roots(Compiler* c, const char* path, char*** out_roots, int* out_n) {
+	char** imps;
+	char** roots;
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX];
+	int nimps, nroots, i, j;
+
+	*out_roots = NULL;
+	*out_n = 0;
+	imps = NULL;
+	nimps = 0;
+	if (scan_imports(c, path, &imps, &nimps))
+		return 1;
+	roots = NULL;
+	nroots = 0;
+	for (i = 0; i < nimps; i++) {
+		if (resolve_import(c, imps[i], path, root, sizeof(root))) {
+			for (j = 0; j < nimps; j++)
+				free(imps[j]);
+			free(imps);
+			for (j = 0; j < nroots; j++)
+				free(roots[j]);
+			free(roots);
+			return 1;
+		}
+		if (host_abspath(root, abs, sizeof(abs)) == 0)
+			snprintf(root, sizeof(root), "%s", abs);
+		for (j = 0; j < nroots; j++)
+			if (strcmp(roots[j], root) == 0)
+				break;
+		if (j < nroots)
+			continue;
+		roots = xrealloc(roots, (size_t)(nroots + 1) * sizeof(char*));
+		roots[nroots++] = xstrdup(root);
+	}
+	for (i = 0; i < nimps; i++)
+		free(imps[i]);
+	free(imps);
+	*out_roots = roots;
+	*out_n = nroots;
+	return 0;
+}
+
 typedef struct {
 	char* files[MaxPkgFiles];
 	int files_len;

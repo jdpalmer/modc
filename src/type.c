@@ -526,7 +526,8 @@ usual_arith(Compiler* c, Type* a, Type* b) {
 	return c->types.type_int;
 }
 
-// Structural type equality; aggregates compare by identity, char/uchar equated.
+// Structural type equality for ptr/array/func/ranged/tuple; nominal aggregates
+// compare by identity; char/uchar equated.
 int type_eq(Type* a, Type* b) {
 	int i;
 
@@ -554,6 +555,24 @@ int type_eq(Type* a, Type* b) {
 	case TyStruct:
 	case TyUnion:
 	case TyEnum:
+		/* Ranged views and tuples are shapes, not nominal tags. */
+		if (a->is_ranged || b->is_ranged) {
+			if (!a->is_ranged || !b->is_ranged)
+				return 0;
+			return a->is_readonly == b->is_readonly && a->is_poly == b->is_poly &&
+			       type_eq(a->base, b->base);
+		}
+		if (a->is_tuple || b->is_tuple) {
+			Field *fa, *fb;
+
+			if (!a->is_tuple || !b->is_tuple)
+				return 0;
+			for (fa = a->fields, fb = b->fields; fa && fb;
+			     fa = fa->next, fb = fb->next)
+				if (!type_eq(fa->type, fb->type))
+					return 0;
+			return fa == NULL && fb == NULL;
+		}
 		return a == b;
 	default:
 		return 1;

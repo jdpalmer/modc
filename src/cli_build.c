@@ -29,6 +29,11 @@ typedef struct {
 	char objpath[HOST_PATH_MAX];
 	char ifacepath[HOST_PATH_MAX];
 	int hit;
+	/* Direct import edges into pkgs[] indices. */
+	int imports[MaxCachePkgs];
+	int nimports;
+	/* Transitive import closure bitset (excluding self). */
+	unsigned char reach[MaxCachePkgs];
 } BuildPkg;
 
 // Lex and preprocess one path into c->lex.tokens; apply -D from j onward.
@@ -66,15 +71,22 @@ now_sec(void) {
 	return (double)clock() / (double)CLOCKS_PER_SEC;
 }
 
-/* Lex/parse/typecheck an already-discovered file list. Does not emit or free files. */
+/* Lex/parse/typecheck an already-discovered file list. Does not emit or free files.
+ * After type_init, loads each path in exports[0..nexports). */
 static int
-compile_graph(Compiler* c, char** files, int nfiles) {
+compile_graph(Compiler* c, char** files, int nfiles, char** exports, int nexports) {
 	int i, r;
 	TuCache* cache;
 	int profile;
 	double t0, t1, t_lexpp, t_prescan, t_parse, t_type;
 
 	type_init(c);
+	for (i = 0; i < nexports; i++) {
+		if (exports[i] && export_load(c, exports[i]) != 0) {
+			fprintf(stderr, "modc: failed to load export %s\n", exports[i]);
+			return 1;
+		}
+	}
 	c->unit.unit_files = NULL;
 	c->unit.unit_files_len = 0;
 	c->unit.unit_src_start = c->unit.src_files_len;
@@ -210,6 +222,8 @@ compile_graph(Compiler* c, char** files, int nfiles) {
 			fprintf(stderr,
 				"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs (failed)\n",
 				t_lexpp, t_prescan, t_parse);
+		for (i = 0; i < nfiles; i++)
+			free(cache[i].tokens);
 		free(cache);
 		return 1;
 	}
@@ -249,7 +263,7 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 	nfiles = 0;
 	if (pkg_discover(c, path, &files, &nfiles))
 		return 1;
-	r = compile_graph(c, files, nfiles);
+	r = compile_graph(c, files, nfiles, NULL, 0);
 	for (i = 0; i < nfiles; i++)
 		free(files[i]);
 	free(files);
@@ -641,6 +655,9 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	int i;
 
 	h = cache_hash_str(MODC_VERSION);
+	/* Import-closure needs (not all-packages) + selective parse. */
+	h = cache_hash_mix(h, cache_hash_str("needs-imports-v1"));
+	h = cache_hash_mix(h, cache_hash_str("export-v2"));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
@@ -930,12 +947,51 @@ save_modc_deps(Compiler* c, const char* path) {
 }
 
 // Compute cache paths and hit flags from implementation hashes.
+// needs = mix of transitive import impl hashes (not every package in the graph).
+static uint64_t
+pkg_needs_hash(BuildPkg* pkgs, int npkgs, int i) {
+	uint64_t needsh;
+	int j;
+
+	needsh = 0;
+	for (j = 0; j < npkgs; j++) {
+		if (i == j || !pkgs[i].reach[j])
+			continue;
+		needsh = cache_hash_mix(needsh, pkgs[j].impl);
+	}
+	return needsh;
+}
+
+// Set hit from cached obj + iface + deps + needs (import-closure).
+static void
+pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot) {
+	int i;
+	uint64_t needsh;
+	char depmeta[HOST_PATH_MAX], needspath[HOST_PATH_MAX], stored[256], hex[24];
+
+	for (i = 0; i < npkgs; i++) {
+		pkgs[i].hit = 0;
+		snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
+		if (!host_is_file(pkgs[i].objpath) || !host_is_file(pkgs[i].ifacepath) ||
+		    !cache_deps_valid(depmeta))
+			continue;
+		snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
+			 pkgs[i].id, pkgs[i].hex);
+		needsh = pkg_needs_hash(pkgs, npkgs, i);
+		cache_hash_hex(needsh, hex, sizeof(hex));
+		stored[0] = 0;
+		if (cache_read_str(needspath, stored, sizeof(stored)) != 0)
+			continue;
+		if (strcmp(stored, hex) != 0)
+			continue;
+		pkgs[i].hit = 1;
+	}
+}
+
 static void
 pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
-	int i, j;
-	uint64_t h, needsh;
-	char depmeta[HOST_PATH_MAX], needspath[HOST_PATH_MAX], stored[256];
-	char hex[24];
+	int i;
+	uint64_t h;
 
 	for (i = 0; i < npkgs; i++) {
 		h = cache_hash_mix(pkgs[i].impl, knobs);
@@ -945,27 +1001,75 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
 			 crooot, pkgs[i].id, pkgs[i].hex);
 		snprintf(pkgs[i].ifacepath, sizeof(pkgs[i].ifacepath),
 			 "%s/pkg/%s-%s/iface", crooot, pkgs[i].id, pkgs[i].hex);
-		pkgs[i].hit = 0;
-		snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
-		if (!host_is_file(pkgs[i].objpath) || !host_is_file(pkgs[i].ifacepath) ||
-		    !cache_deps_valid(depmeta))
-			continue;
-		snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
-			 pkgs[i].id, pkgs[i].hex);
-		needsh = 0;
-		for (j = 0; j < npkgs; j++) {
-			if (i == j)
-				continue;
-			needsh = cache_hash_mix(needsh, pkgs[j].impl);
-		}
-		cache_hash_hex(needsh, hex, sizeof(hex));
-		stored[0] = 0;
-		if (cache_read_str(needspath, stored, sizeof(stored)) != 0)
-			continue;
-		if (strcmp(stored, hex) != 0)
-			continue;
-		pkgs[i].hit = 1;
 	}
+	pkg_refresh_hits(pkgs, npkgs, crooot);
+}
+
+// Record direct imports and transitive reachability among build packages.
+static int
+pkg_fill_imports(Compiler* c, BuildPkg* pkgs, int npkgs, char** files, int nfiles) {
+	int i, j, k, fi, nroots, idx;
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX];
+	char** roots;
+	int changed;
+
+	for (i = 0; i < npkgs; i++) {
+		pkgs[i].nimports = 0;
+		memset(pkgs[i].reach, 0, sizeof(pkgs[i].reach));
+	}
+	for (fi = 0; fi < nfiles; fi++) {
+		pkg_file_root(files[fi], root, sizeof(root));
+		if (host_abspath(root, abs, sizeof(abs)) == 0)
+			snprintf(root, sizeof(root), "%s", abs);
+		idx = -1;
+		for (i = 0; i < npkgs; i++)
+			if (strcmp(pkgs[i].dir, root) == 0) {
+				idx = i;
+				break;
+			}
+		if (idx < 0)
+			continue;
+		roots = NULL;
+		nroots = 0;
+		if (pkg_import_roots(c, files[fi], &roots, &nroots))
+			return 1;
+		for (j = 0; j < nroots; j++) {
+			for (k = 0; k < npkgs; k++) {
+				if (strcmp(pkgs[k].dir, roots[j]) != 0)
+					continue;
+				if (k == idx)
+					break;
+				for (i = 0; i < pkgs[idx].nimports; i++)
+					if (pkgs[idx].imports[i] == k)
+						break;
+				if (i == pkgs[idx].nimports &&
+				    pkgs[idx].nimports < MaxCachePkgs)
+					pkgs[idx].imports[pkgs[idx].nimports++] = k;
+				break;
+			}
+			free(roots[j]);
+		}
+		free(roots);
+	}
+	/* Transitive closure of imports. */
+	for (i = 0; i < npkgs; i++)
+		for (j = 0; j < pkgs[i].nimports; j++)
+			pkgs[i].reach[pkgs[i].imports[j]] = 1;
+	do {
+		changed = 0;
+		for (i = 0; i < npkgs; i++)
+			for (j = 0; j < npkgs; j++) {
+				if (!pkgs[i].reach[j])
+					continue;
+				for (k = 0; k < npkgs; k++) {
+					if (!pkgs[j].reach[k] || pkgs[i].reach[k] || k == i)
+						continue;
+					pkgs[i].reach[k] = 1;
+					changed = 1;
+				}
+			}
+	} while (changed);
+	return 0;
 }
 
 // Whole-graph stamp over package impl hashes and knobs.
@@ -1056,34 +1160,33 @@ load_link_meta(Compiler* c, const char* path) {
 	return 0;
 }
 
-// Emit one package to QBE/asm/.o and store it in the cache.
+// Build QBE string-pool symbol for a package cache key.
+static void
+pkg_strsym(BuildPkg* pkg, char* out, size_t out_len) {
+	int i, j;
+	char id[96];
+
+	j = 0;
+	for (i = 0; pkg->id[i] && j < (int)sizeof(id) - 1; i++) {
+		unsigned char ch = (unsigned char)pkg->id[i];
+		if (isalnum(ch))
+			id[j++] = (char)ch;
+		else
+			id[j++] = '_';
+	}
+	id[j] = 0;
+	snprintf(out, out_len, "__string_%s_%.8s", id, pkg->hex);
+}
+
+// Write one package's QBE IL (no assemble/compile).
 static int
-emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const char* dir,
-		const char* crooot) {
-	const char* argv[8];
-	char qbe[512], asmpath[512], obj[512], strsym[128];
+emit_pkg_qbe(Compiler* c, BuildPkg* pkg, int pkg_index, const char* dir, char* qbe,
+	     size_t qbe_len) {
+	char strsym[128];
 	FILE* f;
 
-	(void)crooot;
-	snprintf(qbe, sizeof(qbe), "%s/pkg%d.qbe", dir, pkg_index);
-	snprintf(asmpath, sizeof(asmpath), "%s/pkg%d.s", dir, pkg_index);
-	snprintf(obj, sizeof(obj), "%s/pkg%d.o", dir, pkg_index);
-	/* QBE symbols: [A-Za-z_][A-Za-z0-9_]* — package dirs may contain '-'. */
-	{
-		int i, j;
-		char id[96];
-
-		j = 0;
-		for (i = 0; pkg->id[i] && j < (int)sizeof(id) - 1; i++) {
-			unsigned char ch = (unsigned char)pkg->id[i];
-			if (isalnum(ch))
-				id[j++] = (char)ch;
-			else
-				id[j++] = '_';
-		}
-		id[j] = 0;
-		snprintf(strsym, sizeof(strsym), "__string_%s_%.8s", id, pkg->hex);
-	}
+	snprintf(qbe, qbe_len, "%s/pkg%d.qbe", dir, pkg_index);
+	pkg_strsym(pkg, strsym, sizeof(strsym));
 	f = fopen(qbe, "w");
 	if (f == NULL) {
 		fprintf(stderr, "modc: cannot write %s: %s\n", qbe, strerror(errno));
@@ -1095,30 +1198,196 @@ emit_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, int pkg_index, const cha
 		(void)host_unlink(qbe);
 		return 1;
 	}
-	if (c->diag.error_count)
+	return c->diag.error_count ? 1 : 0;
+}
+
+typedef struct {
+	BuildPkg* pkg;
+	char qbe[512];
+	char asmpath[512];
+	char obj[512];
+} PkgAsmJob;
+
+// Log argv like run_argv when verbose.
+static void
+log_argv(int verbose, const char* const argv[]) {
+	int i;
+
+	if (!verbose)
+		return;
+	fputc('+', stderr);
+	for (i = 0; argv[i]; i++) {
+		fputc(' ', stderr);
+		print_arg(argv[i]);
+	}
+	fputc('\n', stderr);
+}
+
+// Spawn argv asynchronously; logs when verbose. Returns HostPid or -1.
+static HostPid
+spawn_argv(int verbose, const char* const argv[]) {
+	HostPid pid;
+
+	log_argv(verbose, argv);
+	pid = host_spawn_async(argv);
+	if (pid < 0)
+		fprintf(stderr, "modc: failed to run command: %s\n", strerror(errno));
+	return pid;
+}
+
+// Wait for async spawn; non-zero exit → 1.
+static int
+wait_argv(HostPid pid) {
+	int st;
+
+	st = host_wait_pid(pid);
+	if (st != 0) {
+		if (st == -1)
+			fprintf(stderr, "modc: failed to run command: %s\n", strerror(errno));
 		return 1;
-	argv[0] = tool_qbe();
-	if (argv[0] == NULL)
+	}
+	return 0;
+}
+
+// Job parallelism: MODC_JOBS, else host_ncpu(), capped.
+static int
+job_parallelism(int nwork) {
+	const char* env;
+	int n, jobs;
+
+	if (nwork <= 1)
 		return 1;
-	argv[1] = "-t";
-	argv[2] = tool_qbe_target(c);
-	argv[3] = "-o";
-	argv[4] = asmpath;
-	argv[5] = qbe;
-	argv[6] = NULL;
-	if (run_argv(o->verbose, argv) != 0)
+	env = getenv("MODC_JOBS");
+	if (env && env[0]) {
+		jobs = atoi(env);
+		if (jobs < 1)
+			jobs = 1;
+	} else {
+		jobs = host_ncpu();
+		if (jobs < 1)
+			jobs = 1;
+	}
+	if (jobs > nwork)
+		jobs = nwork;
+	if (jobs > 32)
+		jobs = 32;
+	return jobs;
+}
+
+// Assemble+compile jobs in parallel: barrier per stage (all qbe, then all cc).
+static int
+assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
+	const char* qbe_tool;
+	const char* target;
+	const char* cc;
+	const char* argv[8];
+	HostPid pids[MaxCachePkgs];
+	int i, j, batch, jobs_n, st;
+
+	if (njobs <= 0)
+		return 0;
+	qbe_tool = tool_qbe();
+	if (qbe_tool == NULL)
 		return 1;
-	argv[0] = tool_cc(c);
-	argv[1] = "-c";
-	argv[2] = asmpath;
-	argv[3] = "-o";
-	argv[4] = obj;
-	argv[5] = NULL;
-	if (run_argv(o->verbose, argv) != 0)
-		return 1;
-	if (cache_copy_file(obj, pkg->objpath) != 0)
-		return 1;
-	pkg->hit = 1;
+	target = tool_qbe_target(c);
+	cc = tool_cc(c);
+	jobs_n = job_parallelism(njobs);
+	for (i = 0; i < njobs; i += jobs_n) {
+		batch = njobs - i;
+		if (batch > jobs_n)
+			batch = jobs_n;
+		for (j = 0; j < batch; j++) {
+			argv[0] = qbe_tool;
+			argv[1] = "-t";
+			argv[2] = target;
+			argv[3] = "-o";
+			argv[4] = jobs[i + j].asmpath;
+			argv[5] = jobs[i + j].qbe;
+			argv[6] = NULL;
+			pids[j] = spawn_argv(o->verbose, argv);
+			if (pids[j] < 0)
+				return 1;
+		}
+		st = 0;
+		for (j = 0; j < batch; j++)
+			if (wait_argv(pids[j]) != 0)
+				st = 1;
+		if (st)
+			return 1;
+		for (j = 0; j < batch; j++) {
+			argv[0] = cc;
+			argv[1] = "-c";
+			argv[2] = jobs[i + j].asmpath;
+			argv[3] = "-o";
+			argv[4] = jobs[i + j].obj;
+			argv[5] = NULL;
+			pids[j] = spawn_argv(o->verbose, argv);
+			if (pids[j] < 0)
+				return 1;
+		}
+		st = 0;
+		for (j = 0; j < batch; j++)
+			if (wait_argv(pids[j]) != 0)
+				st = 1;
+		if (st)
+			return 1;
+		for (j = 0; j < batch; j++) {
+			if (cache_copy_file(jobs[i + j].obj, jobs[i + j].pkg->objpath) != 0)
+				return 1;
+			jobs[i + j].pkg->hit = 1;
+		}
+	}
+	return 0;
+}
+
+/* Hit packages with an export artifact → load paths; other sources → typecheck list.
+ * tc_files aliases entries in files[]; exps are xstrdup'd. Caller frees both arrays
+ * and each exps[i]. Returns 0. */
+static int
+collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
+		  const char* crooot, char*** out_exps, int* out_nexp,
+		  char*** out_tc, int* out_ntc) {
+	char** exps;
+	char** tc_files;
+	int* load_hit;
+	int nexp, ntc, pi, fi;
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], expath[HOST_PATH_MAX];
+
+	load_hit = xmalloc((size_t)npkgs * sizeof(int));
+	memset(load_hit, 0, (size_t)npkgs * sizeof(int));
+	exps = xmalloc((size_t)npkgs * sizeof(char*));
+	nexp = 0;
+	for (pi = 0; pi < npkgs; pi++) {
+		if (!pkgs[pi].hit)
+			continue;
+		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[pi].id,
+			 pkgs[pi].hex);
+		if (!host_is_file(expath))
+			continue;
+		load_hit[pi] = 1;
+		exps[nexp++] = xstrdup(expath);
+	}
+	tc_files = xmalloc((size_t)nfiles * sizeof(char*));
+	ntc = 0;
+	for (fi = 0; fi < nfiles; fi++) {
+		pkg_file_root(files[fi], root, sizeof(root));
+		if (host_abspath(root, abs, sizeof(abs)) == 0)
+			snprintf(root, sizeof(root), "%s", abs);
+		for (pi = 0; pi < npkgs; pi++) {
+			if (strcmp(pkgs[pi].dir, root) != 0)
+				continue;
+			if (!load_hit[pi])
+				tc_files[ntc++] = files[fi];
+			break;
+		}
+		if (pi >= npkgs)
+			tc_files[ntc++] = files[fi];
+	}
+	free(load_hit);
+	*out_exps = exps;
+	*out_nexp = nexp;
+	*out_tc = tc_files;
+	*out_ntc = ntc;
 	return 0;
 }
 
@@ -1166,6 +1435,12 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	knobs = hash_compile_knobs(c, projroot);
 	for (i = 0; i < npkgs; i++)
 		pkgs[i].impl = pkg_impl_hash(&pkgs[i], files, nfiles, projroot);
+	if (pkg_fill_imports(c, pkgs, npkgs, files, nfiles) != 0) {
+		for (i = 0; i < nfiles; i++)
+			free(files[i]);
+		free(files);
+		return 1;
+	}
 	pkg_fill_keys(pkgs, npkgs, knobs, crooot);
 	ghash = graph_digest(pkgs, npkgs, knobs);
 	cache_hash_hex(ghash, ghex, sizeof(ghex));
@@ -1244,7 +1519,34 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	}
 
 	cache_log(o->verbose, "miss", "graph");
-	r = compile_graph(c, files, nfiles);
+	{
+		char** tc_files;
+		char** exps;
+		int ntc, nexp, pi;
+
+		collect_export_tc(pkgs, npkgs, files, nfiles, crooot, &exps, &nexp, &tc_files,
+				  &ntc);
+		r = compile_graph(c, tc_files, ntc, exps, nexp);
+		for (pi = 0; pi < nexp; pi++)
+			free(exps[pi]);
+		free(exps);
+		free(tc_files);
+	}
+	if (r == 0) {
+		char expath[HOST_PATH_MAX];
+		int pi;
+
+		for (pi = 0; pi < npkgs; pi++) {
+			snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot,
+				 pkgs[pi].id, pkgs[pi].hex);
+			if (export_write_pkg(c, pkgs[pi].dir, expath) != 0) {
+				fprintf(stderr, "modc: failed to write export for %s\n",
+					pkgs[pi].id);
+				r = 1;
+				break;
+			}
+		}
+	}
 	for (i = 0; i < nfiles; i++)
 		free(files[i]);
 	free(files);
@@ -1252,11 +1554,11 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	if (r != 0)
 		return 1;
 
-	/* Any dependency source change conservatively invalidates this object. */
+	/* Recompute hit flags for emit; needs use import closure. */
 	{
 		char ifacehex[MaxCachePkgs][24];
 		char curiface[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
-		char needspath[HOST_PATH_MAX], needshex[24], stored[64];
+		char needspath[HOST_PATH_MAX], needshex[24];
 		uint64_t needs;
 
 		for (i = 0; i < npkgs; i++) {
@@ -1268,24 +1570,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			if (cache_write_str(pkgs[i].ifacepath, ifacehex[i]) != 0)
 				return 1;
 		}
-		for (i = 0; i < npkgs; i++) {
-			needs = 0;
-			for (j = 0; j < npkgs; j++) {
-				if (j == i)
-					continue;
-				needs = cache_hash_mix(needs, pkgs[j].impl);
-			}
-			cache_hash_hex(needs, needshex, sizeof(needshex));
-			snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
-				 pkgs[i].id, pkgs[i].hex);
-			snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
-			pkgs[i].hit = 0;
-			if (host_is_file(pkgs[i].objpath) &&
-			    cache_deps_valid(depmeta) &&
-			    cache_read_str(needspath, stored, sizeof(stored)) == 0 &&
-			    strcmp(stored, needshex) == 0)
-				pkgs[i].hit = 1;
-		}
+		pkg_refresh_hits(pkgs, npkgs, crooot);
 		for (i = 0; i < npkgs; i++) {
 			snprintf(what, sizeof(what), "pkg %s", pkgs[i].id);
 			if (pkgs[i].hit) {
@@ -1294,9 +1579,28 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 				continue;
 			}
 			cache_log(o->verbose, "miss", what);
-			if (emit_pkg_object(c, o, &pkgs[i], i, dir, crooot) != 0)
-				return 1;
 			snprintf(objs[i], sizeof(objs[i]), "%s", pkgs[i].objpath);
+		}
+		{
+			PkgAsmJob miss[MaxCachePkgs];
+			int nmiss;
+
+			nmiss = 0;
+			for (i = 0; i < npkgs; i++) {
+				if (pkgs[i].hit)
+					continue;
+				miss[nmiss].pkg = &pkgs[i];
+				if (emit_pkg_qbe(c, &pkgs[i], i, dir, miss[nmiss].qbe,
+						 sizeof(miss[nmiss].qbe)) != 0)
+					return 1;
+				snprintf(miss[nmiss].asmpath, sizeof(miss[nmiss].asmpath),
+					 "%s/pkg%d.s", dir, i);
+				snprintf(miss[nmiss].obj, sizeof(miss[nmiss].obj),
+					 "%s/pkg%d.o", dir, i);
+				nmiss++;
+			}
+			if (assemble_pkg_jobs(c, o, miss, nmiss) != 0)
+				return 1;
 		}
 		for (i = 0; i < npkgs; i++) {
 			snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
@@ -1305,12 +1609,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		}
 		/* Stamp needs beside every obj for the next run. */
 		for (i = 0; i < npkgs; i++) {
-			needs = 0;
-			for (j = 0; j < npkgs; j++) {
-				if (j == i)
-					continue;
-				needs = cache_hash_mix(needs, pkgs[j].impl);
-			}
+			needs = pkg_needs_hash(pkgs, npkgs, i);
 			cache_hash_hex(needs, needshex, sizeof(needshex));
 			snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
 				 pkgs[i].id, pkgs[i].hex);

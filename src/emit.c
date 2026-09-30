@@ -3484,6 +3484,7 @@ int emit_qbe(Compiler* c, FILE* out) {
 // Emit one package's funcs/globals; string pool uses str_symbol (unique per .o).
 int emit_qbe_pkg(Compiler* c, FILE* out, const char* pkg_dir, const char* str_symbol) {
 	int i;
+	Type* t;
 
 	outf = out;
 	emit_str_symbol = (str_symbol && str_symbol[0]) ? str_symbol : "__string";
@@ -3491,6 +3492,12 @@ int emit_qbe_pkg(Compiler* c, FILE* out, const char* pkg_dir, const char* str_sy
 	tempno = 0;
 	lblno = 0;
 	isites_len = 0;
+	/* Decl-only (cache-hit) packages leave aggregate types in the pool with
+	 * tags but emit_id==0. Call ABIs still name those tags — ensure ids so
+	 * emitsuall emits them into this package's QBE. */
+	for (t = c->types.type_list; t; t = t->next)
+		if (is_aggr(t))
+			ensure_aggregate(t);
 	for (i = 0; i < c->unit.funcs_len; i++)
 		if (node_in_pkg(c->unit.funcs[i], pkg_dir))
 			collect(c, c->unit.funcs[i]);

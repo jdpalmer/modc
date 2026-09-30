@@ -53,5 +53,12 @@ void host_closedir(HostDir* d);
 int host_spawn_wait(const char* const argv[]);
 /* Spawn argv and capture the first stdout token; 0 on success. */
 int host_spawn_capture(const char* const argv[], char* out, size_t out_len);
+/* Start argv without waiting; returns opaque pid, or (HostPid)-1 on error. */
+typedef long HostPid;
+HostPid host_spawn_async(const char* const argv[]);
+/* Wait for a process from host_spawn_async; exit status or -1. */
+int host_wait_pid(HostPid pid);
+/* Logical CPU count for job pools; always >= 1. */
+int host_ncpu(void);
 
 #endif

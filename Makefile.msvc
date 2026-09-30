@@ -37,7 +37,8 @@ OBJS = \
 	$(BUILD)\fmt.o \
 	$(BUILD)\vendor.o \
 	$(BUILD)\host_os.o \
-	$(BUILD)\cache.o
+	$(BUILD)\cache.o \
+	$(BUILD)\export.o
 
 HDRS = src\ast.h src\cli.h src\host_os.h
 
@@ -110,6 +111,10 @@ $(BUILD)\host_os.o: src\host_os.c $(HDRS)
 $(BUILD)\cache.o: src\cache.c $(HDRS)
 	if not exist $(BUILD) mkdir $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ src\cache.c
+
+$(BUILD)\export.o: src\export.c $(HDRS)
+	if not exist $(BUILD) mkdir $(BUILD)
+	$(CC) $(CFLAGS) -c -o $@ src\export.c
 
 check: $(MODC)
 	@echo == attr_hdr check ==

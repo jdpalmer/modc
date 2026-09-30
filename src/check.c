@@ -27,88 +27,83 @@ struct DAState {
 };
 
 // True if the subtree contains a goto; skips uninit analysis when control is non-linear.
-static int
-da_has_goto(Node* n) {
-	int i;
-
-	if (n == NULL)
+static int da_has_goto(Node* n) {
+	if (n == NULL) {
 		return 0;
-	if (n->kind == NdGoto)
+	}
+	if (n->kind == NdGoto) {
 		return 1;
-	if (da_has_goto(n->a) || da_has_goto(n->b) || da_has_goto(n->c))
+	}
+	if (da_has_goto(n->a) || da_has_goto(n->b) || da_has_goto(n->c)) {
 		return 1;
-	for (i = 0; i < n->children_len; i++)
-		if (da_has_goto(n->children[i]))
+	}
+	for (int i = 0; i < n->children_len; i++) {
+		if (da_has_goto(n->children[i])) {
 			return 1;
+		}
+	}
 	return 0;
 }
 
 // Locals with scalar type can be tracked for definite-assignment.
-static int
-da_trackable(Symbol* s) {
-	if (s == NULL || s->kind != SkVar || s->storage != StLocal)
+static int da_trackable(Symbol* s) {
+	if (s == NULL || s->kind != SkVar || s->storage != StLocal) {
 		return 0;
+	}
 	return is_scalar(s->type);
 }
 
 // Index of s in the definite-assignment set, or -1.
-static int
-da_find(DAState* st, Symbol* s) {
-	int i;
-
-	for (i = 0; i < st->n; i++)
-		if (st->symbols[i] == s)
+static int da_find(DAState* st, Symbol* s) {
+	for (int i = 0; i < st->n; i++) {
+		if (st->symbols[i] == s) {
 			return i;
+		}
+	}
 	return -1;
 }
 
 // Record a trackable local and whether it is definitely assigned on this path.
-static void
-da_add(DAState* st, Symbol* s, int assigned) {
-	int i;
-
-	if (!da_trackable(s))
+static void da_add(DAState* st, Symbol* s, int assigned) {
+	if (!da_trackable(s)) {
 		return;
-	i = da_find(st, s);
+	}
+	int i = da_find(st, s);
 	if (i >= 0) {
 		st->assigned[i] = (unsigned char)assigned;
 		return;
 	}
-	if (st->n >= DAMax)
+	if (st->n >= DAMax) {
 		return;
+	}
 	st->symbols[st->n] = s;
 	st->assigned[st->n] = (unsigned char)assigned;
 	st->n++;
 }
 
 // Set assignedness for a local already in the definite-assignment set (or add it).
-static void
-da_set(DAState* st, Symbol* s, int assigned) {
-	int i;
-
-	i = da_find(st, s);
-	if (i >= 0)
+static void da_set(DAState* st, Symbol* s, int assigned) {
+	int i = da_find(st, s);
+	if (i >= 0) {
 		st->assigned[i] = (unsigned char)assigned;
-	else
+	} else {
 		da_add(st, s, assigned);
+	}
 }
 
 // Copy definite-assignment state.
-static void
-da_copy(DAState* dst, DAState* src) {
+static void da_copy(DAState* dst, DAState* src) {
 	*dst = *src;
 }
 
 // Merge two paths: a symbol is assigned only if assigned on both.
-static void
-da_intersect(DAState* dst, DAState* a, DAState* b) {
-	int i, j;
-
+static void da_intersect(DAState* dst, DAState* a, DAState* b) {
 	da_copy(dst, a);
-	for (i = 0; i < dst->n; i++) {
-		j = da_find(b, dst->symbols[i]);
-		if (j < 0 || !b->assigned[j])
+	for (int i = 0; i < dst->n; i++) {
+		int j = da_find(b, dst->symbols[i]);
+		if (j < 0 || !b->assigned[j]) {
 			dst->assigned[i] = 0;
+		}
 	}
 }
 
@@ -117,55 +112,55 @@ static void da_stmt(Compiler* c, Node* n, DAState* st);
 static void da_init(Compiler* c, Initializer* in, DAState* st);
 
 // Error on use of a scalar local that is not definitely assigned on this path.
-static void
-da_use(Compiler* c, Node* n, DAState* st) {
-	int i;
-
-	if (n == NULL || n->kind != NdName || n->symbol == NULL)
+static void da_use(Compiler* c, Node* n, DAState* st) {
+	if (n == NULL || n->kind != NdName || n->symbol == NULL) {
 		return;
-	i = da_find(st, n->symbol);
-	if (i < 0 || st->assigned[i])
+	}
+	int i = da_find(st, n->symbol);
+	if (i < 0 || st->assigned[i]) {
 		return;
-	if (user_source(c, n->span))
+	}
+	if (user_source(c, n->span)) {
 		error_at(c, n->span, "variable '%s' is used uninitialized", n->symbol->name);
+	}
 	/* avoid repeat noise on the same name along this path */
 	st->assigned[i] = 1;
 }
 
 // Mark the leftmost name of an assignment LHS as definitely assigned.
-static void
-da_mark_lhs(DAState* st, Node* n) {
-	if (n == NULL)
+static void da_mark_lhs(DAState* st, Node* n) {
+	if (n == NULL) {
 		return;
+	}
 	if (n->kind == NdName) {
 		da_set(st, n->symbol, 1);
 		return;
 	}
-	if (n->kind == NdComma)
+	if (n->kind == NdComma) {
 		da_mark_lhs(st, n->b);
+	}
 }
 
 // Walk initializer expressions for definite-assignment uses.
-static void
-da_init(Compiler* c, Initializer* in, DAState* st) {
-	int i;
-
-	if (in == NULL)
+static void da_init(Compiler* c, Initializer* in, DAState* st) {
+	if (in == NULL) {
 		return;
-	if (in->expr)
+	}
+	if (in->expr) {
 		da_expr(c, in->expr, st, 0);
-	for (i = 0; i < in->items_len; i++)
+	}
+	for (int i = 0; i < in->items_len; i++) {
 		da_init(c, &in->items[i], st);
+	}
 }
 
 // Propagate definite-assignment through expressions; models short-circuit and branches.
-static void
-da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
+static void da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 	DAState a, b;
-	int i;
 
-	if (n == NULL)
+	if (n == NULL) {
 		return;
+	}
 	switch (n->kind) {
 	case NdLit:
 	case NdStr:
@@ -176,21 +171,24 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 		/* operand not evaluated */
 		return;
 	case NdName:
-		if (!as_lval)
+		if (!as_lval) {
 			da_use(c, n, st);
+		}
 		return;
 	case NdAddr:
 		da_expr(c, n->a, st, 1);
 		/* escaping address: stop requiring prior init */
-		if (n->a && n->a->kind == NdName)
+		if (n->a && n->a->kind == NdName) {
 			da_set(st, n->a->symbol, 1);
+		}
 		return;
 	case NdAssign:
 		da_expr(c, n->b, st, 0);
-		if (n->op != PnEq)
+		if (n->op != PnEq) {
 			da_expr(c, n->a, st, 0);
-		else
+		} else {
 			da_expr(c, n->a, st, 1);
+		}
 		da_mark_lhs(st, n->a);
 		return;
 	case NdUn:
@@ -230,8 +228,9 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 		da_expr(c, n->b, st, as_lval);
 		return;
 	case NdCall:
-		for (i = 0; i < n->children_len; i++)
+		for (int i = 0; i < n->children_len; i++) {
 			da_expr(c, n->children[i], st, 0);
+		}
 		da_expr(c, n->a, st, 0);
 		return;
 	case NdCast:
@@ -251,54 +250,58 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 		da_expr(c, n->a, st, as_lval && (n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex || n->kind == NdDeref));
 		da_expr(c, n->b, st, 0);
 		da_expr(c, n->c, st, 0);
-		for (i = 0; i < n->children_len; i++)
+		for (int i = 0; i < n->children_len; i++) {
 			da_expr(c, n->children[i], st, 0);
+		}
 		return;
 	default:
 		da_expr(c, n->a, st, 0);
 		da_expr(c, n->b, st, 0);
 		da_expr(c, n->c, st, 0);
-		for (i = 0; i < n->children_len; i++)
+		for (int i = 0; i < n->children_len; i++) {
 			da_expr(c, n->children[i], st, 0);
+		}
 		return;
 	}
 }
 
 // For-loop init may be a declaration or an expression.
-static void
-for_init_da(Compiler* c, Node* init, DAState* st) {
-	if (init && init->kind == NdDecl)
+static void for_init_da(Compiler* c, Node* init, DAState* st) {
+	if (init && init->kind == NdDecl) {
 		da_stmt(c, init, st);
-	else
+	} else {
 		da_expr(c, init, st, 0);
+	}
 }
 
 // Propagate definite-assignment through statements; joins intersect at branches.
-static void
-da_stmt(Compiler* c, Node* n, DAState* st) {
+static void da_stmt(Compiler* c, Node* n, DAState* st) {
 	DAState a, b;
-	int i, has_init;
 
-	if (n == NULL)
+	if (n == NULL) {
 		return;
+	}
 	switch (n->kind) {
 	case NdDecl:
 		da_init(c, n->init, st);
-		has_init = n->init != NULL && (n->init->expr != NULL || n->init->items_len > 0 || n->init->is_list);
-		if (n->symbol && da_trackable(n->symbol))
+		int has_init = n->init != NULL && (n->init->expr != NULL || n->init->items_len > 0 || n->init->is_list);
+		if (n->symbol && da_trackable(n->symbol)) {
 			da_add(st, n->symbol, has_init);
+		}
 		return;
 	case NdBlock:
-		for (i = 0; i < n->children_len; i++)
+		for (int i = 0; i < n->children_len; i++) {
 			da_stmt(c, n->children[i], st);
+		}
 		return;
 	case NdIf:
 		da_expr(c, n->a, st, 0);
 		da_copy(&a, st);
 		da_copy(&b, st);
 		da_stmt(c, n->b, &a);
-		if (n->c)
+		if (n->c) {
 			da_stmt(c, n->c, &b);
+		}
 		da_intersect(st, &a, &b);
 		return;
 	case NdWhile:
@@ -315,8 +318,9 @@ da_stmt(Compiler* c, Node* n, DAState* st) {
 		for_init_da(c, n->a, st);
 		da_expr(c, n->b, st, 0);
 		da_copy(&a, st);
-		if (n->children_len > 0)
+		if (n->children_len > 0) {
 			da_stmt(c, n->children[0], &a);
+		}
 		da_expr(c, n->c, &a, 0);
 		return;
 	case NdSwitch:
@@ -351,16 +355,18 @@ da_stmt(Compiler* c, Node* n, DAState* st) {
 }
 
 // Per-function pass: diagnose reads of uninitialized scalar locals.
-static void
-check_uninit_func(Compiler* c, Node* fn) {
+static void check_uninit_func(Compiler* c, Node* fn) {
 	DAState st;
 
-	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL) {
 		return;
-	if (!user_source(c, fn->span))
+	}
+	if (!user_source(c, fn->span)) {
 		return;
-	if (da_has_goto(fn->a))
+	}
+	if (da_has_goto(fn->a)) {
 		return;
+	}
 	memset(&st, 0, sizeof(st));
 	da_stmt(c, fn->a, &st);
 }
@@ -368,30 +374,31 @@ check_uninit_func(Compiler* c, Node* fn) {
 static int stmt_returns(Compiler* c, Node* n);
 
 // True if a break appears outside an inner loop/switch (conservative for falloff).
-static int
-node_has_break(Node* n) {
-	int i;
-
-	if (n == NULL)
+static int node_has_break(Node* n) {
+	if (n == NULL) {
 		return 0;
-	if (n->kind == NdBreak)
+	}
+	if (n->kind == NdBreak) {
 		return 1;
+	}
 	/* nested loop/switch break targets inner, not outer — still conservative */
-	if (n->kind == NdWhile || n->kind == NdFor || n->kind == NdDo || n->kind == NdSwitch)
+	if (n->kind == NdWhile || n->kind == NdFor || n->kind == NdDo || n->kind == NdSwitch) {
 		return 0;
-	if (node_has_break(n->a) || node_has_break(n->b) || node_has_break(n->c))
+	}
+	if (node_has_break(n->a) || node_has_break(n->b) || node_has_break(n->c)) {
 		return 1;
-	for (i = 0; i < n->children_len; i++)
-		if (node_has_break(n->children[i]))
+	}
+	for (int i = 0; i < n->children_len; i++) {
+		if (node_has_break(n->children[i])) {
 			return 1;
+		}
+	}
 	return 0;
 }
 
 // True if n is a constant expression evaluating to non-zero.
-static int
-is_const_nonzero(Compiler* c, Node* n) {
+static int is_const_nonzero(Compiler* c, Node* n) {
 	int64_t v;
-
 	return n != NULL && eval_const(c, n, &v) && v != 0;
 }
 
@@ -407,23 +414,23 @@ struct SwitchCases {
 };
 
 // True if val is already listed in the collected switch cases.
-static int
-swcases_has(SwitchCases* sc, int64_t val) {
-	int i;
-
-	for (i = 0; i < sc->n; i++)
-		if (sc->v[i] == val)
+static int swcases_has(SwitchCases* sc, int64_t val) {
+	for (int i = 0; i < sc->n; i++) {
+		if (sc->v[i] == val) {
 			return 1;
+		}
+	}
 	return 0;
 }
 
 // Add one case value; set overflow when the table is full.
-static int
-swcases_add(SwitchCases* sc, int64_t val) {
-	if (sc->has_default || sc->overflow)
+static int swcases_add(SwitchCases* sc, int64_t val) {
+	if (sc->has_default || sc->overflow) {
 		return 0;
-	if (swcases_has(sc, val))
+	}
+	if (swcases_has(sc, val)) {
 		return 0;
+	}
 	if (sc->n >= SwitchCaseMax) {
 		sc->overflow = 1;
 		return -1;
@@ -433,34 +440,34 @@ swcases_add(SwitchCases* sc, int64_t val) {
 }
 
 // Expand an inclusive case range into individual values (bounded work).
-static int
-swcases_add_range(SwitchCases* sc, int64_t lo, int64_t hi) {
-	int64_t v;
-
-	if (hi < lo)
+static int swcases_add_range(SwitchCases* sc, int64_t lo, int64_t hi) {
+	if (hi < lo) {
 		return 0;
+	}
 	if (hi - lo > SwitchRangeMax) {
 		sc->overflow = 1;
 		return -1;
 	}
-	for (v = lo; v <= hi; v++)
-		if (swcases_add(sc, v) < 0)
+	for (int64_t v = lo; v <= hi; v++) {
+		if (swcases_add(sc, v) < 0) {
 			return -1;
+		}
+	}
 	return 0;
 }
 
 // Recursively gather case labels from a switch body (not nested switches).
-static void
-swcases_collect(Node* n, SwitchCases* sc) {
-	int i;
-
-	if (n == NULL || sc->overflow)
+static void swcases_collect(Node* n, SwitchCases* sc) {
+	if (n == NULL || sc->overflow) {
 		return;
+	}
 	if (n->kind == NdCase) {
-		if (swcases_add(sc, n->int_val) < 0)
+		if (swcases_add(sc, n->int_val) < 0) {
 			return;
-		if (n->b)
+		}
+		if (n->b) {
 			(void)swcases_add_range(sc, n->int_val, n->b->int_val);
+		}
 		return;
 	}
 	if (n->kind == NdDefault) {
@@ -472,38 +479,43 @@ swcases_collect(Node* n, SwitchCases* sc) {
 	swcases_collect(n->a, sc);
 	swcases_collect(n->b, sc);
 	swcases_collect(n->c, sc);
-	for (i = 0; i < n->children_len; i++)
+	for (int i = 0; i < n->children_len; i++) {
 		swcases_collect(n->children[i], sc);
+	}
 }
 
 // Switch scrutinee type when it is a complete enum tag type.
-static Type*
-switch_enum_type(Type* t) {
-	if (t && t->kind == TyEnum && t->complete && t->tag)
+static Type* switch_enum_type(Type* t) {
+	if (t && t->kind == TyEnum && t->complete && t->tag) {
 		return t;
+	}
 	return NULL;
 }
 
 // True if body covers every enumerator of et (or has default / overflow).
-static int
-switch_enum_exhaustive(Compiler* c, Type* et, Node* body) {
+static int switch_enum_exhaustive(Compiler* c, Type* et, Node* body) {
 	SwitchCases sc;
 	Symbol* s;
 
 	et = switch_enum_type(et);
-	if (et == NULL)
+	if (et == NULL) {
 		return 0;
+	}
 	memset(&sc, 0, sizeof(sc));
 	swcases_collect(body, &sc);
-	if (sc.has_default || sc.overflow)
+	if (sc.has_default || sc.overflow) {
 		return sc.has_default;
+	}
 	for (s = c->syms.symbols; s; s = s->next) {
-		if (s->hidden || s->dead)
+		if (s->hidden || s->dead) {
 			continue;
-		if (s->kind != SkEnumCon || s->type == NULL || !type_eq(s->type, et))
+		}
+		if (s->kind != SkEnumCon || s->type == NULL || !type_eq(s->type, et)) {
 			continue;
-		if (!swcases_has(&sc, s->int_val))
+		}
+		if (!swcases_has(&sc, s->int_val)) {
 			return 0;
+		}
 	}
 	return 1;
 }
@@ -515,8 +527,9 @@ check_switch_enum_exhaust(Compiler* c, Node* sw) {
 	SwitchCases sc;
 	Symbol* s;
 
-	if (sw == NULL || sw->kind != NdSwitch)
+	if (sw == NULL || sw->kind != NdSwitch) {
 		return;
+	}
 	if (!user_source(c, sw->span))
 		return;
 	et = switch_enum_type(sw->a ? sw->a->type : NULL);

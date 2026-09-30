@@ -592,6 +592,42 @@ host_spawn_capture(const char* const argv[], char* out, size_t out_len) {
 	return st != 0 || out[0] == 0;
 }
 
+// Start argv without waiting (Windows process handle as HostPid).
+HostPid
+host_spawn_async(const char* const argv[]) {
+	intptr_t proc;
+
+	if (argv == NULL || argv[0] == NULL)
+		return (HostPid)-1;
+	proc = _spawnvp(_P_NOWAIT, argv[0], (char* const*)argv);
+	if (proc < 0)
+		return (HostPid)-1;
+	return (HostPid)proc;
+}
+
+// Wait for host_spawn_async; returns exit status or -1.
+int
+host_wait_pid(HostPid pid) {
+	int st;
+
+	if (pid < 0)
+		return -1;
+	if (_cwait(&st, (intptr_t)pid, 0) < 0)
+		return -1;
+	return st;
+}
+
+// Logical CPU count for parallel job pools.
+int
+host_ncpu(void) {
+	SYSTEM_INFO si;
+	int n;
+
+	GetSystemInfo(&si);
+	n = (int)si.dwNumberOfProcessors;
+	return n > 0 ? n : 1;
+}
+
 #else /* POSIX */
 
 int
@@ -953,6 +989,48 @@ host_spawn_capture(const char* const argv[], char* out, size_t out_len) {
 	if (waitpid(pid, &st, 0) < 0 || !WIFEXITED(st))
 		return 1;
 	return WEXITSTATUS(st) != 0 || out[0] == 0;
+}
+
+// Start argv without waiting (POSIX pid as HostPid).
+HostPid
+host_spawn_async(const char* const argv[]) {
+	pid_t pid;
+
+	if (argv == NULL || argv[0] == NULL)
+		return (HostPid)-1;
+	pid = fork();
+	if (pid < 0)
+		return (HostPid)-1;
+	if (pid == 0) {
+		execvp(argv[0], (char* const*)argv);
+		_exit(127);
+	}
+	return (HostPid)pid;
+}
+
+// Wait for host_spawn_async; returns exit status or -1.
+int
+host_wait_pid(HostPid pid) {
+	int st;
+
+	if (pid < 0)
+		return -1;
+	if (waitpid((pid_t)pid, &st, 0) < 0)
+		return -1;
+	if (WIFEXITED(st))
+		return WEXITSTATUS(st);
+	return -1;
+}
+
+// Logical CPU count for parallel job pools.
+int
+host_ncpu(void) {
+	long n;
+
+	n = sysconf(_SC_NPROCESSORS_ONLN);
+	if (n < 1)
+		n = 1;
+	return (int)n;
 }
 
 #endif
