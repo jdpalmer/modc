@@ -1378,7 +1378,74 @@ hexval(int ch) {
 		return ch - 'a' + 10;
 	if (ch >= 'A' && ch <= 'F')
 		return ch - 'A' + 10;
-	return 0;
+	return -1;
+}
+
+// Decode one C escape at p (after '\\'). Returns input chars consumed, or 0.
+int
+decode_c_escape(const char* p, unsigned* out) {
+	unsigned v;
+	int dig, hv, n;
+
+	if (p == NULL || out == NULL || p[0] == 0)
+		return 0;
+	switch (p[0]) {
+	case 'a':
+		*out = '\a';
+		return 1;
+	case 'b':
+		*out = '\b';
+		return 1;
+	case 'f':
+		*out = '\f';
+		return 1;
+	case 'n':
+		*out = '\n';
+		return 1;
+	case 'r':
+		*out = '\r';
+		return 1;
+	case 't':
+		*out = '\t';
+		return 1;
+	case 'v':
+		*out = '\v';
+		return 1;
+	case '\\':
+		*out = '\\';
+		return 1;
+	case '\'':
+		*out = '\'';
+		return 1;
+	case '"':
+		*out = '"';
+		return 1;
+	case '?':
+		*out = '?';
+		return 1;
+	case 'x':
+		if (!isxdigit((unsigned char)p[1]))
+			return 0;
+		v = 0;
+		n = 1;
+		while ((hv = hexval((unsigned char)p[n])) >= 0) {
+			v = v * 16 + (unsigned)hv;
+			n++;
+		}
+		*out = v & 0xffu;
+		return n;
+	default:
+		if (p[0] < '0' || p[0] > '7')
+			return 0;
+		v = (unsigned)(p[0] - '0');
+		n = 1;
+		for (dig = 0; dig < 2 && p[n] >= '0' && p[n] <= '7'; dig++) {
+			v = v * 8 + (unsigned)(p[n] - '0');
+			n++;
+		}
+		*out = v & 0xffu;
+		return n;
+	}
 }
 
 // Append raw bytes to the compile-time pool (used by #embed; no forced NUL).
@@ -1403,70 +1470,28 @@ int intern_bytes(Compiler* c, const void* bytes, int nbytes) {
 // Decode C escapes and append a NUL-terminated string to the compile-time pool.
 int intern_str(Compiler* c, const char* raw, int* out_len) {
 	unsigned char* buf;
-	int n, i, off, dig;
+	int n, i, off, used;
 	unsigned v;
+	Span sp;
 
 	n = 0;
 	if (raw == NULL)
 		raw = "";
 	buf = xmalloc(strlen(raw) + 1);
+	memset(&sp, 0, sizeof(sp));
+	sp.file = c->paths.infile;
+	sp.line = 1;
 	for (i = 0; raw[i];) {
 		if (raw[i] == '\\' && raw[i + 1]) {
 			i++;
-			switch (raw[i]) {
-			case 'n':
-				buf[n++] = '\n';
-				i++;
-				break;
-			case 't':
-				buf[n++] = '\t';
-				i++;
-				break;
-			case 'r':
-				buf[n++] = '\r';
-				i++;
-				break;
-			case '\\':
-				buf[n++] = '\\';
-				i++;
-				break;
-			case '"':
-				buf[n++] = '"';
-				i++;
-				break;
-			case '\'':
-				buf[n++] = '\'';
-				i++;
-				break;
-			case 'x':
-				i++;
-				v = 0;
-				while (isxdigit((unsigned char)raw[i])) {
-					v = v * 16 + hexval(raw[i]);
-					i++;
-				}
-				buf[n++] = (unsigned char)v;
-				break;
-			case '0':
-			case '1':
-			case '2':
-			case '3':
-			case '4':
-			case '5':
-			case '6':
-			case '7':
-				v = (unsigned)(raw[i] - '0');
-				i++;
-				for (dig = 0; dig < 2 && raw[i] >= '0' && raw[i] <= '7'; dig++) {
-					v = v * 8 + (unsigned)(raw[i] - '0');
-					i++;
-				}
-				buf[n++] = (unsigned char)v;
-				break;
-			default:
+			used = decode_c_escape(raw + i, &v);
+			if (used <= 0) {
+				error_at(c, sp, "unknown escape sequence '\\%c'", raw[i]);
 				buf[n++] = (unsigned char)raw[i++];
-				break;
+				continue;
 			}
+			buf[n++] = (unsigned char)v;
+			i += used;
 		} else
 			buf[n++] = (unsigned char)raw[i++];
 	}

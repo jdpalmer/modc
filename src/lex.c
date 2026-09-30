@@ -617,29 +617,17 @@ void lex_file(Compiler* c, const char* path, const char* raw, int bol_start) {
 				t.kind = quote == '"' ? TkString : TkCharLit;
 				if (t.kind == TkCharLit) {
 					if (t.s[0] == '\\') {
-						switch (t.s[1]) {
-						case 'n':
-							t.int_val = '\n';
-							break;
-						case 't':
-							t.int_val = '\t';
-							break;
-						case 'r':
-							t.int_val = '\r';
-							break;
-						case '0':
+						unsigned v;
+						int used;
+
+						used = decode_c_escape(t.s + 1, &v);
+						if (used <= 0) {
+							error_at(c, t.span,
+								 "unknown escape sequence '\\%c'",
+								 t.s[1] ? t.s[1] : '?');
 							t.int_val = 0;
-							break;
-						case '\\':
-							t.int_val = '\\';
-							break;
-						case '\'':
-							t.int_val = '\'';
-							break;
-						default:
-							t.int_val = (unsigned char)t.s[1];
-							break;
-						}
+						} else
+							t.int_val = (int64_t)v;
 					} else
 						t.int_val = (unsigned char)t.s[0];
 				}

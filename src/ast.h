@@ -809,6 +809,9 @@ Node* apply_implicit_conversions(Compiler* c, Type* dst, Node* src);
 void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src);
 void check_format_call(Compiler* c, Node* call, Type* ft);
 int intern_str(Compiler* c, const char* raw, int* out_len);
+/* Decode one C escape at p (points after '\\'). Writes decoded byte to *out.
+ * Returns chars consumed from p, or 0 if invalid/incomplete. */
+int decode_c_escape(const char* p, unsigned* out);
 int intern_bytes(Compiler* c, const void* bytes, int nbytes);
 int eval_const(Compiler* c, Node* n, int64_t* out);
 int eval_float_const(Compiler* c, Node* n, double* out);
