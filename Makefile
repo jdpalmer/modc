@@ -259,7 +259,7 @@ check-special: $(MODC)
 	@grep -Fq 'cannot find include file modc_system_probe.h' $(BUILD)/bad_nosys.out
 
 install: $(MODC)
-	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg
+	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg
 	install -m 755 $(MODC) $(DESTDIR)$(BINDIR)/modc
 	cp -R $(HOST)/. $(DESTDIR)$(MODCLIB)/include/
 	rm -rf $(DESTDIR)$(MODCLIB)/pkg/str $(DESTDIR)$(MODCLIB)/pkg/arena \
@@ -271,6 +271,9 @@ install: $(MODC)
 	cp -R $(ROOT)/fs $(DESTDIR)$(MODCLIB)/pkg/fs
 	cp -R $(ROOT)/os $(DESTDIR)$(MODCLIB)/pkg/os
 	cp -R $(ROOT)/tty $(DESTDIR)$(MODCLIB)/pkg/tty
+	# cp -R keeps the source tree's modes (often 600/700 under Dropbox); normalize.
+	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type d -exec chmod 755 {} +
+	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type f -exec chmod 644 {} +
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/modc
