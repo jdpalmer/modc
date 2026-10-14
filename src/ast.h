@@ -270,6 +270,8 @@ struct Type {
 	int emit_id;
 	// Next type in the compiler's type list.
 	Type* next;
+	// Intern hash chain (ranged/tuple tables); not the type_list link.
+	Type* hash_next;
 };
 
 // ---- Symbols ----
@@ -657,6 +659,13 @@ struct CompTypes {
 	Type *type_float, *type_double, *type_bool, *type_void_ptr;
 	// All heap types (never freed individually).
 	Type* type_list;
+	/* Hash intern for T[..] / tuples (avoids O(n) type_list scans). */
+	Type** ranged_tab;
+	int ranged_tab_cap;
+	int ranged_len;
+	Type** tuple_tab;
+	int tuple_tab_cap;
+	int tuple_len;
 };
 
 // Symbol table and lexical scope.
@@ -784,6 +793,8 @@ Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va);
 Type* type_struct(Compiler* c, int kind, char* tag, Span sp, int storage);
 Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly);
 Type* type_tuple(Compiler* c, Type** elts, int n);
+/* Register ranged/tuple built outside type_ranged_full / type_tuple (export load). */
+void type_intern_add(Compiler* c, Type* t);
 void type_layout(Compiler* c, Type* t);
 void type_layout_pending(Compiler* c);
 int type_size(Compiler* c, Type* t);

@@ -334,6 +334,14 @@ reset_comp_state(Compiler* c) {
 	c->unit.globals_cap = 0;
 	c->syms.current_fn = NULL;
 	c->types.type_list = NULL;
+	free(c->types.ranged_tab);
+	c->types.ranged_tab = NULL;
+	c->types.ranged_tab_cap = 0;
+	c->types.ranged_len = 0;
+	free(c->types.tuple_tab);
+	c->types.tuple_tab = NULL;
+	c->types.tuple_tab_cap = 0;
+	c->types.tuple_len = 0;
 	c->unit.unit_files = NULL;
 	c->unit.unit_files_len = 0;
 	c->paths.c_libs_len = 0;

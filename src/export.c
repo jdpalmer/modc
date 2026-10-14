@@ -683,20 +683,24 @@ fill_ranged_inplace(Compiler* c, Type* t, Type* elem, int readonly, int poly) {
 	t->tag = xmalloc(32);
 	snprintf(t->tag, 32, "__Ranged%d", next++);
 	ptr = xmalloc(sizeof(*ptr));
+	memset(ptr, 0, sizeof(*ptr));
 	ptr->name = xstrdup("ptr");
 	ptr->type = type_ptr(c, elem);
 	if (readonly || poly)
 		ptr->type->is_readonly = 1;
 	len = xmalloc(sizeof(*len));
+	memset(len, 0, sizeof(*len));
 	len->name = xstrdup("len");
 	len->type = c->types.type_ullong;
 	cap = xmalloc(sizeof(*cap));
+	memset(cap, 0, sizeof(*cap));
 	cap->name = xstrdup("cap");
 	cap->type = c->types.type_ullong;
 	ptr->next = len;
 	len->next = cap;
 	t->fields = ptr;
 	type_layout(c, t);
+	type_intern_add(c, t);
 }
 
 static void
@@ -719,6 +723,7 @@ fill_tuple_inplace(Compiler* c, Type* t, Type** elts, int n) {
 	tail = &t->fields;
 	for (i = 0; i < n; i++) {
 		f = xmalloc(sizeof(*f));
+		memset(f, 0, sizeof(*f));
 		snprintf(fname, sizeof(fname), "f%d", i);
 		f->name = xstrdup(fname);
 		f->type = elts[i];
@@ -726,6 +731,7 @@ fill_tuple_inplace(Compiler* c, Type* t, Type** elts, int n) {
 		tail = &f->next;
 	}
 	type_layout(c, t);
+	type_intern_add(c, t);
 }
 
 static int

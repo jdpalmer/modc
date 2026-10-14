@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,10 +67,18 @@ mkprim(Compiler* c, int kind, int size, int align, int is_unsigned) {
 }
 
 // Wire up the standard primitive types on Compiler (void, integers, floats, bool, void*).
-// Clears type_list first so repeated init (e.g. compile_graph after reset) does not
-// leave duplicate builtins on the pool for intern / linear scans.
+// Clears type_list / intern tabs first so repeated init (e.g. compile_graph after reset)
+// does not leave duplicate builtins or stale hash entries.
 void type_init(Compiler* c) {
 	c->types.type_list = NULL;
+	free(c->types.ranged_tab);
+	c->types.ranged_tab = NULL;
+	c->types.ranged_tab_cap = 0;
+	c->types.ranged_len = 0;
+	free(c->types.tuple_tab);
+	c->types.tuple_tab = NULL;
+	c->types.tuple_tab_cap = 0;
+	c->types.tuple_len = 0;
 	c->types.type_void = mkprim(c, TyVoid, 0, 1, 0);
 	c->types.type_char = mkprim(c, TyChar, 1, 1, 1); /* %C: char is unsigned 8-bit */
 	c->types.type_uchar = mkprim(c, TyUChar, 1, 1, 1);
@@ -100,12 +109,160 @@ Type* type_new(Compiler* c, int kind) {
 	Type* t;
 
 	t = xmalloc(sizeof(*t));
+	memset(t, 0, sizeof(*t));
 	t->kind = kind;
 	t->len = -1;
-	t->emit_id = 0;
 	t->next = c->types.type_list;
 	c->types.type_list = t;
 	return t;
+}
+
+/* Structural hash aligned with type_eq (char≡uchar; nominal aggregates by identity). */
+static unsigned
+type_hash(Type* t) {
+	unsigned h;
+	Field* f;
+	int i;
+
+	if (t == NULL)
+		return 0;
+	if (t->kind == TyChar || t->kind == TyUChar)
+		return 0xC4A5u; /* char ≡ uchar */
+	h = (unsigned)t->kind * 0x9e3779b9u;
+	switch (t->kind) {
+	case TyPtr:
+		return h ^ type_hash(t->base);
+	case TyArray:
+		h ^= type_hash(t->base);
+		if (t->len >= 0)
+			h ^= (unsigned)t->len * 0x85ebca6bu;
+		return h;
+	case TyFunc:
+		h ^= type_hash(t->base);
+		h ^= (unsigned)t->params_len * 0x1000193u;
+		h ^= (unsigned)t->is_varargs;
+		for (i = 0; i < t->params_len; i++)
+			h = h * 0x1000193u ^ type_hash(t->params[i]);
+		return h;
+	case TyStruct:
+	case TyUnion:
+	case TyEnum:
+		if (t->is_ranged) {
+			h ^= 0x524E4745u; /* 'RNGE' */
+			h ^= (unsigned)t->is_readonly;
+			h ^= (unsigned)t->is_poly << 1;
+			return h ^ type_hash(t->base);
+		}
+		if (t->is_tuple) {
+			h ^= 0x5455504Cu; /* 'TUPL' */
+			for (f = t->fields; f; f = f->next)
+				h = h * 0x1000193u ^ type_hash(f->type);
+			return h;
+		}
+		return h ^ (unsigned)(uintptr_t)t;
+	default:
+		return h;
+	}
+}
+
+static unsigned
+ranged_key_hash(Type* elem, int readonly, int poly) {
+	unsigned h;
+
+	h = type_hash(elem) ^ 0x524E4745u;
+	h ^= (unsigned)(readonly ? 1 : 0);
+	h ^= (unsigned)(poly ? 1 : 0) << 1;
+	return h;
+}
+
+static unsigned
+tuple_key_hash(Type** elts, int n) {
+	unsigned h;
+	int i;
+
+	h = 0x5455504Cu;
+	for (i = 0; i < n; i++)
+		h = h * 0x1000193u ^ type_hash(elts[i]);
+	return h;
+}
+
+static void
+ranged_tab_rebuild(Compiler* c, int cap) {
+	Type *t, **tab;
+	unsigned i;
+
+	tab = xmalloc((size_t)cap * sizeof(Type*));
+	memset(tab, 0, (size_t)cap * sizeof(Type*));
+	for (t = c->types.type_list; t; t = t->next) {
+		if (!t->is_ranged)
+			continue;
+		i = ranged_key_hash(t->base, t->is_readonly, t->is_poly) & (unsigned)(cap - 1);
+		t->hash_next = tab[i];
+		tab[i] = t;
+	}
+	free(c->types.ranged_tab);
+	c->types.ranged_tab = tab;
+	c->types.ranged_tab_cap = cap;
+}
+
+static void
+tuple_tab_rebuild(Compiler* c, int cap) {
+	Type *t, **tab;
+	unsigned i;
+
+	tab = xmalloc((size_t)cap * sizeof(Type*));
+	memset(tab, 0, (size_t)cap * sizeof(Type*));
+	for (t = c->types.type_list; t; t = t->next) {
+		if (!t->is_tuple)
+			continue;
+		i = type_hash(t) & (unsigned)(cap - 1);
+		t->hash_next = tab[i];
+		tab[i] = t;
+	}
+	free(c->types.tuple_tab);
+	c->types.tuple_tab = tab;
+	c->types.tuple_tab_cap = cap;
+}
+
+static void
+ranged_tab_add(Compiler* c, Type* t) {
+	unsigned i;
+
+	c->types.ranged_len++;
+	if (c->types.ranged_tab_cap == 0 ||
+	    c->types.ranged_len * 2 >= c->types.ranged_tab_cap) {
+		ranged_tab_rebuild(c, c->types.ranged_tab_cap ? c->types.ranged_tab_cap * 2 : 64);
+		return;
+	}
+	i = ranged_key_hash(t->base, t->is_readonly, t->is_poly) &
+	    (unsigned)(c->types.ranged_tab_cap - 1);
+	t->hash_next = c->types.ranged_tab[i];
+	c->types.ranged_tab[i] = t;
+}
+
+static void
+tuple_tab_add(Compiler* c, Type* t) {
+	unsigned i;
+
+	c->types.tuple_len++;
+	if (c->types.tuple_tab_cap == 0 ||
+	    c->types.tuple_len * 2 >= c->types.tuple_tab_cap) {
+		tuple_tab_rebuild(c, c->types.tuple_tab_cap ? c->types.tuple_tab_cap * 2 : 64);
+		return;
+	}
+	i = type_hash(t) & (unsigned)(c->types.tuple_tab_cap - 1);
+	t->hash_next = c->types.tuple_tab[i];
+	c->types.tuple_tab[i] = t;
+}
+
+void
+type_intern_add(Compiler* c, Type* t) {
+	if (t == NULL)
+		return;
+	if (t->is_ranged)
+		ranged_tab_add(c, t);
+	else if (t->is_tuple)
+		tuple_tab_add(c, t);
 }
 
 // Fresh pointer type with host pointer size; equality is structural via type_eq.
@@ -199,15 +356,21 @@ Type* type_struct(Compiler* c, int kind, char* tag, Span sp, int storage) {
 Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly) {
 	Type* t;
 	Field *ptr, *len, *cap;
+	unsigned i;
 	static int next;
 
 	if (elem == NULL)
 		elem = c->types.type_void;
 	readonly = readonly ? 1 : 0;
 	poly = poly ? 1 : 0;
-	for (t = c->types.type_list; t; t = t->next)
-		if (t->is_ranged && t->is_readonly == readonly && t->is_poly == poly && type_eq(t->base, elem))
-			return t;
+	if (c->types.ranged_tab_cap) {
+		i = ranged_key_hash(elem, readonly, poly) &
+		    (unsigned)(c->types.ranged_tab_cap - 1);
+		for (t = c->types.ranged_tab[i]; t; t = t->hash_next)
+			if (t->is_readonly == readonly && t->is_poly == poly &&
+			    type_eq(t->base, elem))
+				return t;
+	}
 	t = type_new(c, TyStruct);
 	t->is_ranged = 1;
 	t->is_readonly = readonly;
@@ -216,20 +379,24 @@ Type* type_ranged_full(Compiler* c, Type* elem, int readonly, int poly) {
 	t->tag = xmalloc(32);
 	snprintf(t->tag, 32, "__Ranged%d", next++);
 	ptr = xmalloc(sizeof(*ptr));
+	memset(ptr, 0, sizeof(*ptr));
 	ptr->name = xstrdup("ptr");
 	ptr->type = type_ptr(c, elem);
 	if (readonly || poly)
 		ptr->type->is_readonly = 1;
 	len = xmalloc(sizeof(*len));
+	memset(len, 0, sizeof(*len));
 	len->name = xstrdup("len");
 	len->type = c->types.type_ullong; /* size_t */
 	cap = xmalloc(sizeof(*cap));
+	memset(cap, 0, sizeof(*cap));
 	cap->name = xstrdup("cap");
 	cap->type = c->types.type_ullong; /* size_t */
 	ptr->next = len;
 	len->next = cap;
 	t->fields = ptr;
 	type_layout(c, t);
+	ranged_tab_add(c, t);
 	return t;
 }
 
@@ -264,13 +431,16 @@ Type* type_tuple(Compiler* c, Type** elts, int n) {
 	Field *f, **tail;
 	char fname[16];
 	int i;
+	unsigned hi;
 	static int nextid;
 
 	if (n <= 0)
 		return type_struct(c, TyStruct, NULL, (Span){0}, StNone);
-	for (t = c->types.type_list; t; t = t->next) {
-		if (tuple_matches(t, elts, n))
-			return t;
+	if (c->types.tuple_tab_cap) {
+		hi = tuple_key_hash(elts, n) & (unsigned)(c->types.tuple_tab_cap - 1);
+		for (t = c->types.tuple_tab[hi]; t; t = t->hash_next)
+			if (tuple_matches(t, elts, n))
+				return t;
 	}
 	t = type_new(c, TyStruct);
 	t->is_tuple = 1;
@@ -279,6 +449,7 @@ Type* type_tuple(Compiler* c, Type** elts, int n) {
 	tail = &t->fields;
 	for (i = 0; i < n; i++) {
 		f = xmalloc(sizeof(*f));
+		memset(f, 0, sizeof(*f));
 		snprintf(fname, sizeof(fname), "f%d", i);
 		f->name = xstrdup(fname);
 		f->type = elts[i];
@@ -286,6 +457,7 @@ Type* type_tuple(Compiler* c, Type** elts, int n) {
 		tail = &f->next;
 	}
 	type_layout(c, t);
+	tuple_tab_add(c, t);
 	return t;
 }
 
