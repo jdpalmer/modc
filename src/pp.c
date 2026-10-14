@@ -655,11 +655,13 @@ find_include(Compiler* c, const char* fromfile, const char* name, int angled) {
 }
 
 // Parse the header operand of #include ("…", <…>, or tokens).
+// Angled names are capped at sizeof(buf)-1; overflow rejects (NULL) after
+// consuming through '>' — never advances n by snprintf's would-be length.
 static char*
 header_name(Tok* src, int src_files_len, int* i, int* angled) {
 	Tok* t;
 	char buf[512];
-	int n;
+	int n, w, avail, overflow;
 
 	*angled = 0;
 	if (*i >= src_files_len)
@@ -673,36 +675,59 @@ header_name(Tok* src, int src_files_len, int* i, int* angled) {
 		*angled = 1;
 		(*i)++;
 		n = 0;
+		overflow = 0;
 		buf[0] = 0;
-		while (*i < src_files_len && !(src[*i].kind == TkPunct && src[*i].punct == PnGt) && src[*i].kind != TkNewline && src[*i].kind != TkEof) {
+		while (*i < src_files_len && !(src[*i].kind == TkPunct && src[*i].punct == PnGt) &&
+		       src[*i].kind != TkNewline && src[*i].kind != TkEof) {
 			t = &src[*i];
+			(*i)++;
+			if (overflow)
+				continue;
 			/* TkKw: paths like <net/if.h> — "if" is a keyword, spelling in t->s. */
-			if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkString || t->kind == TkKw) {
-				n += snprintf(buf + n, sizeof(buf) - n, "%s", t->s ? t->s : "");
+			if (t->kind == TkIdent || t->kind == TkNumber || t->kind == TkString ||
+			    t->kind == TkKw) {
+				avail = (int)sizeof(buf) - n;
+				if (avail <= 1) {
+					overflow = 1;
+					continue;
+				}
+				w = snprintf(buf + n, (size_t)avail, "%s", t->s ? t->s : "");
+				if (w < 0 || w >= avail) {
+					/* Truncated or error: do not use would-be length. */
+					n = (int)sizeof(buf) - 1;
+					buf[n] = 0;
+					overflow = 1;
+					continue;
+				}
+				n += w;
 			} else if (t->kind == TkPunct) {
+				char ch;
+
 				switch (t->punct) {
 				case PnDot:
-					buf[n++] = '.';
-					buf[n] = 0;
+					ch = '.';
 					break;
 				case PnSlash:
-					buf[n++] = '/';
-					buf[n] = 0;
+					ch = '/';
 					break;
 				case PnMinus:
-					buf[n++] = '-';
-					buf[n] = 0;
+					ch = '-';
 					break;
 				default:
-					break;
+					continue;
 				}
+				if (n >= (int)sizeof(buf) - 1) {
+					overflow = 1;
+					continue;
+				}
+				buf[n++] = ch;
+				buf[n] = 0;
 			}
-			(*i)++;
-			if (n >= (int)sizeof(buf) - 1)
-				break;
 		}
 		if (*i < src_files_len && src[*i].kind == TkPunct && src[*i].punct == PnGt)
 			(*i)++;
+		if (overflow)
+			return NULL;
 		return xstrdup(buf);
 	}
 	return NULL;
