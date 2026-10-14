@@ -1147,16 +1147,39 @@ save_link_meta(Compiler* c, CliOpts* o, const char* path) {
 // Record an absolute c_sources path (linkmeta reload).
 static void
 add_csource_abs(Compiler* c, const char* path) {
+	char abs[HOST_PATH_MAX];
+	size_t n;
 	int i;
 
-	if (path == NULL || path[0] == 0)
+	if (path == NULL || path[0] == 0 || path[0] == '-')
 		return;
+	n = strlen(path);
+	if (n < 2)
+		return;
+	/* Same extensions as pkg_add_csource. */
+	if (!(n >= 2 && (strcmp(path + n - 2, ".c") == 0 || strcmp(path + n - 2, ".m") == 0)) &&
+	    !(n >= 3 && strcmp(path + n - 3, ".mm") == 0) &&
+	    !(n >= 4 && (strcmp(path + n - 4, ".cpp") == 0 || strcmp(path + n - 4, ".cxx") == 0)))
+		return;
+	snprintf(abs, sizeof(abs), "%s", path);
+	if (c->paths.project_root[0] &&
+	    host_realpath(path, abs, sizeof(abs)) == 0) {
+		char root[HOST_PATH_MAX];
+		size_t rn;
+
+		if (host_realpath(c->paths.project_root, root, sizeof(root)) != 0)
+			return;
+		rn = strlen(root);
+		if (strncmp(root, abs, rn) != 0 ||
+		    (abs[rn] != 0 && !host_path_is_sep((unsigned char)abs[rn])))
+			return;
+	}
 	for (i = 0; i < c->paths.csources_len; i++)
-		if (strcmp(c->paths.csources[i], path) == 0)
+		if (strcmp(c->paths.csources[i], abs) == 0)
 			return;
 	if (c->paths.csources_len % 8 == 0)
 		c->paths.csources = xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
-	c->paths.csources[c->paths.csources_len++] = xstrdup(path);
+	c->paths.csources[c->paths.csources_len++] = xstrdup(abs);
 }
 
 // Append L/F/S lines from a prior linkmeta (does not clear existing lists).

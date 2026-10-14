@@ -2297,8 +2297,12 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 						if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnLparen) {
 							i++;
 							while (i < src_files_len && !(src[i].kind == TkPunct && src[i].punct == PnRparen)) {
-								if (src[i].kind == TkIdent || src[i].kind == TkString)
-									pkg_add_clib(c, src[i].s);
+								if (src[i].kind == TkIdent || src[i].kind == TkString) {
+									if (pkg_add_clib(c, src[i].s))
+										error_tok(c, &src[i],
+											  "invalid c_libs name \"%s\"",
+											  src[i].s);
+								}
 								i++;
 							}
 							if (i < src_files_len)
@@ -2309,8 +2313,12 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 						if (i < src_files_len && src[i].kind == TkPunct && src[i].punct == PnLparen) {
 							i++;
 							while (i < src_files_len && !(src[i].kind == TkPunct && src[i].punct == PnRparen)) {
-								if (src[i].kind == TkIdent || src[i].kind == TkString)
-									pkg_add_framework(c, src[i].s);
+								if (src[i].kind == TkIdent || src[i].kind == TkString) {
+									if (pkg_add_framework(c, src[i].s))
+										error_tok(c, &src[i],
+											  "invalid frameworks name \"%s\"",
+											  src[i].s);
+								}
 								i++;
 							}
 							if (i < src_files_len)
@@ -2336,7 +2344,10 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 								}
 								path = pragma_collect_csource(c, src, src_files_len, &i);
 								if (path) {
-									pkg_add_csource(c, c->paths.infile, path);
+									if (pkg_add_csource(c, c->paths.infile, path))
+										error_tok(c, pragma_tok,
+											  "c_sources path must be relative to the package and stay within it: %s",
+											  path);
 									free(path);
 								}
 							}

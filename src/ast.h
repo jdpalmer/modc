@@ -830,9 +830,10 @@ int emit_qbe_pkg(Compiler* c, FILE* out, const char* pkg_dir, const char* str_sy
 
 // Packages, vendor, cache, format (driver)
 void pkg_add_search_path(Compiler* c, const char* dir);
-void pkg_add_clib(Compiler* c, const char* lib);
-void pkg_add_framework(Compiler* c, const char* name);
-void pkg_add_csource(Compiler* c, const char* from_file, const char* relpath);
+/* 0 recorded/duplicate, 1 rejected (unsafe name or path). */
+int pkg_add_clib(Compiler* c, const char* lib);
+int pkg_add_framework(Compiler* c, const char* name);
+int pkg_add_csource(Compiler* c, const char* from_file, const char* relpath);
 void comp_add_framework_path(Compiler* c, const char* dir);
 int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n);
 int pkg_is_test_src(const char* path);

@@ -26,33 +26,94 @@ void pkg_add_search_path(Compiler* c, const char* dir) {
 	c->paths.pkgpaths[c->paths.pkgpaths_len++] = xstrdup(dir);
 }
 
+/*
+ * -l / -framework names from #pragma / linkmeta. Reject leading '-' / ':'
+ * (GCC -l:path) and anything outside a portable identifier charset.
+ */
+static int
+valid_link_lib(const char* s) {
+	const unsigned char* p;
+
+	if (s == NULL || s[0] == 0 || s[0] == '-' || s[0] == ':')
+		return 0;
+	for (p = (const unsigned char*)s; *p; p++)
+		if (!isalnum(*p) && *p != '_' && *p != '-' && *p != '+' && *p != '.')
+			return 0;
+	return 1;
+}
+
+/* Relative c_sources path: no absolute, no empty/'.'/'..' components. */
+static int
+valid_csource_relpath(const char* s) {
+	const char *p, *start;
+	size_t n;
+
+	if (s == NULL || s[0] == 0)
+		return 0;
+	if (host_path_is_abs(s))
+		return 0;
+	start = s;
+	for (p = s;; p++) {
+		if (*p != '/' && *p != '\\' && *p != 0)
+			continue;
+		n = (size_t)(p - start);
+		if (n == 0 || (n == 1 && start[0] == '.') ||
+		    (n == 2 && start[0] == '.' && start[1] == '.'))
+			return 0;
+		if (*p == 0)
+			break;
+		start = p + 1;
+	}
+	return 1;
+}
+
+/* True when path resolves under root (after realpath). */
+static int
+path_under_root(const char* root, const char* path) {
+	char rroot[HOST_PATH_MAX], rpath[HOST_PATH_MAX];
+	size_t n;
+
+	if (root == NULL || root[0] == 0 || path == NULL || path[0] == 0)
+		return 0;
+	if (host_realpath(root, rroot, sizeof(rroot)) != 0 ||
+	    host_realpath(path, rpath, sizeof(rpath)) != 0)
+		return 0;
+	n = strlen(rroot);
+	return strncmp(rroot, rpath, n) == 0 &&
+	       (rpath[n] == 0 || host_path_is_sep((unsigned char)rpath[n]));
+}
+
 // Record a -l library name for the final host link line (deduped).
-void pkg_add_clib(Compiler* c, const char* lib) {
+int
+pkg_add_clib(Compiler* c, const char* lib) {
 	int i;
 
-	if (lib == NULL || lib[0] == 0)
-		return;
+	if (!valid_link_lib(lib))
+		return 1;
 	for (i = 0; i < c->paths.c_libs_len; i++)
 		if (strcmp(c->paths.c_libs[i], lib) == 0)
-			return;
+			return 0;
 	if (c->paths.c_libs_len % 8 == 0)
 		c->paths.c_libs = xrealloc(c->paths.c_libs, (c->paths.c_libs_len + 8) * sizeof(char*));
 	c->paths.c_libs[c->paths.c_libs_len++] = xstrdup(lib);
+	return 0;
 }
 
 // Record a macOS framework for the final host link line (deduped).
-void pkg_add_framework(Compiler* c, const char* name) {
+int
+pkg_add_framework(Compiler* c, const char* name) {
 	int i;
 
-	if (name == NULL || name[0] == 0)
-		return;
+	if (!valid_link_lib(name))
+		return 1;
 	for (i = 0; i < c->paths.frameworks_len; i++)
 		if (strcmp(c->paths.frameworks[i], name) == 0)
-			return;
+			return 0;
 	if (c->paths.frameworks_len % 8 == 0)
 		c->paths.frameworks = xrealloc(c->paths.frameworks,
 					 (c->paths.frameworks_len + 8) * sizeof(char*));
 	c->paths.frameworks[c->paths.frameworks_len++] = xstrdup(name);
+	return 0;
 }
 
 // True for C/C++/ObjC source extensions accepted by c_sources pragmas.
@@ -109,25 +170,39 @@ dirname_copy(const char* path, char* out, size_t n) {
 }
 
 // Resolve and record an extra C/C++ TU from a #pragma modc c_sources path.
-void pkg_add_csource(Compiler* c, const char* from_file, const char* relpath) {
-	char pkgdir[1024], path[1024];
+int
+pkg_add_csource(Compiler* c, const char* from_file, const char* relpath) {
+	char pkgdir[HOST_PATH_MAX], path[HOST_PATH_MAX], abs[HOST_PATH_MAX];
 	char* joined;
 	int i;
 
 	if (relpath == NULL || relpath[0] == 0 || from_file == NULL)
-		return;
-	if (!has_csource_ext(relpath))
-		return;
+		return 1;
+	if (!has_csource_ext(relpath) || !valid_csource_relpath(relpath))
+		return 1;
 	dirname_copy(from_file, pkgdir, sizeof(pkgdir));
 	joined = host_join_path(pkgdir, relpath);
 	snprintf(path, sizeof(path), "%s", joined);
 	free(joined);
+	/*
+	 * Confine to the package directory. Prefer realpath when the file
+	 * exists (catches symlink escape); otherwise keep abspath after the
+	 * relative-path checks above.
+	 */
+	if (host_realpath(path, abs, sizeof(abs)) == 0) {
+		if (!path_under_root(pkgdir, abs))
+			return 1;
+		snprintf(path, sizeof(path), "%s", abs);
+	} else if (host_abspath(path, abs, sizeof(abs)) == 0) {
+		snprintf(path, sizeof(path), "%s", abs);
+	}
 	for (i = 0; i < c->paths.csources_len; i++)
 		if (strcmp(c->paths.csources[i], path) == 0)
-			return;
+			return 0;
 	if (c->paths.csources_len % 8 == 0)
 		c->paths.csources = xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
 	c->paths.csources[c->paths.csources_len++] = xstrdup(path);
+	return 0;
 }
 
 // True when a filename ends in .mc.
