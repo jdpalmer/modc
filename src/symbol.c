@@ -10,6 +10,8 @@
 #include "host_os.h"
 #include <ctype.h>
 #include <stdio.h>
+#include <inttypes.h>
+#include <stdint.h>
 #include <string.h>
 
 // Rebuild the symbol hash table at capacity cap from the linked symbol list.
@@ -296,18 +298,25 @@ mappend(char* buf, int* pos, int cap, const char* s) {
 }
 
 // Encode a type as a short suffix for overload linker names.
+// Must not use emit_id: set_func_linkname runs at define time, before emit.
 static void
 mangle_type(Type* t, char* buf, int* pos, int cap) {
-	char tmp[32];
+	char tmp[40];
 	const char* p;
+	Field* f;
 
 	if (t == NULL) {
 		mappend(buf, pos, cap, "z");
 		return;
 	}
+	/* T[..] — structural: element type + const/poly flags (not emit_id). */
 	if (t->is_ranged) {
-		snprintf(tmp, sizeof(tmp), "S%d", t->emit_id);
-		mappend(buf, pos, cap, tmp);
+		mappend(buf, pos, cap, "R");
+		if (t->is_readonly)
+			mappend(buf, pos, cap, "K");
+		if (t->is_poly)
+			mappend(buf, pos, cap, "Y");
+		mangle_type(t->base, buf, pos, cap);
 		return;
 	}
 	switch (t->kind) {
@@ -356,11 +365,24 @@ mangle_type(Type* t, char* buf, int* pos, int cap) {
 		mangle_type(t->base, buf, pos, cap);
 		break;
 	case TyArray:
+		/* Include length so T[N] and T[M] do not share a link suffix. */
+		mappend(buf, pos, cap, "a");
+		if (t->len >= 0)
+			snprintf(tmp, sizeof(tmp), "%" PRId64, (int64_t)t->len);
+		else
+			snprintf(tmp, sizeof(tmp), "n");
+		mappend(buf, pos, cap, tmp);
 		mangle_type(t->base, buf, pos, cap);
 		break;
 	case TyStruct:
 	case TyUnion:
-		mappend(buf, pos, cap, "A");
+		if (t->is_tuple) {
+			mappend(buf, pos, cap, "T");
+			for (f = t->fields; f; f = f->next)
+				mangle_type(f->type, buf, pos, cap);
+			break;
+		}
+		mappend(buf, pos, cap, t->kind == TyUnion ? "U" : "A");
 		if (t->tag) {
 			for (p = t->tag; *p; p++) {
 				if (isalnum((unsigned char)*p)) {
@@ -370,7 +392,9 @@ mangle_type(Type* t, char* buf, int* pos, int cap) {
 				}
 			}
 		} else {
-			snprintf(tmp, sizeof(tmp), "%d", t->emit_id);
+			/* Anonymous: Type* distinguishes nominal aggregates (type_eq). */
+			snprintf(tmp, sizeof(tmp), "x%lx",
+				 (unsigned long)(uintptr_t)t);
 			mappend(buf, pos, cap, tmp);
 		}
 		break;
@@ -385,7 +409,8 @@ mangle_type(Type* t, char* buf, int* pos, int cap) {
 				}
 			}
 		} else {
-			snprintf(tmp, sizeof(tmp), "%d", t->emit_id);
+			snprintf(tmp, sizeof(tmp), "x%lx",
+				 (unsigned long)(uintptr_t)t);
 			mappend(buf, pos, cap, tmp);
 		}
 		break;
