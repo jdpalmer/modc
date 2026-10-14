@@ -1109,23 +1109,38 @@ graph_digest(BuildPkg* pkgs, int npkgs, uint64_t knobs) {
 static int
 save_link_meta(Compiler* c, CliOpts* o, const char* path) {
 	char buf[65536];
-	int off, i;
+	int off, i, n;
 
 	off = 0;
-	for (i = 0; i < c->paths.c_libs_len && off < (int)sizeof(buf) - 8; i++)
-		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "L %s\n",
-				c->paths.c_libs[i]);
-	for (i = 0; i < c->paths.frameworks_len && off < (int)sizeof(buf) - 8; i++)
-		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "F %s\n",
-				c->paths.frameworks[i]);
-	for (i = 0; i < c->paths.csources_len && off < (int)sizeof(buf) - 8; i++)
-		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "S %s\n",
-				c->paths.csources[i]);
-	for (i = 0; i < o->linkargv_len && off < (int)sizeof(buf) - 8; i++)
-		off += snprintf(buf + off, sizeof(buf) - (size_t)off, "X %s\n",
-				o->linkargv[i]);
-	if (off < 0 || off >= (int)sizeof(buf))
-		return 1;
+	n = 0;
+	for (i = 0; i < c->paths.c_libs_len; i++) {
+		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "L %s\n",
+			     c->paths.c_libs[i]);
+		if (n < 0 || n >= (int)sizeof(buf) - off)
+			return 1;
+		off += n;
+	}
+	for (i = 0; i < c->paths.frameworks_len; i++) {
+		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "F %s\n",
+			     c->paths.frameworks[i]);
+		if (n < 0 || n >= (int)sizeof(buf) - off)
+			return 1;
+		off += n;
+	}
+	for (i = 0; i < c->paths.csources_len; i++) {
+		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "S %s\n",
+			     c->paths.csources[i]);
+		if (n < 0 || n >= (int)sizeof(buf) - off)
+			return 1;
+		off += n;
+	}
+	for (i = 0; i < o->linkargv_len; i++) {
+		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "X %s\n",
+			     o->linkargv[i]);
+		if (n < 0 || n >= (int)sizeof(buf) - off)
+			return 1;
+		off += n;
+	}
 	return cache_write_bytes(path, buf, (size_t)off);
 }
 
@@ -1144,9 +1159,9 @@ add_csource_abs(Compiler* c, const char* path) {
 	c->paths.csources[c->paths.csources_len++] = xstrdup(path);
 }
 
-// Restore link pragmas from a cached linkmeta file.
+// Append L/F/S lines from a prior linkmeta (does not clear existing lists).
 static int
-load_link_meta(Compiler* c, const char* path) {
+merge_link_meta(Compiler* c, const char* path) {
 	char* text;
 	size_t n, i, start;
 	char line[HOST_PATH_MAX + 4];
@@ -1154,9 +1169,6 @@ load_link_meta(Compiler* c, const char* path) {
 	text = read_file(path, &n);
 	if (text == NULL)
 		return 1;
-	c->paths.c_libs_len = 0;
-	c->paths.frameworks_len = 0;
-	c->paths.csources_len = 0;
 	i = 0;
 	while (i < n) {
 		start = i;
@@ -1179,6 +1191,41 @@ load_link_meta(Compiler* c, const char* path) {
 	}
 	free(text);
 	return 0;
+}
+
+// Replace link pragmas from a cached linkmeta file.
+static int
+load_link_meta(Compiler* c, const char* path) {
+	c->paths.c_libs_len = 0;
+	c->paths.frameworks_len = 0;
+	c->paths.csources_len = 0;
+	return merge_link_meta(c, path);
+}
+
+// Fingerprint of link inputs for the prog stamp (skip-link short-circuit).
+static uint64_t
+link_stamp_hash(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
+		const char* outpath, const char* projroot) {
+	uint64_t linkh;
+	int i;
+
+	linkh = cache_hash_str(outpath);
+	for (i = 0; i < npkgs; i++)
+		linkh = cache_hash_mix(linkh, pkgs[i].key);
+	for (i = 0; i < c->paths.csources_len; i++)
+		linkh = cache_hash_mix(
+			linkh, foreign_obj_key(c, c->paths.csources[i],
+					       src_is_cxx(c->paths.csources[i])
+						       ? tool_cxx()
+						       : tool_cc(c),
+					       projroot));
+	for (i = 0; i < c->paths.c_libs_len; i++)
+		linkh = cache_hash_mix(linkh, cache_hash_str(c->paths.c_libs[i]));
+	for (i = 0; i < c->paths.frameworks_len; i++)
+		linkh = cache_hash_mix(linkh, cache_hash_str(c->paths.frameworks[i]));
+	for (i = 0; i < o->linkargv_len; i++)
+		linkh = cache_hash_mix(linkh, cache_hash_str(o->linkargv[i]));
+	return linkh;
 }
 
 // Build QBE string-pool symbol for a package cache key.
@@ -1421,7 +1468,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	BuildPkg pkgs[MaxCachePkgs];
 	uint64_t knobs, ghash;
 	char crooot[HOST_PATH_MAX], projroot[HOST_PATH_MAX], ghex[24], meta[HOST_PATH_MAX],
-		stamp[HOST_PATH_MAX];
+		meta_stable[HOST_PATH_MAX], stamp[HOST_PATH_MAX];
 	char stamphex[24], stored[64], what[HOST_PATH_MAX];
 	char foreign[MaxForeignObj][512];
 	char objs[MaxCachePkgs][512];
@@ -1466,6 +1513,9 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	ghash = graph_digest(pkgs, npkgs, knobs);
 	cache_hash_hex(ghash, ghex, sizeof(ghex));
 	snprintf(meta, sizeof(meta), "%s/prog/%s/linkmeta", crooot, ghex);
+	/* Stable path: ghex changes on partial rebuild, so seeding from meta
+	 * alone would miss hit packages' pragmas from the prior graph. */
+	snprintf(meta_stable, sizeof(meta_stable), "%s/linkmeta", crooot);
 	snprintf(stamp, sizeof(stamp), "%s/prog/%s/stamp", crooot, ghex);
 
 	all_hit = 1;
@@ -1483,18 +1533,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			snprintf(objs[i], sizeof(objs[i]), "%s", pkgs[i].objpath);
 		}
 		cache_log(o->verbose, "hit", "graph");
-		linkh = cache_hash_str(outpath);
-		for (i = 0; i < npkgs; i++)
-			linkh = cache_hash_mix(linkh, pkgs[i].key);
-		for (i = 0; i < c->paths.csources_len; i++)
-			linkh = cache_hash_mix(
-				linkh, foreign_obj_key(c, c->paths.csources[i],
-						       src_is_cxx(c->paths.csources[i])
-							       ? tool_cxx()
-							       : tool_cc(c),
-						       projroot));
-		for (i = 0; i < o->linkargv_len; i++)
-			linkh = cache_hash_mix(linkh, cache_hash_str(o->linkargv[i]));
+		linkh = link_stamp_hash(c, o, pkgs, npkgs, outpath, projroot);
 		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
 		foreign_ready = 1;
 		for (i = 0; i < c->paths.csources_len; i++) {
@@ -1543,8 +1582,28 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	{
 		char** tc_files;
 		char** exps;
-		int ntc, nexp, pi;
+		int ntc, nexp, pi, partial;
 
+		/* Hit packages are not re-preprocessed, so their link pragmas
+		 * never reappear. Seed from the prior linkmeta, then let the
+		 * miss packages' PP add/override via pkg_add_*. */
+		partial = 0;
+		for (pi = 0; pi < npkgs; pi++)
+			if (pkgs[pi].hit) {
+				partial = 1;
+				break;
+			}
+		c->paths.c_libs_len = 0;
+		c->paths.frameworks_len = 0;
+		c->paths.csources_len = 0;
+		if (partial && host_is_file(meta_stable) &&
+		    merge_link_meta(c, meta_stable) != 0) {
+			fprintf(stderr, "modc: cannot read linkmeta %s\n", meta_stable);
+			for (i = 0; i < nfiles; i++)
+				free(files[i]);
+			free(files);
+			return 1;
+		}
 		collect_export_tc(pkgs, npkgs, files, nfiles, crooot, &exps, &nexp, &tc_files,
 				  &ntc);
 		r = compile_graph(c, tc_files, ntc, exps, nexp);
@@ -1622,11 +1681,14 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			}
 			if (assemble_pkg_jobs(c, o, miss, nmiss) != 0)
 				return 1;
-		}
-		for (i = 0; i < npkgs; i++) {
-			snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
-			if (save_modc_deps(c, depmeta) != 0)
-				return 1;
+			/* Only rebuilt packages: overwriting hit packages' .deps
+			 * with this compile's include set drops their real inputs. */
+			for (i = 0; i < nmiss; i++) {
+				snprintf(depmeta, sizeof(depmeta), "%s.deps",
+					 miss[i].pkg->objpath);
+				if (save_modc_deps(c, depmeta) != 0)
+					return 1;
+			}
 		}
 		/* Stamp needs beside every obj for the next run. */
 		for (i = 0; i < npkgs; i++) {
@@ -1639,23 +1701,14 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	}
 	if (save_link_meta(c, o, meta) != 0)
 		return 1;
+	if (save_link_meta(c, o, meta_stable) != 0)
+		return 1;
 
 	if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0)
 		return 1;
 	r = link_modc_objs(c, o, outpath, objs, npkgs, foreign, nforeign);
 	if (r == 0) {
-		linkh = cache_hash_str(outpath);
-		for (i = 0; i < npkgs; i++)
-			linkh = cache_hash_mix(linkh, pkgs[i].key);
-		for (i = 0; i < c->paths.csources_len; i++)
-			linkh = cache_hash_mix(
-				linkh, foreign_obj_key(c, c->paths.csources[i],
-						       src_is_cxx(c->paths.csources[i])
-							       ? tool_cxx()
-							       : tool_cc(c),
-						       projroot));
-		for (i = 0; i < o->linkargv_len; i++)
-			linkh = cache_hash_mix(linkh, cache_hash_str(o->linkargv[i]));
+		linkh = link_stamp_hash(c, o, pkgs, npkgs, outpath, projroot);
 		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
 		(void)cache_write_str(stamp, stamphex);
 	}

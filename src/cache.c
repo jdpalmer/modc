@@ -4,6 +4,7 @@
 //   foreign/<hex>.o
 //   pkg/<id>-<hex>/pkg.o + iface + needs
 //   prog/<hex>/linkmeta + stamp
+//   linkmeta (stable; seeds partial rebuilds when ghex changes)
 //
 // Keys include QBE target and host OS; project-local paths are relative.
 //

@@ -129,6 +129,47 @@ check-special: $(MODC)
 	@grep -q 'cache miss foreign' $(BUILD)/cache_csrc2.log
 	@printf '%s\n' 'int c_add_one(int x);' > test/pkg_csrc/shim/add_one.h
 	$(BUILD)/cache_csrc
+	# --- cache: partial rebuild must not clobber hit-pkg .deps / linkmeta ---
+	@rm -rf $(BUILD)/cache_stale
+	@mkdir -p $(BUILD)/cache_stale/roots/pkg_a $(BUILD)/cache_stale/roots/pkg_b \
+		$(BUILD)/cache_stale/roots/pkg_lib $(BUILD)/cache_stale/roots/pkg_other \
+		$(BUILD)/cache_stale/deps_app $(BUILD)/cache_stale/link_app
+	@printf '%s\n' 'enum { SECRET = 7 };' > $(BUILD)/cache_stale/roots/pkg_a/secret.h
+	@printf '%s\n' '#include "secret.h"' 'int a_val() { return SECRET; }' \
+		> $(BUILD)/cache_stale/roots/pkg_a/mod.mc
+	@printf '%s\n' 'int b_val() { return 1; }' > $(BUILD)/cache_stale/roots/pkg_b/mod.mc
+	@printf '%s\n' 'import "pkg_a";' 'import "pkg_b";' \
+		'int main() { return a_val() + b_val() == 8 ? 0 : 1; }' \
+		> $(BUILD)/cache_stale/deps_app/main.mc
+	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
+		-o $(BUILD)/cache_stale/deps_out
+	@printf '%s\n' 'int b_val() { return 1; } /* touch */' \
+		> $(BUILD)/cache_stale/roots/pkg_b/mod.mc
+	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
+		-o $(BUILD)/cache_stale/deps_out -v 2>&1 | tee $(BUILD)/cache_stale/deps_partial.log
+	@grep -q 'cache hit pkg pkg_a' $(BUILD)/cache_stale/deps_partial.log
+	@grep -q secret.h $(BUILD)/cache_stale/deps_app/.modc-cache/pkg/pkg_a-*/pkg.o.deps
+	@printf '%s\n' 'enum { SECRET = 99 };' > $(BUILD)/cache_stale/roots/pkg_a/secret.h
+	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
+		-o $(BUILD)/cache_stale/deps_out -v 2>&1 | tee $(BUILD)/cache_stale/deps_hdr.log
+	@grep -q 'cache miss pkg pkg_a' $(BUILD)/cache_stale/deps_hdr.log
+	@printf '%s\n' '#pragma modc c_libs(m)' 'double lib_add(double x) { return x + 1.0; }' \
+		> $(BUILD)/cache_stale/roots/pkg_lib/mod.mc
+	@printf '%s\n' 'int other_val() { return 1; }' \
+		> $(BUILD)/cache_stale/roots/pkg_other/mod.mc
+	@printf '%s\n' 'import "pkg_lib";' 'import "pkg_other";' \
+		'int main() { return (lib_add(1.0) == 2.0 && other_val() == 1) ? 0 : 1; }' \
+		> $(BUILD)/cache_stale/link_app/main.mc
+	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/link_app/main.mc \
+		-o $(BUILD)/cache_stale/link_out
+	@printf '%s\n' 'int other_val() { return 1; } /* touch */' \
+		> $(BUILD)/cache_stale/roots/pkg_other/mod.mc
+	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/link_app/main.mc \
+		-o $(BUILD)/cache_stale/link_out -v 2>&1 | tee $(BUILD)/cache_stale/link_partial.log
+	@grep -q 'cache hit pkg pkg_lib' $(BUILD)/cache_stale/link_partial.log
+	@grep -q -- '-l m' $(BUILD)/cache_stale/link_partial.log
+	@grep -Fq 'L m' $(BUILD)/cache_stale/link_app/.modc-cache/linkmeta
+	$(BUILD)/cache_stale/link_out
 	# --- format goldens ---
 	cp test/format/messy.mc $(BUILD)/format_messy.mc
 	./modc format $(BUILD)/format_messy.mc
