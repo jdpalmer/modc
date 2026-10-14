@@ -271,6 +271,77 @@ host_is_file(const char* path) {
 	return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+// mtime (unix seconds) + size for cache keys; 0 on success.
+int
+host_file_stamp(const char* path, long long* mtime_sec, unsigned long long* size) {
+	WIN32_FILE_ATTRIBUTE_DATA fad;
+	ULARGE_INTEGER u;
+
+	if (path == NULL || path[0] == 0 || mtime_sec == NULL || size == NULL)
+		return -1;
+	if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fad))
+		return -1;
+	if (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		return -1;
+	u.LowPart = fad.ftLastWriteTime.dwLowDateTime;
+	u.HighPart = fad.ftLastWriteTime.dwHighDateTime;
+	/* FILETIME (100ns since 1601) → unix seconds. */
+	*mtime_sec = (long long)((u.QuadPart - 116444736000000000ULL) / 10000000ULL);
+	u.LowPart = fad.nFileSizeLow;
+	u.HighPart = fad.nFileSizeHigh;
+	*size = u.QuadPart;
+	return 0;
+}
+
+// Resolve bare name on PATH (PATHEXT-aware); 0 on success.
+int
+host_resolve_on_path(const char* name, char* out, size_t n) {
+	char* path;
+	char* buf;
+	char* p;
+	char piece[HOST_PATH_MAX];
+	char cand[HOST_PATH_MAX];
+	static const char* exts[] = { "", ".exe", ".bat", ".cmd", NULL };
+	size_t len;
+	int i;
+
+	if (name == NULL || name[0] == 0 || out == NULL || n == 0)
+		return -1;
+	out[0] = 0;
+	if (host_path_has_sep(name)) {
+		if (host_is_file(name)) {
+			snprintf(out, n, "%s", name);
+			return 0;
+		}
+		return -1;
+	}
+	path = getenv("PATH");
+	if (path == NULL || path[0] == 0)
+		return -1;
+	buf = xstrdup(path);
+	for (p = buf; *p;) {
+		char* end = strchr(p, ';');
+		len = end ? (size_t)(end - p) : strlen(p);
+		if (len > 0 && len < sizeof(piece)) {
+			memcpy(piece, p, len);
+			piece[len] = 0;
+			for (i = 0; exts[i]; i++) {
+				snprintf(cand, sizeof(cand), "%s\\%s%s", piece, name, exts[i]);
+				if (host_is_file(cand)) {
+					snprintf(out, n, "%s", cand);
+					free(buf);
+					return 0;
+				}
+			}
+		}
+		if (end == NULL)
+			break;
+		p = end + 1;
+	}
+	free(buf);
+	return -1;
+}
+
 // True if path is a symbolic link, junction, or other reparse point.
 int
 host_is_symlink(const char* path) {
@@ -729,6 +800,61 @@ host_is_file(const char* path) {
 	if (path == NULL || path[0] == 0)
 		return 0;
 	return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+// mtime (unix seconds) + size for cache keys; 0 on success.
+int
+host_file_stamp(const char* path, long long* mtime_sec, unsigned long long* size) {
+	struct stat st;
+
+	if (path == NULL || path[0] == 0 || mtime_sec == NULL || size == NULL)
+		return -1;
+	if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
+		return -1;
+	*mtime_sec = (long long)st.st_mtime;
+	*size = (unsigned long long)st.st_size;
+	return 0;
+}
+
+// Resolve bare name on PATH; 0 on success.
+int
+host_resolve_on_path(const char* name, char* out, size_t n) {
+	const char* path;
+	char piece[HOST_PATH_MAX];
+	char cand[HOST_PATH_MAX];
+	size_t len;
+
+	if (name == NULL || name[0] == 0 || out == NULL || n == 0)
+		return -1;
+	out[0] = 0;
+	if (host_path_has_sep(name)) {
+		if (host_is_file(name)) {
+			snprintf(out, n, "%s", name);
+			return 0;
+		}
+		return -1;
+	}
+	path = getenv("PATH");
+	if (path == NULL)
+		return -1;
+	for (;;) {
+		len = 0;
+		while (path[len] && path[len] != ':')
+			len++;
+		if (len > 0 && len < sizeof(piece)) {
+			memcpy(piece, path, len);
+			piece[len] = 0;
+			snprintf(cand, sizeof(cand), "%s/%s", piece, name);
+			if (host_is_file(cand)) {
+				snprintf(out, n, "%s", cand);
+				return 0;
+			}
+		}
+		if (path[len] == 0)
+			break;
+		path += len + 1;
+	}
+	return -1;
 }
 
 // True if path itself is a symbolic link (do not follow it).

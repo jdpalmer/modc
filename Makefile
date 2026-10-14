@@ -222,6 +222,26 @@ check-special: $(MODC)
 		MODC_INCLUDE=$(BUILD)/cache_sysinc/modc_b \
 		./modc build $(BUILD)/cache_sysinc/app/main.mc -o $(BUILD)/cache_sysinc/out2
 	$(BUILD)/cache_sysinc/out2
+	# --- cache: nested package headers participate in impl hash ---
+	@rm -rf $(BUILD)/cache_nested
+	@mkdir -p $(BUILD)/cache_nested/pkg/sub $(BUILD)/cache_nested/app
+	@printf '%s\n' 'enum { NEST = 3 };' > $(BUILD)/cache_nested/pkg/sub/nest.h
+	@printf '%s\n' '#include "sub/nest.h"' 'int nest_val() { return NEST; }' \
+		> $(BUILD)/cache_nested/pkg/mod.mc
+	@printf '%s\n' 'import "pkg";' 'int main() { return nest_val() == 3 ? 0 : 1; }' \
+		> $(BUILD)/cache_nested/app/main.mc
+	./modc build -M $(BUILD)/cache_nested $(BUILD)/cache_nested/app/main.mc \
+		-o $(BUILD)/cache_nested/out
+	$(BUILD)/cache_nested/out
+	@printf '%s\n' 'enum { NEST = 9 };' > $(BUILD)/cache_nested/pkg/sub/nest.h
+	./modc build -M $(BUILD)/cache_nested $(BUILD)/cache_nested/app/main.mc \
+		-o $(BUILD)/cache_nested/out -v 2>&1 | tee $(BUILD)/cache_nested/miss.log
+	@grep -q 'cache miss pkg pkg' $(BUILD)/cache_nested/miss.log
+	@printf '%s\n' 'import "pkg";' 'int main() { return nest_val() == 9 ? 0 : 1; }' \
+		> $(BUILD)/cache_nested/app/main.mc
+	./modc build -M $(BUILD)/cache_nested $(BUILD)/cache_nested/app/main.mc \
+		-o $(BUILD)/cache_nested/out
+	$(BUILD)/cache_nested/out
 	# --- format goldens ---
 	cp test/format/messy.mc $(BUILD)/format_messy.mc
 	./modc format $(BUILD)/format_messy.mc

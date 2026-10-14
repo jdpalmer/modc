@@ -33,6 +33,10 @@ int host_is_file(const char* path);
 int host_is_symlink(const char* path);
 int host_exists(const char* path);
 int host_access_read(const char* path); /* 0 if readable */
+/* mtime (unix seconds) + size for cache tool identity; 0 ok. */
+int host_file_stamp(const char* path, long long* mtime_sec, unsigned long long* size);
+/* Resolve bare command name on PATH into out; 0 ok. */
+int host_resolve_on_path(const char* name, char* out, size_t n);
 
 int host_mkdir(const char* path);  /* 0 ok; EEXIST → 0 */
 int host_rmdir(const char* path);  /* 0 ok */

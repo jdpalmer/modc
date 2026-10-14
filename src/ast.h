@@ -846,6 +846,8 @@ int pkg_import_roots(Compiler* c, const char* path, char*** out_roots, int* out_
 int vendor_cmd(int argc, char** argv);
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);
+uint64_t cache_mix_file(uint64_t h, const char* path);
+uint64_t cache_hash_tool(const char* tool);
 uint64_t cache_hash_mix(uint64_t a, uint64_t b);
 void cache_hash_hex(uint64_t h, char* out, size_t out_len);
 int cache_root_for(const char* entry, char* out, size_t out_len);

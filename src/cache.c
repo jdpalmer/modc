@@ -60,6 +60,44 @@ uint64_t cache_hash_file(const char* path) {
 	return h;
 }
 
+// Mix file contents into h. Unreadable files get a path-tagged salt (never raw 0),
+// so distinct missing paths do not collide and empty files stay distinct.
+uint64_t cache_mix_file(uint64_t h, const char* path) {
+	uint64_t fh;
+
+	fh = cache_hash_file(path);
+	if (fh == 0)
+		return cache_hash_mix(cache_hash_mix(h, cache_hash_str(path ? path : "")),
+				     cache_hash_str("!unreadable"));
+	return cache_hash_mix(h, fh);
+}
+
+// Fingerprint a toolchain binary: path string + mtime/size when resolvable.
+// In-place upgrades keep the same argv path but change the stamp.
+uint64_t cache_hash_tool(const char* tool) {
+	uint64_t h;
+	char resolved[HOST_PATH_MAX];
+	const char* path;
+	long long mtime;
+	unsigned long long size;
+
+	if (tool == NULL || tool[0] == 0)
+		return cache_hash_str("");
+	h = cache_hash_str(tool);
+	path = NULL;
+	if (host_is_file(tool))
+		path = tool;
+	else if (host_resolve_on_path(tool, resolved, sizeof(resolved)) == 0)
+		path = resolved;
+	if (path && host_file_stamp(path, &mtime, &size) == 0) {
+		if (path != tool)
+			h = cache_hash_mix(h, cache_hash_str(path));
+		h = cache_hash_mix(h, (uint64_t)mtime);
+		h = cache_hash_mix(h, (uint64_t)size);
+	}
+	return h;
+}
+
 // Fold hash b into a (order-sensitive mix for composing keys).
 uint64_t cache_hash_mix(uint64_t a, uint64_t b) {
 	return fnv1a64(&b, sizeof(b), a ? a : 14695981039346656037ull);

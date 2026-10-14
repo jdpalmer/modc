@@ -4,6 +4,7 @@
  * Compilation pipeline: [lex → pp → parse → type check → emit → QBE]
  */
 #include "cli.h"
+#include <stdarg.h>
 #include <time.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -296,13 +297,15 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
  *
  * Cleared: lex tokens/pos; diag error_count/fatal; symbol hash (freed) and
  * symbols_len/block/current_fn; unit funcs/globals/unit_files; type_list
- * (abandoned; compile_graph → type_init rebuilds builtins once). Token/symbol/
- * AST list pointers are dropped without free — arena-style for the process.
+ * (abandoned; compile_graph → type_init rebuilds builtins once); pragma link
+ * lists (c_libs/frameworks/csources lens — avoids cross-root contamination).
+ * Token/symbol/AST list pointers are dropped without free — arena-style.
  *
- * Preserved: CompOpt; CompPaths; CompPp (macros, #pragma once, intern);
- * diag quiet flags / diag_log; unit.src_files/src_text/strpool/static_seq
- * (needed by export-load and multi-root build). Callers that need a fresh
- * preprocessor (e.g. selftest) must pp_clear_macros / pp_clear_once themselves.
+ * Preserved: CompOpt; CompPaths (incpaths/sysinc/project_root/…); CompPp
+ * (macros, #pragma once, intern); diag quiet flags / diag_log;
+ * unit.src_files/src_text/strpool/static_seq (export-load / multi-root).
+ * Callers that need a fresh preprocessor (e.g. selftest) must
+ * pp_clear_macros / pp_clear_once themselves.
  */
 void
 reset_comp_state(Compiler* c) {
@@ -328,6 +331,9 @@ reset_comp_state(Compiler* c) {
 	c->types.type_list = NULL;
 	c->unit.unit_files = NULL;
 	c->unit.unit_files_len = 0;
+	c->paths.c_libs_len = 0;
+	c->paths.frameworks_len = 0;
+	c->paths.csources_len = 0;
 }
 
 // Compile one root and write QBE to outpath or stdout.
@@ -674,8 +680,14 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
-	h = cache_hash_mix(h, cache_hash_str(tool_cc(c)));
-	h = cache_hash_mix(h, cache_hash_str(tool_cxx()));
+	/* Path + mtime/size so in-place cc/qbe upgrades invalidate. */
+	h = cache_hash_mix(h, cache_hash_tool(tool_cc(c)));
+	h = cache_hash_mix(h, cache_hash_tool(tool_cxx()));
+	{
+		const char* qbe = tool_qbe();
+		if (qbe)
+			h = cache_hash_mix(h, cache_hash_tool(qbe));
+	}
 	for (i = 0; i < c->paths.cli_defs_len; i++)
 		h = cache_hash_mix(h, cache_hash_str(c->paths.cli_defs[i]));
 	for (i = 0; i < c->paths.incpaths_len; i++) {
@@ -704,14 +716,14 @@ foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* proj
 	char key[HOST_PATH_MAX], srcdir[HOST_PATH_MAX];
 	int i;
 
-	h = cache_hash_file(src);
+	h = cache_mix_file(0, src);
 	cache_path_key(src, projroot, key, sizeof(key));
 	h = cache_hash_mix(h, cache_hash_str(key));
 	src_dirname(src, srcdir, sizeof(srcdir));
 	cache_path_key(srcdir, projroot, key, sizeof(key));
 	h = cache_hash_mix(h, cache_hash_str(key));
 	h = cache_hash_mix(h, cache_hash_str(MODC_VERSION));
-	h = cache_hash_mix(h, cache_hash_str(comp));
+	h = cache_hash_mix(h, cache_hash_tool(comp));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	for (i = 0; i < c->paths.cli_defs_len; i++)
@@ -911,32 +923,48 @@ collect_build_pkgs(char** files, int nfiles, BuildPkg* pkgs, int* npkgs) {
 	return 0;
 }
 
-// Mix immediate *.h files under dir into an impl hash.
+// Mix *.h under dir (recursive) into an impl hash. Skips symlinks.
+// Relpath from pkgroot is mixed so renames invalidate even with identical bytes.
 static uint64_t
-hash_pkg_headers(const char* dir, uint64_t h) {
+hash_pkg_headers_rec(const char* dir, const char* pkgroot, uint64_t h, int depth) {
 	HostDir* d;
 	const char* name;
 	char path[HOST_PATH_MAX];
-	size_t n;
+	size_t n, rootlen;
 
+	if (depth > 32)
+		return h;
 	d = host_opendir(dir);
 	if (d == NULL)
 		return h;
+	rootlen = strlen(pkgroot);
 	while ((name = host_readdir(d)) != NULL) {
 		if (name[0] == '.')
 			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, name);
+		if (host_is_symlink(path))
+			continue;
+		if (host_is_dir(path)) {
+			h = hash_pkg_headers_rec(path, pkgroot, h, depth + 1);
+			continue;
+		}
 		n = strlen(name);
 		if (n < 3 || strcmp(name + n - 2, ".h") != 0)
 			continue;
-		snprintf(path, sizeof(path), "%s/%s", dir, name);
-		if (host_is_file(path))
-			h = cache_hash_mix(h, cache_hash_file(path));
+		if (!host_is_file(path))
+			continue;
+		if (strncmp(path, pkgroot, rootlen) == 0 &&
+		    (path[rootlen] == '/' || path[rootlen] == '\\'))
+			h = cache_hash_mix(h, cache_hash_str(path + rootlen));
+		else
+			h = cache_hash_mix(h, cache_hash_str(path));
+		h = cache_mix_file(h, path);
 	}
 	host_closedir(d);
 	return h;
 }
 
-// Content hash of a package implementation (.mc + local .h).
+// Content hash of a package implementation (.mc + local .h, nested).
 static uint64_t
 pkg_impl_hash(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 	uint64_t h;
@@ -951,9 +979,9 @@ pkg_impl_hash(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 			snprintf(root, sizeof(root), "%s", abs);
 		if (strcmp(root, pkg->dir) != 0)
 			continue;
-		h = cache_hash_mix(h, cache_hash_file(files[i]));
+		h = cache_mix_file(h, files[i]);
 	}
-	h = hash_pkg_headers(pkg->dir, h);
+	h = hash_pkg_headers_rec(pkg->dir, pkg->dir, h, 0);
 	return h;
 }
 
@@ -1124,43 +1152,65 @@ graph_digest(BuildPkg* pkgs, int npkgs, uint64_t knobs) {
 	return h;
 }
 
-// Persist c_libs/frameworks/csources for a later all-hit link.
+// Append snprintf into a growing heap buffer. Returns 0 ok.
+static int
+link_meta_printf(char** buf, size_t* off, size_t* cap, const char* fmt, ...) {
+	va_list ap;
+	int n;
+	size_t need;
+
+	for (;;) {
+		va_start(ap, fmt);
+		n = vsnprintf(*buf ? *buf + *off : NULL, *buf ? *cap - *off : 0, fmt, ap);
+		va_end(ap);
+		if (n < 0)
+			return 1;
+		need = *off + (size_t)n + 1;
+		if (*buf && need <= *cap) {
+			*off += (size_t)n;
+			return 0;
+		}
+		if (*cap == 0)
+			*cap = 256;
+		while (*cap < need)
+			*cap *= 2;
+		*buf = xrealloc(*buf, *cap);
+	}
+}
+
+// Persist c_libs/frameworks/csources for a later all-hit link (heap, no 64KiB cap).
 static int
 save_link_meta(Compiler* c, CliOpts* o, const char* path) {
-	char buf[65536];
-	int off, i, n;
+	char* buf;
+	size_t off, cap;
+	int i;
 
+	buf = NULL;
 	off = 0;
-	n = 0;
-	for (i = 0; i < c->paths.c_libs_len; i++) {
-		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "L %s\n",
-			     c->paths.c_libs[i]);
-		if (n < 0 || n >= (int)sizeof(buf) - off)
-			return 1;
-		off += n;
+	cap = 0;
+	for (i = 0; i < c->paths.c_libs_len; i++)
+		if (link_meta_printf(&buf, &off, &cap, "L %s\n", c->paths.c_libs[i]))
+			goto fail;
+	for (i = 0; i < c->paths.frameworks_len; i++)
+		if (link_meta_printf(&buf, &off, &cap, "F %s\n", c->paths.frameworks[i]))
+			goto fail;
+	for (i = 0; i < c->paths.csources_len; i++)
+		if (link_meta_printf(&buf, &off, &cap, "S %s\n", c->paths.csources[i]))
+			goto fail;
+	for (i = 0; i < o->linkargv_len; i++)
+		if (link_meta_printf(&buf, &off, &cap, "X %s\n", o->linkargv[i]))
+			goto fail;
+	if (cache_write_bytes(path, buf ? buf : "", off) != 0) {
+		fprintf(stderr, "modc: cannot write linkmeta %s\n", path);
+		free(buf);
+		return 1;
 	}
-	for (i = 0; i < c->paths.frameworks_len; i++) {
-		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "F %s\n",
-			     c->paths.frameworks[i]);
-		if (n < 0 || n >= (int)sizeof(buf) - off)
-			return 1;
-		off += n;
-	}
-	for (i = 0; i < c->paths.csources_len; i++) {
-		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "S %s\n",
-			     c->paths.csources[i]);
-		if (n < 0 || n >= (int)sizeof(buf) - off)
-			return 1;
-		off += n;
-	}
-	for (i = 0; i < o->linkargv_len; i++) {
-		n = snprintf(buf + off, sizeof(buf) - (size_t)off, "X %s\n",
-			     o->linkargv[i]);
-		if (n < 0 || n >= (int)sizeof(buf) - off)
-			return 1;
-		off += n;
-	}
-	return cache_write_bytes(path, buf, (size_t)off);
+	free(buf);
+	return 0;
+fail:
+	fprintf(stderr, "modc: linkmeta too large to format\n");
+	free(buf);
+	return 1;
 }
 
 // Record an absolute c_sources path (linkmeta reload).
