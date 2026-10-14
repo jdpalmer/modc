@@ -114,6 +114,13 @@ check-special: $(MODC)
 	@printf '[deps.bad]\ngit = $$(touch $(BUILD)/vendor-pwned)\nrev = 0000000000000000000000000000000000000000\n' > $(BUILD)/vendor_inject/modc.ini
 	@./modc vendor -C $(BUILD)/vendor_inject >/dev/null 2>&1; test $$? -ne 0
 	@test ! -e $(BUILD)/vendor-pwned
+	@printf '[deps.bad]\ngit = --upload-pack=evil\nrev = 0000000000000000000000000000000000000000\n' > $(BUILD)/vendor_inject/modc.ini
+	@./modc vendor -C $(BUILD)/vendor_inject >$(BUILD)/vendor_inject.out 2>&1; test $$? -ne 0
+	@grep -Fq 'git URL' $(BUILD)/vendor_inject.out
+	@printf '[deps.bad]\ngit = file://$(BUILD)/vrepos/log\nrev = --output=/tmp/modc-vendor-pwned\n' > $(BUILD)/vendor_inject/modc.ini
+	@./modc vendor -C $(BUILD)/vendor_inject >$(BUILD)/vendor_inject.out 2>&1; test $$? -ne 0
+	@grep -Fq 'invalid rev' $(BUILD)/vendor_inject.out
+	@test ! -e /tmp/modc-vendor-pwned
 	# --- cache: miss, hit, one foreign invalidation ---
 	@rm -rf test/.modc-cache
 	./modc build -v test/cli_build_test.mc -o $(BUILD)/cache_cli 2>&1 | tee $(BUILD)/cache_cli1.log

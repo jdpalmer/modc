@@ -99,6 +99,70 @@ valid_subdir(const char* s) {
 	return 1;
 }
 
+/*
+ * Git remote URL for clone/ls-remote. Rejects leading '-' (option injection)
+ * and requires a recognizable URL shape (not a free-form argv token).
+ */
+static int
+valid_git_url(const char* s) {
+	const unsigned char* p;
+	const char* colon;
+	int at;
+
+	if (s == NULL || s[0] == 0 || s[0] == '-')
+		return 0;
+	for (p = (const unsigned char*)s; *p; p++)
+		if (*p < 0x20 || *p == 0x7f)
+			return 0;
+	if (strncmp(s, "https://", 8) == 0)
+		return s[8] != 0;
+	if (strncmp(s, "http://", 7) == 0)
+		return s[7] != 0;
+	if (strncmp(s, "ssh://", 6) == 0)
+		return s[6] != 0;
+	if (strncmp(s, "git://", 6) == 0)
+		return s[6] != 0;
+	if (strncmp(s, "file://", 7) == 0)
+		return s[7] != 0;
+	/* scp-like: [user@]host:path (not a scheme URL). */
+	at = 0;
+	for (p = (const unsigned char*)s; *p && *p != ':'; p++) {
+		if (*p == '@') {
+			if (at || p == (const unsigned char*)s)
+				return 0;
+			at = 1;
+			continue;
+		}
+		if (!isalnum(*p) && *p != '.' && *p != '-' && *p != '_')
+			return 0;
+	}
+	colon = (const char*)p;
+	if (*colon != ':' || colon[1] == 0)
+		return 0;
+	/* host part before ':' must be non-empty (and not only "user@"). */
+	if (colon == s || colon[-1] == '@')
+		return 0;
+	return 1;
+}
+
+/* tag / branch / rev passed to git: no leading '-', no metacharacters. */
+static int
+valid_git_ref(const char* s) {
+	const unsigned char* p;
+
+	if (s == NULL || s[0] == 0 || s[0] == '-')
+		return 0;
+	for (p = (const unsigned char*)s; *p; p++) {
+		if (isalnum(*p) || *p == '/' || *p == '_' || *p == '.' || *p == '-' ||
+		    *p == '+')
+			continue;
+		return 0;
+	}
+	if (strstr(s, "..") != NULL)
+		return 0;
+	return 1;
+}
+
 // Verify an existing selected subdirectory still resolves beneath its clone.
 static int
 path_within(const char* root, const char* path) {
@@ -320,7 +384,7 @@ dep_dup(DepSpec* dst, DepSpec* src) {
 // Pin a dependency to a concrete commit: use rev as-is or resolve tag/branch via git.
 static int
 resolve_git_rev(DepSpec* d, char* revout, size_t nrev, VendorCtx* ctx) {
-	const char* argv[7];
+	const char* argv[8];
 	char ref[1024], got[128];
 
 	if (d->rev) {
@@ -334,10 +398,11 @@ resolve_git_rev(DepSpec* d, char* revout, size_t nrev, VendorCtx* ctx) {
 		argv[0] = "git";
 		argv[1] = "ls-remote";
 		argv[2] = "--refs";
-		argv[3] = d->git;
-		argv[4] = ref;
-		argv[5] = NULL;
-		if (run_capture(got, sizeof(got), argv)) {
+		argv[3] = "--";
+		argv[4] = d->git;
+		argv[5] = ref;
+		argv[6] = NULL;
+		if (run_capture(got, sizeof(got), argv) || !valid_git_ref(got)) {
 			fprintf(stderr, "modc vendor: cannot resolve tag \"%s\" for %s\n",
 				d->tag, d->git);
 			return 1;
@@ -353,10 +418,11 @@ resolve_git_rev(DepSpec* d, char* revout, size_t nrev, VendorCtx* ctx) {
 			return 1;
 		argv[0] = "git";
 		argv[1] = "ls-remote";
-		argv[2] = d->git;
-		argv[3] = ref;
-		argv[4] = NULL;
-		if (run_capture(got, sizeof(got), argv)) {
+		argv[2] = "--";
+		argv[3] = d->git;
+		argv[4] = ref;
+		argv[5] = NULL;
+		if (run_capture(got, sizeof(got), argv) || !valid_git_ref(got)) {
 			fprintf(stderr, "modc vendor: cannot resolve branch \"%s\" for %s\n",
 				d->branch, d->git);
 			return 1;
@@ -495,6 +561,24 @@ parse_deps_ini(IniFile* ini, const char* prefix, DepSpec** out, int* out_len) {
 				s->name);
 			goto fail_current;
 		}
+		if (!valid_git_url(list[n].git)) {
+			fprintf(stderr,
+				"modc vendor: [%s] git URL is missing, looks like a flag, or is not https/http/ssh/git/file/scp-like\n",
+				s->name);
+			goto fail_current;
+		}
+		if (list[n].tag && !valid_git_ref(list[n].tag)) {
+			fprintf(stderr, "modc vendor: [%s] invalid tag\n", s->name);
+			goto fail_current;
+		}
+		if (list[n].rev && !valid_git_ref(list[n].rev)) {
+			fprintf(stderr, "modc vendor: [%s] invalid rev\n", s->name);
+			goto fail_current;
+		}
+		if (list[n].branch && !valid_git_ref(list[n].branch)) {
+			fprintf(stderr, "modc vendor: [%s] invalid branch\n", s->name);
+			goto fail_current;
+		}
 		if (!valid_subdir(list[n].subdir)) {
 			fprintf(stderr,
 				"modc vendor: [%s] subdir must be a relative path without traversal\n",
@@ -529,7 +613,7 @@ deps_free(DepSpec* deps, int n) {
 // Clone a git repo into a fresh temp dir and check out the pinned revision.
 static int
 clone_to_temp(DepSpec* d, const char* rev, char* tmpdir, size_t ntmp, VendorCtx* ctx) {
-	const char* argv[9];
+	const char* argv[10];
 
 	if (host_mkdtemp(tmpdir, ntmp, "modc-vendor") != 0) {
 		fprintf(stderr, "modc vendor: cannot create temp dir: %s\n", strerror(errno));
@@ -540,20 +624,24 @@ clone_to_temp(DepSpec* d, const char* rev, char* tmpdir, size_t ntmp, VendorCtx*
 	argv[0] = "git";
 	argv[1] = "clone";
 	argv[2] = "--quiet";
-	argv[3] = d->git;
-	argv[4] = tmpdir;
-	argv[5] = NULL;
+	argv[3] = "--";
+	argv[4] = d->git;
+	argv[5] = tmpdir;
+	argv[6] = NULL;
 	if (run_status(argv)) {
 		fprintf(stderr, "modc vendor: git clone failed for \"%s\"\n", d->git);
 		return 1;
 	}
+	/* No "--" before rev: checkout treats post--" args as pathspecs.
+	 * valid_git_ref already rejected leading '-'. */
 	argv[0] = "git";
 	argv[1] = "-C";
 	argv[2] = tmpdir;
 	argv[3] = "checkout";
 	argv[4] = "--quiet";
-	argv[5] = rev;
-	argv[6] = NULL;
+	argv[5] = "--detach";
+	argv[6] = rev;
+	argv[7] = NULL;
 	if (run_status(argv)) {
 		fprintf(stderr, "modc vendor: git checkout %s failed for \"%s\"\n", rev, d->git);
 		return 1;
@@ -755,6 +843,13 @@ load_lock(VendorCtx* ctx, LockedPkg* pkgs, int* out_len) {
 		}
 		if (!valid_dep_name(name) || !valid_subdir(subdir)) {
 			fprintf(stderr, "modc vendor: unsafe package path in [%s]\n",
+				ini.sect[i].name);
+			locked_free_all(pkgs, n);
+			ini_free(&ini);
+			return 1;
+		}
+		if (!valid_git_url(git) || !valid_git_ref(rev)) {
+			fprintf(stderr, "modc vendor: unsafe git or rev in [%s]\n",
 				ini.sect[i].name);
 			locked_free_all(pkgs, n);
 			ini_free(&ini);
