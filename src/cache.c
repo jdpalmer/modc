@@ -218,53 +218,30 @@ void cache_log(int verbose, const char* hitmiss, const char* what) {
 
 // Copy src to dst, creating parent dirs; used to materialize cache hits.
 int cache_copy_file(const char* src, const char* dst) {
-	if (mkdir_parents(dst) != 0) {
-		return 1;
-	}
 	size_t n;
-	char *text = read_file(src, &n);
-	if (text == NULL) {
+	char* text;
+	int r;
+
+	if (mkdir_parents(dst) != 0)
 		return 1;
-	}
-	FILE *f = fopen(dst, "wb");
-	if (f == NULL) {
-		free(text);
+	text = read_file(src, &n);
+	if (text == NULL)
 		return 1;
-	}
-	if (n && fwrite(text, 1, n, f) != n) {
-		fclose(f);
-		host_unlink(dst);
-		free(text);
-		return 1;
-	}
-	if (fclose(f) != 0) {
-		host_unlink(dst);
-		free(text);
-		return 1;
-	}
+	r = host_write_atomic(dst, text, n);
 	free(text);
-	return 0;
+	return r != 0;
 }
 
 // Write n bytes to path (creates parents); for iface/needs/stamp blobs.
 int cache_write_bytes(const char* path, const void* data, size_t n) {
-	if (mkdir_parents(path) != 0) {
+	if (mkdir_parents(path) != 0)
 		return 1;
+	if (data == NULL) {
+		if (n != 0)
+			return 1;
+		data = "";
 	}
-	FILE *f = fopen(path, "wb");
-	if (f == NULL) {
-		return 1;
-	}
-	if (n && fwrite(data, 1, n, f) != n) {
-		fclose(f);
-		host_unlink(path);
-		return 1;
-	}
-	if (fclose(f) != 0) {
-		host_unlink(path);
-		return 1;
-	}
-	return 0;
+	return host_write_atomic(path, data, n) != 0;
 }
 
 // Write a NUL-terminated string to path (NULL becomes empty).

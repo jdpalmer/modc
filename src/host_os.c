@@ -397,6 +397,21 @@ fail:
 	return -1;
 }
 
+// Replace to with existing file from (from is removed / renamed onto to).
+int
+host_publish_file(const char* from, const char* to) {
+	if (from == NULL || to == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (!MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+		DeleteFileA(from);
+		errno = EIO;
+		return -1;
+	}
+	return 0;
+}
+
 // Create a unique temp directory named with prefix; path in out.
 int
 host_mkdtemp(char* out, size_t n, const char* prefix) {
@@ -830,6 +845,22 @@ fail:
 	unlink(tmp);
 	errno = saved;
 	return -1;
+}
+
+// Replace to with existing file from (from is removed / renamed onto to).
+int
+host_publish_file(const char* from, const char* to) {
+	if (from == NULL || to == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (rename(from, to) != 0) {
+		int saved = errno;
+		unlink(from);
+		errno = saved;
+		return -1;
+	}
+	return 0;
 }
 
 // Create a unique temp directory named with prefix; path in out.

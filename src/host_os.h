@@ -41,6 +41,8 @@ int host_rmtree(const char* path); /* 0 ok; recursive */
 int host_rename(const char* from, const char* to); /* 0 ok; no replacement */
 /* Replace path only after data is completely written and synced. */
 int host_write_atomic(const char* path, const void* data, size_t len);
+/* Replace `to` with existing file `from` (consumes from). 0 ok. */
+int host_publish_file(const char* from, const char* to);
 
 /* Create unique temp directory; writes path into out. prefix e.g. "modc-build". */
 int host_mkdtemp(char* out, size_t n, const char* prefix);

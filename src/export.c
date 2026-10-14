@@ -7,12 +7,17 @@
 #include "ast.h"
 #include <ctype.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "host_os.h"
 
-enum { ExportVer = 2 };
+enum {
+	ExportVer = 2,
+	ExportMaxTypeId = 100000,
+	ExportMaxFields = 4096
+};
 
 typedef struct {
 	Type* type;
@@ -480,7 +485,10 @@ export_write_pkg(Compiler* c, const char* pkg_dir, const char* path) {
 	SymTab syms = {0};
 	Symbol* s;
 	FILE* f;
-	int i;
+	char* buf;
+	long flen;
+	size_t n;
+	int i, err;
 
 	if (c == NULL || pkg_dir == NULL || path == NULL)
 		return 1;
@@ -492,23 +500,63 @@ export_write_pkg(Compiler* c, const char* pkg_dir, const char* path) {
 	for (i = 0; i < syms.len; i++)
 		collect_sym_types(c, &types, &syms, syms.syms[i], pkg_dir);
 
-	if (mkdir_parents(path) != 0)
+	if (mkdir_parents(path) != 0) {
+		free(types.ents);
+		free(syms.syms);
 		return 1;
-	f = fopen(path, "wb");
-	if (f == NULL)
+	}
+	/* Stage in a temp stream, then publish atomically (no torn export). */
+	f = tmpfile();
+	if (f == NULL) {
+		free(types.ents);
+		free(syms.syms);
 		return 1;
-	fprintf(f, "modc-export %d\n", ExportVer);
-	fprintf(f, "pkg ");
-	write_tok(f, pkg_dir);
-	fputc('\n', f);
-	for (i = 0; i < types.len; i++)
+	}
+	err = 0;
+	if (fprintf(f, "modc-export %d\n", ExportVer) < 0)
+		err = 1;
+	if (!err && fputs("pkg ", f) == EOF)
+		err = 1;
+	if (!err)
+		write_tok(f, pkg_dir);
+	if (!err && fputc('\n', f) == EOF)
+		err = 1;
+	for (i = 0; !err && i < types.len; i++)
 		write_type(f, &types, &types.ents[i], i + 1);
-	for (i = 0; i < syms.len; i++)
+	for (i = 0; !err && i < syms.len; i++)
 		write_sym(f, &types, syms.syms[i]);
-	fclose(f);
+	if (ferror(f) || fflush(f) != 0)
+		err = 1;
 	free(types.ents);
 	free(syms.syms);
-	return 0;
+	if (err) {
+		fclose(f);
+		return 1;
+	}
+	if (fseek(f, 0, SEEK_END) != 0) {
+		fclose(f);
+		return 1;
+	}
+	flen = ftell(f);
+	if (flen < 0) {
+		fclose(f);
+		return 1;
+	}
+	n = (size_t)flen;
+	if (fseek(f, 0, SEEK_SET) != 0) {
+		fclose(f);
+		return 1;
+	}
+	buf = n ? xmalloc(n) : NULL;
+	if (n && fread(buf, 1, n, f) != n) {
+		free(buf);
+		fclose(f);
+		return 1;
+	}
+	fclose(f);
+	err = host_write_atomic(path, buf ? buf : "", n) != 0;
+	free(buf);
+	return err;
 }
 
 /* ---- load ---- */
@@ -720,7 +768,9 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt) {
 		t->len = len;
 		t->is_readonly = ro;
 		if (len >= 0 && t->base && t->base->size > 0) {
-			t->size = (int)(len * t->base->size);
+			if (t->base->size > 0 && len > (int64_t)(INT_MAX / t->base->size))
+				return 1;
+			t->size = (int)(len * (int64_t)t->base->size);
 			t->align = t->base->align > 0 ? t->base->align : 1;
 			t->complete = 1;
 			t->laid_out = 1;
@@ -734,6 +784,8 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt) {
 		nparams = tok ? atoi(tok) : 0;
 		tok = read_tok(&p);
 		va = tok ? atoi(tok) : 0;
+		if (nparams < 0 || nparams > MaxParams)
+			return 1;
 		t->kind = TyFunc;
 		t->base = map_ty(map, max_id, id);
 		t->params_len = nparams;
@@ -804,6 +856,8 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt) {
 		poly = tok ? atoi(tok) : 0;
 		tok = read_tok(&p);
 		nf = tok ? atoi(tok) : 0;
+		if (nf < 0 || nf > ExportMaxFields)
+			return 1;
 
 		/* Fill in place; type_eq is structural for ranged/tuple shapes. */
 		if (ranged) {
@@ -1027,7 +1081,7 @@ export_load(Compiler* c, const char* path) {
 			tok = read_tok(&p);
 			id = tok ? atoi(tok) : 0;
 			tok = read_tok(&p);
-			if (id <= 0 || tok == NULL) {
+			if (id <= 0 || id > ExportMaxTypeId || tok == NULL) {
 				free(text);
 				free(map);
 				free(ltypes);
@@ -1037,6 +1091,13 @@ export_load(Compiler* c, const char* path) {
 			if (id >= map_cap) {
 				int old = map_cap;
 				map_cap = id + 16;
+				if (map_cap < id || map_cap > ExportMaxTypeId + 16) {
+					free(text);
+					free(map);
+					free(ltypes);
+					free(lsyms);
+					return 1;
+				}
 				map = xrealloc(map, (size_t)map_cap * sizeof(Type*));
 				memset(map + old, 0, (size_t)(map_cap - old) * sizeof(Type*));
 			}
