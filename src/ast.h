@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "host_os.h"
 
 typedef struct Span Span;
 typedef struct Tok Tok;
@@ -588,7 +589,7 @@ struct CompPaths {
 	char** pkgpaths;
 	int pkgpaths_len;
 	// Nearest modc.ini directory, else entry directory.
-	char project_root[1024];
+	char project_root[HOST_PATH_MAX];
 	// Stdlib package root (install or in-tree).
 	char* modc_pkg;
 	// #pragma modc c_libs
