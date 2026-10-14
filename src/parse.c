@@ -3947,7 +3947,12 @@ typedef_declarator_name(Tok* toks, int start, int end) {
 			if (d == 0)
 				last0 = t->s;
 			else if (d == 1 && after_star) {
-				fp = t->s;
+				/*
+				 * First (*Name) wins. Later *param in the prototype
+				 * (e.g. typedef void (*Fn)(T *buf)) must not replace Name.
+				 */
+				if (fp == NULL)
+					fp = t->s;
 				after_star = 0;
 			} else
 				after_star = 0;

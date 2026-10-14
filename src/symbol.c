@@ -15,19 +15,34 @@
 #include <string.h>
 
 // Rebuild the symbol hash table at capacity cap from the linked symbol list.
+// symbols is newest-first; insert oldest→newest so buckets stay newest-first
+// (shadowing relies on lookup seeing the innermost binding first).
 static void
 symbol_tab_rebuild(Compiler* c, int cap) {
-	Symbol* s;
+	Symbol *s, **arr;
 	unsigned i;
+	int n, j;
 
 	free(c->syms.symbol_tab);
 	c->syms.symbol_tab = xmalloc((size_t)cap * sizeof(Symbol*));
+	memset(c->syms.symbol_tab, 0, (size_t)cap * sizeof(Symbol*));
 	c->syms.symbol_tab_cap = cap;
-	for (s = c->syms.symbols; s; s = s->next) {
+	n = 0;
+	for (s = c->syms.symbols; s; s = s->next)
+		n++;
+	if (n == 0)
+		return;
+	arr = xmalloc((size_t)n * sizeof(Symbol*));
+	j = 0;
+	for (s = c->syms.symbols; s; s = s->next)
+		arr[j++] = s;
+	for (j = n - 1; j >= 0; j--) {
+		s = arr[j];
 		i = str_hash(s->name) & (unsigned)(cap - 1);
 		s->hash_next = c->syms.symbol_tab[i];
 		c->syms.symbol_tab[i] = s;
 	}
+	free(arr);
 }
 
 // Insert s into the symbol hash (s already linked on c->syms.symbols).
@@ -85,8 +100,10 @@ symbol_visible(Compiler* c, Symbol* s) {
 }
 
 // Find the visible symbol by name in the current scope chain.
+// Prefer the innermost binding (highest block) so file-scope names cannot
+// beat parameters/locals after a hash-table rebuild reorders chains.
 Symbol* symbol_lookup(Compiler* c, const char* name) {
-	Symbol *s, *tag = NULL;
+	Symbol *s, *tag = NULL, *best = NULL;
 	unsigned i;
 
 	if (name == NULL || c->syms.symbol_tab_cap == 0)
@@ -104,9 +121,10 @@ Symbol* symbol_lookup(Compiler* c, const char* name) {
 				tag = s;
 			continue;
 		}
-		return s;
+		if (best == NULL || s->block > best->block)
+			best = s;
 	}
-	return tag;
+	return best ? best : tag;
 }
 
 // Find a visible struct/union/enum tag symbol.
