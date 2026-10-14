@@ -15,16 +15,41 @@
  * Prefix da_ — definite assignment (uninit locals).
  * Tracks which locals are assigned on every path; merges with intersect at
  * joins; loops keep pre-loop state (body may not run). Skipped when the
- * function contains goto (non-linear CFG).
+ * function contains goto (non-linear CFG). Growable — no silent 128-cap drop.
  */
-enum { DAMax = 128 };
-
 typedef struct DAState DAState;
 struct DAState {
-	Symbol* symbols[DAMax];
-	unsigned char assigned[DAMax];
+	Symbol** symbols;
+	unsigned char* assigned;
 	int n;
+	int cap;
 };
+
+static void
+da_release(DAState* st) {
+	if (st == NULL)
+		return;
+	free(st->symbols);
+	free(st->assigned);
+	st->symbols = NULL;
+	st->assigned = NULL;
+	st->n = 0;
+	st->cap = 0;
+}
+
+static void
+da_grow(DAState* st, int need) {
+	int ncap;
+
+	if (need <= st->cap)
+		return;
+	ncap = st->cap ? st->cap * 2 : 32;
+	while (ncap < need)
+		ncap *= 2;
+	st->symbols = xrealloc(st->symbols, (size_t)ncap * sizeof(Symbol*));
+	st->assigned = xrealloc(st->assigned, (size_t)ncap);
+	st->cap = ncap;
+}
 
 // True if the subtree contains a goto; skips uninit analysis when control is non-linear.
 static int da_has_goto(Node* n) {
@@ -73,9 +98,7 @@ static void da_add(DAState* st, Symbol* s, int assigned) {
 		st->assigned[i] = (unsigned char)assigned;
 		return;
 	}
-	if (st->n >= DAMax) {
-		return;
-	}
+	da_grow(st, st->n + 1);
 	st->symbols[st->n] = s;
 	st->assigned[st->n] = (unsigned char)assigned;
 	st->n++;
@@ -91,9 +114,14 @@ static void da_set(DAState* st, Symbol* s, int assigned) {
 	}
 }
 
-// Copy definite-assignment state.
+// Copy definite-assignment state (deep; dst keeps its own buffers).
 static void da_copy(DAState* dst, DAState* src) {
-	*dst = *src;
+	da_grow(dst, src->n);
+	if (src->n > 0) {
+		memcpy(dst->symbols, src->symbols, (size_t)src->n * sizeof(Symbol*));
+		memcpy(dst->assigned, src->assigned, (size_t)src->n);
+	}
+	dst->n = src->n;
 }
 
 // Merge two paths: a symbol is assigned only if assigned on both.
@@ -156,7 +184,7 @@ static void da_init(Compiler* c, Initializer* in, DAState* st) {
 
 // Propagate definite-assignment through expressions; models short-circuit and branches.
 static void da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
-	DAState a, b;
+	DAState a = {0}, b = {0};
 
 	if (n == NULL) {
 		return;
@@ -209,7 +237,7 @@ static void da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 			da_copy(&a, st);
 			da_expr(c, n->b, &a, 0);
 			/* RHS may not run — drop its assignments */
-			(void)a;
+			da_release(&a);
 			return;
 		}
 		da_expr(c, n->a, st, 0);
@@ -222,6 +250,8 @@ static void da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 		da_expr(c, n->b, &a, 0);
 		da_expr(c, n->c, &b, 0);
 		da_intersect(st, &a, &b);
+		da_release(&a);
+		da_release(&b);
 		return;
 	case NdComma:
 		da_expr(c, n->a, st, 0);
@@ -276,7 +306,7 @@ static void for_init_da(Compiler* c, Node* init, DAState* st) {
 
 // Propagate definite-assignment through statements; joins intersect at branches.
 static void da_stmt(Compiler* c, Node* n, DAState* st) {
-	DAState a, b;
+	DAState a = {0}, b = {0};
 
 	if (n == NULL) {
 		return;
@@ -303,12 +333,15 @@ static void da_stmt(Compiler* c, Node* n, DAState* st) {
 			da_stmt(c, n->c, &b);
 		}
 		da_intersect(st, &a, &b);
+		da_release(&a);
+		da_release(&b);
 		return;
 	case NdWhile:
 		da_expr(c, n->a, st, 0);
 		da_copy(&a, st);
 		da_stmt(c, n->b, &a);
 		/* body may not run — keep pre-loop assignments only */
+		da_release(&a);
 		return;
 	case NdDo:
 		da_stmt(c, n->a, st);
@@ -322,11 +355,13 @@ static void da_stmt(Compiler* c, Node* n, DAState* st) {
 			da_stmt(c, n->children[0], &a);
 		}
 		da_expr(c, n->c, &a, 0);
+		da_release(&a);
 		return;
 	case NdSwitch:
 		da_expr(c, n->a, st, 0);
 		da_copy(&a, st);
 		da_stmt(c, n->b, &a);
+		da_release(&a);
 		return;
 	case NdCase:
 	case NdDefault:
@@ -340,6 +375,7 @@ static void da_stmt(Compiler* c, Node* n, DAState* st) {
 	case NdDefer:
 		da_copy(&a, st);
 		da_stmt(c, n->a, &a);
+		da_release(&a);
 		return;
 	case NdBreak:
 	case NdContinue:
@@ -356,7 +392,7 @@ static void da_stmt(Compiler* c, Node* n, DAState* st) {
 
 // Per-function pass: diagnose reads of uninitialized scalar locals.
 static void check_uninit_func(Compiler* c, Node* fn) {
-	DAState st;
+	DAState st = {0};
 
 	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL) {
 		return;
@@ -367,8 +403,8 @@ static void check_uninit_func(Compiler* c, Node* fn) {
 	if (da_has_goto(fn->a)) {
 		return;
 	}
-	memset(&st, 0, sizeof(st));
 	da_stmt(c, fn->a, &st);
+	da_release(&st);
 }
 
 static int stmt_returns(Compiler* c, Node* n);

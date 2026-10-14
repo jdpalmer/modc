@@ -218,6 +218,8 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, int nexport
 			break;
 		}
 	}
+	/* Tokens are unused after parse; free on every exit. infile stays live:
+	 * AST/Symbol spans alias those strings (arena-style for the process). */
 	if (r) {
 		if (profile)
 			fprintf(stderr,
@@ -240,6 +242,8 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, int nexport
 			fprintf(stderr,
 				"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs type=%.3fs\n",
 				t_lexpp, t_prescan, t_parse, t_type);
+		for (i = 0; i < nfiles; i++)
+			free(cache[i].tokens);
 		free(cache);
 		return 1;
 	}
@@ -247,7 +251,8 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, int nexport
 		fprintf(stderr,
 			"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs type=%.3fs\n",
 			t_lexpp, t_prescan, t_parse, t_type);
-	/* Keep cache[i].infile alive: AST/Symbol spans still alias those strings. */
+	for (i = 0; i < nfiles; i++)
+		free(cache[i].tokens);
 	free(cache);
 	return 0;
 }
@@ -410,15 +415,52 @@ run_argv(int verbose, const char* const argv[]) {
 	return 0;
 }
 
+// True if path is a regular file we can execute.
+static int
+tool_is_exe(const char* path) {
+	if (!host_is_file(path))
+		return 0;
+#ifdef _WIN32
+	return 1;
+#else
+	return access(path, X_OK) == 0;
+#endif
+}
+
+/* MODC_CC / MODC_CXX: require a real executable (path or bare name on PATH). */
+static const char*
+tool_env_override(const char* envname, const char* val, char* buf, size_t nbuf) {
+	static char last_env[32];
+	static char last_val[HOST_PATH_MAX];
+	static int last_bad;
+
+	if (val == NULL || val[0] == 0)
+		return NULL;
+	if (tool_is_exe(val))
+		return val;
+	if (!host_path_has_sep(val) &&
+	    host_resolve_on_path(val, buf, nbuf) == 0 && tool_is_exe(buf))
+		return buf;
+	/* One diagnostic per distinct bad override (knobs may probe twice). */
+	if (!last_bad || strcmp(last_env, envname) != 0 || strcmp(last_val, val) != 0) {
+		fprintf(stderr, "modc: %s=%s is not an executable file\n", envname, val);
+		snprintf(last_env, sizeof(last_env), "%s", envname);
+		snprintf(last_val, sizeof(last_val), "%s", val);
+		last_bad = 1;
+	}
+	return NULL;
+}
+
 // Host C compiler for assemble/link (MODC_CC, CC, or platform / --target default).
 static const char*
 tool_cc(Compiler* c) {
 	const char* cc;
 	static char mingw_buf[HOST_PATH_MAX];
+	static char env_buf[HOST_PATH_MAX];
 
 	cc = getenv("MODC_CC");
 	if (cc && cc[0])
-		return cc;
+		return tool_env_override("MODC_CC", cc, env_buf, sizeof(env_buf));
 	if (c && c->opt.target == TargetWindows) {
 #ifndef _WIN32
 		static const char* cands[] = {
@@ -448,18 +490,6 @@ tool_cc(Compiler* c) {
 	return "clang";
 #else
 	return "cc";
-#endif
-}
-
-// True if path is a regular file we can execute.
-static int
-tool_is_exe(const char* path) {
-	if (!host_is_file(path))
-		return 0;
-#ifdef _WIN32
-	return 1;
-#else
-	return access(path, X_OK) == 0;
 #endif
 }
 
@@ -557,10 +587,11 @@ tool_qbe_target(Compiler* c) {
 static const char*
 tool_cxx(void) {
 	const char* cxx;
+	static char env_buf[HOST_PATH_MAX];
 
 	cxx = getenv("MODC_CXX");
 	if (cxx && cxx[0])
-		return cxx;
+		return tool_env_override("MODC_CXX", cxx, env_buf, sizeof(env_buf));
 	cxx = getenv("CXX");
 	if (cxx && cxx[0])
 		return cxx;
@@ -784,6 +815,8 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 			return 1;
 		}
 		comp = src_is_cxx(c->paths.csources[i]) ? tool_cxx() : tool_cc(c);
+		if (comp == NULL)
+			return 1;
 		snprintf(objs[*nobj], 512, "%s/foreign%d.o", dir, *nobj);
 		key = foreign_obj_key(c, c->paths.csources[i], comp, projroot);
 		cache_hash_hex(key, hex, sizeof(hex));
@@ -842,6 +875,8 @@ link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], i
 	int i, argc, n;
 
 	linker = needs_cxx_link(c) ? tool_cxx() : tool_cc(c);
+	if (linker == NULL)
+		return 1;
 	argc = 0;
 	if (add_arg(argv, &argc, linker))
 		goto toolong;
@@ -1464,6 +1499,8 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 		return 1;
 	target = tool_qbe_target(c);
 	cc = tool_cc(c);
+	if (cc == NULL)
+		return 1;
 	jobs_n = job_parallelism(njobs);
 	for (i = 0; i < njobs; i += jobs_n) {
 		batch = njobs - i;
@@ -1590,6 +1627,9 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 
 	files = NULL;
 	nfiles = 0;
+	/* Fail fast on bad MODC_CC / MODC_QBE even on a full graph cache hit. */
+	if (tool_cc(c) == NULL || tool_qbe() == NULL)
+		return 1;
 #ifndef _WIN32
 	if (c->opt.target == TargetWindows) {
 		const char* cc;

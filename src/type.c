@@ -11,8 +11,47 @@
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* Multiply len * elem into *out; 1 if the product would not fit in int. */
+static int
+size_mul_overflow(int64_t len, int elem, int* out) {
+	if (out == NULL)
+		return 1;
+	if (len < 0 || elem < 0) {
+		*out = 0;
+		return 1;
+	}
+	if (len > 0 && elem > 0 && len > (int64_t)INT_MAX / elem)
+		return 1;
+	*out = (int)(len * (int64_t)elem);
+	return 0;
+}
+
+/* Add a + b into *out; 1 on signed int overflow. */
+static int
+size_add_overflow(int a, int b, int* out) {
+	if (out == NULL)
+		return 1;
+	if (b > 0 && a > INT_MAX - b)
+		return 1;
+	if (b < 0 && a < INT_MIN - b)
+		return 1;
+	*out = a + b;
+	return 0;
+}
+
+static void
+type_size_overflow(Compiler* c, Type* t) {
+	Span sp = {0};
+
+	if (t && t->tag)
+		error_at(c, sp, "type size of '%s' overflows", t->tag);
+	else
+		error_at(c, sp, "type size overflows");
+}
 
 // Allocate a primitive Type with fixed size/align/signedness.
 static Type*
@@ -296,9 +335,10 @@ type_layout_ready(Type* t) {
 
 // Compute struct/union/array size, alignment, and field offsets once.
 // Incomplete field types defer layout (cross-file embeds); call type_layout_pending later.
+// Oversized arrays/aggregates that do not fit in int are diagnosed and laid out as size 1.
 void type_layout(Compiler* c, Type* t) {
 	Field* f;
-	int off, al, maxal, sz;
+	int off, al, maxal, sz, next;
 
 	if (t == NULL || t->laid_out)
 		return;
@@ -308,7 +348,10 @@ void type_layout(Compiler* c, Type* t) {
 		type_layout(c, t->base);
 		if (t->base == NULL || !t->base->laid_out)
 			return;
-		t->size = (int)(t->len * type_size(c, t->base));
+		if (size_mul_overflow(t->len, type_size(c, t->base), &t->size)) {
+			type_size_overflow(c, t);
+			t->size = 1;
+		}
 		t->align = type_align(c, t->base);
 		t->complete = 1;
 		t->laid_out = 1;
@@ -336,7 +379,15 @@ void type_layout(Compiler* c, Type* t) {
 		} else {
 			off = align_up(off, al);
 			f->offset = off;
-			off += sz;
+			if (size_add_overflow(off, sz, &next)) {
+				type_size_overflow(c, t);
+				t->size = 1;
+				t->align = maxal > 0 ? maxal : 1;
+				t->complete = 1;
+				t->laid_out = 1;
+				return;
+			}
+			off = next;
 		}
 	}
 	if (maxal < 1)
@@ -347,7 +398,6 @@ void type_layout(Compiler* c, Type* t) {
 		t->size = 1;
 	t->complete = 1;
 	t->laid_out = 1;
-	(void)c;
 }
 
 // After all package type bodies are known, finish deferred aggregate layouts.
@@ -373,12 +423,19 @@ void type_layout_pending(Compiler* c) {
 
 // Byte size of t, running layout first when the type is still incomplete.
 int type_size(Compiler* c, Type* t) {
+	int sz;
+
 	if (t == NULL)
 		return 0;
 	if (!t->laid_out)
 		type_layout(c, t);
-	if (t->kind == TyArray && t->size == 0 && t->len >= 0 && t->base)
-		return (int)(t->len * type_size(c, t->base));
+	if (t->kind == TyArray && t->size == 0 && t->len >= 0 && t->base) {
+		if (size_mul_overflow(t->len, type_size(c, t->base), &sz)) {
+			type_size_overflow(c, t);
+			return 1;
+		}
+		return sz;
+	}
 	return t->size;
 }
 

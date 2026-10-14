@@ -1038,41 +1038,68 @@ host_closedir(HostDir* d) {
 	free(d);
 }
 
-// Recursively delete a file or directory tree; 0 on success.
+/*
+ * Recursively delete under parentfd/name (parentfd < 0 ⇒ name is absolute/relative).
+ * Uses O_NOFOLLOW + openat/unlinkat so a dir→symlink race cannot escape the tree.
+ */
 static int
-rmtree_one(const char* path) {
-	HostDir* d;
-	const char* name;
-	char child[HOST_PATH_MAX];
+rmtree_at(int parentfd, const char* name) {
 	struct stat st;
+	int fd;
+	DIR* d;
+	struct dirent* e;
 
-	if (lstat(path, &st) != 0)
+	if (name == NULL || name[0] == 0)
 		return -1;
-	if (!S_ISDIR(st.st_mode))
-		return host_unlink(path);
-	d = host_opendir(path);
-	if (d == NULL)
+	if (parentfd >= 0) {
+		if (fstatat(parentfd, name, &st, AT_SYMLINK_NOFOLLOW) != 0)
+			return -1;
+	} else if (lstat(name, &st) != 0)
 		return -1;
-	while ((name = host_readdir(d)) != NULL) {
-		if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
-			continue;
-		if (snprintf(child, sizeof(child), "%s/%s", path, name) >= (int)sizeof(child)) {
-			host_closedir(d);
+	if (!S_ISDIR(st.st_mode)) {
+		if (parentfd >= 0)
+			return unlinkat(parentfd, name, 0) == 0 ? 0 : -1;
+		return host_unlink(name);
+	}
+	if (parentfd >= 0)
+		fd = openat(parentfd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	else
+		fd = open(name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+	if (fd < 0) {
+		/* Race: became a non-dir/symlink — unlink the path, not follow it. */
+		if (parentfd >= 0) {
+			if (fstatat(parentfd, name, &st, AT_SYMLINK_NOFOLLOW) == 0 &&
+			    !S_ISDIR(st.st_mode))
+				return unlinkat(parentfd, name, 0) == 0 ? 0 : -1;
 			return -1;
 		}
-		if (rmtree_one(child) != 0) {
-			host_closedir(d);
+		if (lstat(name, &st) == 0 && !S_ISDIR(st.st_mode))
+			return host_unlink(name);
+		return -1;
+	}
+	d = fdopendir(fd);
+	if (d == NULL) {
+		close(fd);
+		return -1;
+	}
+	while ((e = readdir(d)) != NULL) {
+		if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+			continue;
+		if (rmtree_at(fd, e->d_name) != 0) {
+			closedir(d);
 			return -1;
 		}
 	}
-	host_closedir(d);
-	return host_rmdir(path);
+	closedir(d); /* closes fd */
+	if (parentfd >= 0)
+		return unlinkat(parentfd, name, AT_REMOVEDIR) == 0 ? 0 : -1;
+	return host_rmdir(name);
 }
 
 // Remove path recursively (file or directory tree).
 int
 host_rmtree(const char* path) {
-	return rmtree_one(path);
+	return rmtree_at(-1, path);
 }
 
 // Spawn argv[0] with argv and wait; returns child exit status.
