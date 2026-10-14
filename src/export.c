@@ -649,6 +649,79 @@ peek_tok(const char* p, char* buf, size_t buf_len) {
 	return 1;
 }
 
+/* Advance past n tokens; returns pointer at the next token (or end). */
+static const char*
+skip_toks(const char* p, int n) {
+	int i;
+
+	if (p == NULL)
+		return NULL;
+	for (i = 0; i < n; i++) {
+		while (*p && isspace((unsigned char)*p))
+			p++;
+		if (*p == 0)
+			return p;
+		while (*p && !isspace((unsigned char)*p))
+			p++;
+	}
+	while (*p && isspace((unsigned char)*p))
+		p++;
+	return p;
+}
+
+/*
+ * May we map an export aggregate onto an existing Compiler tag type?
+ * rest is the payload after the kind token: tag size align complete pkg_priv pkg_root …
+ * Static / package-private tags must stay per-package; layout mismatches refuse reuse.
+ */
+static int
+export_tag_may_reuse(Symbol* s, Type* existing, const char* pkg, const char* rest) {
+	char sizebuf[32], completebuf[32], privbuf[32], rootbuf[HOST_PATH_MAX];
+	const char* p;
+	int export_size, export_complete, export_priv;
+
+	if (s == NULL || existing == NULL || rest == NULL)
+		return 0;
+	if (existing->kind != TyStruct && existing->kind != TyUnion &&
+	    existing->kind != TyEnum)
+		return 0;
+
+	p = skip_toks(rest, 1); /* past tag */
+	if (!peek_tok(p, sizebuf, sizeof(sizebuf)))
+		return 0;
+	p = skip_toks(rest, 3); /* past tag size align */
+	if (!peek_tok(p, completebuf, sizeof(completebuf)))
+		return 0;
+	p = skip_toks(rest, 4); /* past … complete */
+	if (!peek_tok(p, privbuf, sizeof(privbuf)))
+		return 0;
+	p = skip_toks(rest, 5); /* past … pkg_priv */
+	if (!peek_tok(p, rootbuf, sizeof(rootbuf)))
+		rootbuf[0] = 0;
+
+	export_size = atoi(sizebuf);
+	export_complete = atoi(completebuf);
+	export_priv = atoi(privbuf);
+
+	/* Package-private on either side: require same package root/home. */
+	if (s->storage == StStatic || existing->pkg_private || export_priv) {
+		if (pkg == NULL || pkg[0] == 0)
+			return 0;
+		if (!sym_in_pkg(s, pkg))
+			return 0;
+		if (existing->pkg_root && existing->pkg_root[0] &&
+		    !path_eq(existing->pkg_root, pkg))
+			return 0;
+		if (!tok_is_dash(rootbuf) && rootbuf[0] && !path_eq(rootbuf, pkg))
+			return 0;
+	}
+
+	/* Refuse merging incompatible complete layouts onto one Type*. */
+	if (export_complete && existing->complete && existing->size != export_size)
+		return 0;
+	return 1;
+}
+
 static void
 free_fields(Type* t) {
 	Field *f, *n;
@@ -1168,51 +1241,65 @@ export_load(Compiler* c, const char* path) {
 		line = next;
 	}
 
-	/* Intern named aggregates by tag before filling payloads. */
-	for (i = 0; i < ntypes; i++) {
-		char tagbuf[256];
-		Symbol* s;
-
-		if (ltypes[i].kind == NULL || !is_aggr_kind_name(ltypes[i].kind))
-			continue;
-		if (!peek_tok(ltypes[i].rest, tagbuf, sizeof(tagbuf)))
-			continue;
-		if (tok_is_dash(tagbuf) || is_synth_tag(tagbuf))
-			continue;
-		s = symbol_lookup_tag(c, tagbuf);
-		if (s == NULL || s->type == NULL)
-			continue;
-		if (s->type->kind != TyStruct && s->type->kind != TyUnion &&
-		    s->type->kind != TyEnum)
-			continue;
-		map[ltypes[i].id] = s->type;
-		ltypes[i].type = s->type;
-		ltypes[i].reused = 1;
-	}
-
-	for (i = 0; i < ntypes; i++) {
-		if (ltypes[i].kind == NULL)
-			continue;
-		if (fill_type_payload(c, map, max_id, &ltypes[i]) != 0) {
-			free(text);
-			free(map);
-			free(ltypes);
-			free(lsyms);
-			return 1;
-		}
-	}
-
 	if (pkg[0])
 		snprintf(home, sizeof(home), "%s/mod.mc", pkg);
 	else
 		snprintf(home, sizeof(home), "mod.mc");
 
-	for (i = 0; i < ntypes; i++)
-		ensure_tag(c, ltypes[i].type, home);
-	for (i = 0; i < nsyms; i++)
-		load_one_sym(c, map, max_id, home, &lsyms[i], 1);
-	for (i = 0; i < nsyms; i++)
-		load_one_sym(c, map, max_id, home, &lsyms[i], 2);
+	/*
+	 * symbol_visible only filters StStatic when infile is set. Point it at
+	 * this export's package so tag intern / ensure_tag do not reuse another
+	 * package's static Foo (and so new static tags can be defined).
+	 */
+	{
+		char* saved_infile = c->paths.infile;
+
+		c->paths.infile = home;
+
+		/* Intern named aggregates by tag before filling payloads. */
+		for (i = 0; i < ntypes; i++) {
+			char tagbuf[256];
+			Symbol* s;
+
+			if (ltypes[i].kind == NULL || !is_aggr_kind_name(ltypes[i].kind))
+				continue;
+			if (!peek_tok(ltypes[i].rest, tagbuf, sizeof(tagbuf)))
+				continue;
+			if (tok_is_dash(tagbuf) || is_synth_tag(tagbuf))
+				continue;
+			s = symbol_lookup_tag(c, tagbuf);
+			if (s == NULL || s->type == NULL)
+				continue;
+			if (!export_tag_may_reuse(s, s->type, pkg[0] ? pkg : NULL,
+						  ltypes[i].rest))
+				continue;
+			map[ltypes[i].id] = s->type;
+			ltypes[i].type = s->type;
+			ltypes[i].reused = 1;
+		}
+
+		for (i = 0; i < ntypes; i++) {
+			if (ltypes[i].kind == NULL)
+				continue;
+			if (fill_type_payload(c, map, max_id, &ltypes[i]) != 0) {
+				c->paths.infile = saved_infile;
+				free(text);
+				free(map);
+				free(ltypes);
+				free(lsyms);
+				return 1;
+			}
+		}
+
+		for (i = 0; i < ntypes; i++)
+			ensure_tag(c, ltypes[i].type, home);
+		for (i = 0; i < nsyms; i++)
+			load_one_sym(c, map, max_id, home, &lsyms[i], 1);
+		for (i = 0; i < nsyms; i++)
+			load_one_sym(c, map, max_id, home, &lsyms[i], 2);
+
+		c->paths.infile = saved_infile;
+	}
 
 	free(text);
 	free(map);
