@@ -562,40 +562,108 @@ host_closedir(HostDir* d) {
 	free(d);
 }
 
-// Recursively delete a file or directory tree; 0 on success.
+/*
+ * Recursively delete a file or directory tree; 0 on success.
+ *
+ * Opens each path with FILE_FLAG_OPEN_REPARSE_POINT so junctions/symlinks are
+ * never followed (delete the reparse node only). For real directories, pins the
+ * opened object via GetFinalPathNameByHandle and enumerates that path while
+ * holding the handle — a path→junction swap cannot divert the walk (mirrors
+ * Unix O_NOFOLLOW + openat).
+ */
 static int
 rmtree_one(const char* path) {
-	HostDir* d;
-	const char* name;
-	char child[HOST_PATH_MAX];
-	DWORD attrs;
+	HANDLE h, find;
+	BY_HANDLE_FILE_INFORMATION info;
+	WIN32_FIND_DATAA fd;
+	char real[HOST_PATH_MAX], pat[HOST_PATH_MAX], child[HOST_PATH_MAX];
+	DWORD attrs, n;
 
-	attrs = GetFileAttributesA(path);
-	if (attrs == INVALID_FILE_ATTRIBUTES)
+	if (path == NULL || path[0] == 0)
 		return -1;
+
+	h = CreateFileA(path, GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+			OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+	if (h == INVALID_HANDLE_VALUE) {
+		h = CreateFileA(path, GENERIC_READ,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+				OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+		if (h == INVALID_HANDLE_VALUE) {
+			attrs = GetFileAttributesA(path);
+			if (attrs == INVALID_FILE_ATTRIBUTES)
+				return -1;
+			/* Reparse node we could not open: remove the node only. */
+			if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) {
+				if (attrs & FILE_ATTRIBUTE_DIRECTORY)
+					return host_rmdir(path);
+				return host_unlink(path);
+			}
+			if (attrs & FILE_ATTRIBUTE_DIRECTORY)
+				return -1;
+			return host_unlink(path);
+		}
+	}
+
+	if (!GetFileInformationByHandle(h, &info)) {
+		CloseHandle(h);
+		return -1;
+	}
+	attrs = info.dwFileAttributes;
 	if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) {
+		CloseHandle(h);
 		if (attrs & FILE_ATTRIBUTE_DIRECTORY)
 			return host_rmdir(path);
 		return host_unlink(path);
 	}
-	if (!(attrs & FILE_ATTRIBUTE_DIRECTORY))
+	if (!(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+		CloseHandle(h);
 		return host_unlink(path);
-	d = host_opendir(path);
-	if (d == NULL)
+	}
+
+	n = GetFinalPathNameByHandleA(h, real, (DWORD)sizeof(real), FILE_NAME_NORMALIZED);
+	if (n == 0 || n >= sizeof(real)) {
+		CloseHandle(h);
 		return -1;
-	while ((name = host_readdir(d)) != NULL) {
-		if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+	}
+	if (snprintf(pat, sizeof(pat), "%s\\*", real) >= (int)sizeof(pat)) {
+		CloseHandle(h);
+		return -1;
+	}
+
+	find = FindFirstFileA(pat, &fd);
+	if (find == INVALID_HANDLE_VALUE) {
+		CloseHandle(h);
+		if (host_rmdir(real) == 0) {
+			(void)host_rmdir(path);
+			return 0;
+		}
+		return host_rmdir(path);
+	}
+	do {
+		if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0)
 			continue;
-		if (snprintf(child, sizeof(child), "%s/%s", path, name) >= (int)sizeof(child)) {
-			host_closedir(d);
+		if (snprintf(child, sizeof(child), "%s\\%s", real, fd.cFileName) >=
+		    (int)sizeof(child)) {
+			FindClose(find);
+			CloseHandle(h);
 			return -1;
 		}
 		if (rmtree_one(child) != 0) {
-			host_closedir(d);
+			FindClose(find);
+			CloseHandle(h);
 			return -1;
 		}
+	} while (FindNextFileA(find, &fd));
+	FindClose(find);
+	CloseHandle(h);
+
+	/* Remove the emptied directory (real); then any junction left at path. */
+	if (host_rmdir(real) == 0) {
+		(void)host_rmdir(path);
+		return 0;
 	}
-	host_closedir(d);
 	return host_rmdir(path);
 }
 
