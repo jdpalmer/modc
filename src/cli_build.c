@@ -296,8 +296,8 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
  *
  * Cleared: lex tokens/pos; diag error_count/fatal; symbol hash (freed) and
  * symbols_len/block/current_fn; unit funcs/globals/unit_files; type_list
- * (type_init rebuilds builtins). Token/symbol/AST list pointers are dropped
- * without free — arena-style for the process lifetime.
+ * (abandoned; compile_graph → type_init rebuilds builtins once). Token/symbol/
+ * AST list pointers are dropped without free — arena-style for the process.
  *
  * Preserved: CompOpt; CompPaths; CompPp (macros, #pragma once, intern);
  * diag quiet flags / diag_log; unit.src_files/src_text/strpool/static_seq
@@ -328,7 +328,6 @@ reset_comp_state(Compiler* c) {
 	c->types.type_list = NULL;
 	c->unit.unit_files = NULL;
 	c->unit.unit_files_len = 0;
-	type_init(c);
 }
 
 // Compile one root and write QBE to outpath or stdout.

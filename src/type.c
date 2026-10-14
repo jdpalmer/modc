@@ -27,7 +27,10 @@ mkprim(Compiler* c, int kind, int size, int align, int is_unsigned) {
 }
 
 // Wire up the standard primitive types on Compiler (void, integers, floats, bool, void*).
+// Clears type_list first so repeated init (e.g. compile_graph after reset) does not
+// leave duplicate builtins on the pool for intern / linear scans.
 void type_init(Compiler* c) {
+	c->types.type_list = NULL;
 	c->types.type_void = mkprim(c, TyVoid, 0, 1, 0);
 	c->types.type_char = mkprim(c, TyChar, 1, 1, 1); /* %C: char is unsigned 8-bit */
 	c->types.type_uchar = mkprim(c, TyUChar, 1, 1, 1);

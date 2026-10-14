@@ -45,7 +45,7 @@ void apply_cli(Compiler* c, CliOpts* o);
 int parse_common(Compiler* c, CliOpts* o, int* i, int argc, char** argv, int need_out);
 int parse_target_name(const char* name); /* Target* or -1 */
 
-/* Per-TU reset; see comment on definition. Paths/pp/intern preserved. */
+/* Per-TU reset; see comment on definition. Paths/pp/intern preserved; types rebuilt by compile_graph. */
 void reset_comp_state(Compiler* c);
 int compile_file(Compiler* c, const char* path, FILE* outf);
 int emit_one(Compiler* c, CliOpts* o, const char* path);
