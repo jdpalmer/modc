@@ -1042,9 +1042,18 @@ pkg_fill_imports(Compiler* c, BuildPkg* pkgs, int npkgs, char** files, int nfile
 				for (i = 0; i < pkgs[idx].nimports; i++)
 					if (pkgs[idx].imports[i] == k)
 						break;
-				if (i == pkgs[idx].nimports &&
-				    pkgs[idx].nimports < MaxCachePkgs)
+				if (i == pkgs[idx].nimports) {
+					if (pkgs[idx].nimports >= MaxCachePkgs) {
+						fprintf(stderr,
+							"modc: too many imports for package %s\n",
+							pkgs[idx].id);
+						for (; j < nroots; j++)
+							free(roots[j]);
+						free(roots);
+						return 1;
+					}
 					pkgs[idx].imports[pkgs[idx].nimports++] = k;
+				}
 				break;
 			}
 			free(roots[j]);
