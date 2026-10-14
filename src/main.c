@@ -8,6 +8,7 @@
 #include <time.h>
 
 // Print subcommand or top-level usage and exit.
+// Non-NULL sub (including "" for top-level) exits 0; NULL exits 1 (error path).
 void
 usage(const char* sub) {
 	if (sub && strcmp(sub, "check") == 0) {
@@ -840,7 +841,7 @@ int main(int argc, char** argv) {
 	if (strcmp(argv[1], "-V") == 0 || strcmp(argv[1], "--version") == 0)
 		version();
 	if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)
-		usage(NULL);
+		usage("");
 	if (!is_subcmd(argv[1])) {
 		fprintf(stderr, "modc: unknown command '%s'\n", argv[1]);
 		usage(NULL);
@@ -849,7 +850,7 @@ int main(int argc, char** argv) {
 	if (strcmp(sub, "help") == 0) {
 		if (argc >= 3)
 			usage(argv[2]);
-		usage(NULL);
+		usage("");
 	}
 	if (strcmp(sub, "check") == 0)
 		return cmd_check(&c, &o, argc, argv);
