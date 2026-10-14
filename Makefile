@@ -177,6 +177,51 @@ check-special: $(MODC)
 	@grep -q -- '-l m' $(BUILD)/cache_stale/link_partial.log
 	@grep -Fq 'L m' $(BUILD)/cache_stale/link_app/.modc-cache/linkmeta
 	$(BUILD)/cache_stale/link_out
+	# --- cache: MODC_SYSINCLUDE / MODC_INCLUDE change must miss ---
+	@rm -rf $(BUILD)/cache_sysinc
+	@mkdir -p $(BUILD)/cache_sysinc/inc_a $(BUILD)/cache_sysinc/inc_b \
+		$(BUILD)/cache_sysinc/modc_a $(BUILD)/cache_sysinc/modc_b \
+		$(BUILD)/cache_sysinc/app
+	@printf '%s\n' 'enum { SYSINC_VAL = 1 };' > $(BUILD)/cache_sysinc/inc_a/sysval.h
+	@printf '%s\n' 'enum { SYSINC_VAL = 2 };' > $(BUILD)/cache_sysinc/inc_b/sysval.h
+	@printf '%s\n' 'enum { MODCINC_VAL = 10 };' > $(BUILD)/cache_sysinc/modc_a/modcval.h
+	@printf '%s\n' 'enum { MODCINC_VAL = 20 };' > $(BUILD)/cache_sysinc/modc_b/modcval.h
+	@printf '%s\n' '#include <sysval.h>' '#include <modcval.h>' \
+		'int main() { return SYSINC_VAL + MODCINC_VAL == 11 ? 0 : 1; }' \
+		> $(BUILD)/cache_sysinc/app/main.mc
+	MODC_NO_SYSTEM_INCLUDES=1 MODC_SYSINCLUDE=$(BUILD)/cache_sysinc/inc_a \
+		MODC_INCLUDE=$(BUILD)/cache_sysinc/modc_a \
+		./modc build $(BUILD)/cache_sysinc/app/main.mc -o $(BUILD)/cache_sysinc/out
+	$(BUILD)/cache_sysinc/out
+	MODC_NO_SYSTEM_INCLUDES=1 MODC_SYSINCLUDE=$(BUILD)/cache_sysinc/inc_a \
+		MODC_INCLUDE=$(BUILD)/cache_sysinc/modc_a \
+		./modc build $(BUILD)/cache_sysinc/app/main.mc -o $(BUILD)/cache_sysinc/out -v 2>&1 \
+		| tee $(BUILD)/cache_sysinc/hit.log
+	@grep -q 'cache hit' $(BUILD)/cache_sysinc/hit.log
+	MODC_NO_SYSTEM_INCLUDES=1 MODC_SYSINCLUDE=$(BUILD)/cache_sysinc/inc_b \
+		MODC_INCLUDE=$(BUILD)/cache_sysinc/modc_a \
+		./modc build $(BUILD)/cache_sysinc/app/main.mc -o $(BUILD)/cache_sysinc/out -v 2>&1 \
+		| tee $(BUILD)/cache_sysinc/sysmiss.log
+	@grep -q 'cache miss' $(BUILD)/cache_sysinc/sysmiss.log
+	@printf '%s\n' '#include <sysval.h>' '#include <modcval.h>' \
+		'int main() { return SYSINC_VAL + MODCINC_VAL == 12 ? 0 : 1; }' \
+		> $(BUILD)/cache_sysinc/app/main.mc
+	MODC_NO_SYSTEM_INCLUDES=1 MODC_SYSINCLUDE=$(BUILD)/cache_sysinc/inc_b \
+		MODC_INCLUDE=$(BUILD)/cache_sysinc/modc_a \
+		./modc build $(BUILD)/cache_sysinc/app/main.mc -o $(BUILD)/cache_sysinc/out
+	$(BUILD)/cache_sysinc/out
+	MODC_NO_SYSTEM_INCLUDES=1 MODC_SYSINCLUDE=$(BUILD)/cache_sysinc/inc_b \
+		MODC_INCLUDE=$(BUILD)/cache_sysinc/modc_b \
+		./modc build $(BUILD)/cache_sysinc/app/main.mc -o $(BUILD)/cache_sysinc/out2 -v 2>&1 \
+		| tee $(BUILD)/cache_sysinc/modcmiss.log
+	@grep -q 'cache miss' $(BUILD)/cache_sysinc/modcmiss.log
+	@printf '%s\n' '#include <sysval.h>' '#include <modcval.h>' \
+		'int main() { return SYSINC_VAL + MODCINC_VAL == 22 ? 0 : 1; }' \
+		> $(BUILD)/cache_sysinc/app/main.mc
+	MODC_NO_SYSTEM_INCLUDES=1 MODC_SYSINCLUDE=$(BUILD)/cache_sysinc/inc_b \
+		MODC_INCLUDE=$(BUILD)/cache_sysinc/modc_b \
+		./modc build $(BUILD)/cache_sysinc/app/main.mc -o $(BUILD)/cache_sysinc/out2
+	$(BUILD)/cache_sysinc/out2
 	# --- format goldens ---
 	cp test/format/messy.mc $(BUILD)/format_messy.mc
 	./modc format $(BUILD)/format_messy.mc

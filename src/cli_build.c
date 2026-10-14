@@ -659,6 +659,8 @@ cache_host_os(void) {
 }
 
 // Fingerprint toolchain, target, and user -D/-I for package cache keys.
+// Also mixes modc_include + sysinc search paths: #include <x> can resolve to a
+// different file while recorded .deps still validate against the old path.
 static uint64_t
 hash_compile_knobs(Compiler* c, const char* projroot) {
 	uint64_t h;
@@ -678,6 +680,14 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 		h = cache_hash_mix(h, cache_hash_str(c->paths.cli_defs[i]));
 	for (i = 0; i < c->paths.incpaths_len; i++) {
 		cache_path_key(c->paths.incpaths[i], projroot, key, sizeof(key));
+		h = cache_hash_mix(h, cache_hash_str(key));
+	}
+	if (c->paths.modc_include && c->paths.modc_include[0]) {
+		cache_path_key(c->paths.modc_include, projroot, key, sizeof(key));
+		h = cache_hash_mix(h, cache_hash_str(key));
+	}
+	for (i = 0; i < c->paths.sysincpaths_len; i++) {
+		cache_path_key(c->paths.sysincpaths[i], projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
 	}
 	h = cache_hash_mix(h, c->paths.no_system_includes ? 1 : 0);
@@ -713,6 +723,16 @@ foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* proj
 	for (i = 0; i < c->paths.framework_paths_len; i++) {
 		cache_path_key(c->paths.framework_paths[i], projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
+	}
+	if (c->paths.modc_include && c->paths.modc_include[0]) {
+		cache_path_key(c->paths.modc_include, projroot, key, sizeof(key));
+		h = cache_hash_mix(h, cache_hash_str(key));
+	}
+	if (!c->paths.no_system_includes) {
+		for (i = 0; i < c->paths.sysincpaths_len; i++) {
+			cache_path_key(c->paths.sysincpaths[i], projroot, key, sizeof(key));
+			h = cache_hash_mix(h, cache_hash_str(key));
+		}
 	}
 	h = cache_hash_mix(h, c->paths.no_system_includes ? 1 : 0);
 	if (src_is_objc(src))
