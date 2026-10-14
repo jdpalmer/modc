@@ -17,9 +17,12 @@
 #include <string.h>
 #include "host_os.h"
 
+/* Room for "extern $" + mangled linkname (symbol.c uses 256-byte mangle bufs). */
+enum { ValTextMax = 280 };
+
 typedef struct Val Val;
 struct Val {
-	char text[96];
+	char text[ValTextMax];
 	char cls; /* w l s d @ */
 	Type* type;
 };
@@ -387,7 +390,7 @@ is_static_local(Symbol* s) {
 // Linker symbol for a global, static, overload, or ordinary name.
 static const char*
 symbol_link_name(Symbol* s) {
-	static char buf[96];
+	static char buf[32];
 
 	if (s == NULL)
 		return "g";
@@ -397,7 +400,22 @@ symbol_link_name(Symbol* s) {
 		snprintf(buf, sizeof(buf), "__st%d", (int)s->int_val);
 		return buf;
 	}
-	return s->name;
+	return s->name ? s->name : "g";
+}
+
+/* Copy "$linkname" / "extern $linkname" into a Val; die if truncated. */
+static void
+val_set_link(Val* v, Symbol* s, int need_extern) {
+	const char* name;
+	int n;
+
+	name = symbol_link_name(s);
+	if (need_extern)
+		n = snprintf(v->text, sizeof(v->text), "extern $%s", name);
+	else
+		n = snprintf(v->text, sizeof(v->text), "$%s", name);
+	if (n < 0 || n >= (int)sizeof(v->text))
+		die("symbol name too long for QBE value: %s", name);
 }
 
 // True for file-scope or extern variables (not stack slots).
@@ -1125,7 +1143,6 @@ static Val
 emitgaddr(Compiler* c, Node* n) {
 	Val v;
 	int off;
-	const char* name;
 
 	memset(&v, 0, sizeof(v));
 	v.cls = 'l';
@@ -1141,14 +1158,15 @@ emitgaddr(Compiler* c, Node* n) {
 		return v;
 	}
 	if (n->kind == NdName && n->symbol && n->symbol->kind == SkFunc) {
-		snprintf(v.text, sizeof(v.text), "$%s", n->symbol->name);
+		val_set_link(&v, n->symbol, 0);
 		return v;
 	}
-	name = n->symbol ? symbol_link_name(n->symbol) : "g";
-	if (needs_qbe_extern(n->symbol))
-		snprintf(v.text, sizeof(v.text), "extern $%s", name);
-	else
-		snprintf(v.text, sizeof(v.text), "$%s", name);
+	if (n->symbol == NULL) {
+		snprintf(v.text, sizeof(v.text), "$g");
+		(void)c;
+		return v;
+	}
+	val_set_link(&v, n->symbol, needs_qbe_extern(n->symbol));
 	(void)c;
 	return v;
 }
@@ -1799,7 +1817,7 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 	if (ft && is_func(ft) == 0 && n->a && n->a->kind == NdName && n->a->symbol)
 		ft = n->a->symbol->type;
 	if (n->a && n->a->kind == NdName && n->a->symbol && n->a->symbol->kind == SkFunc)
-		snprintf(tgt.text, sizeof(tgt.text), "$%s", symbol_link_name(n->a->symbol));
+		val_set_link(&tgt, n->a->symbol, 0);
 	else
 		tgt = emitexpr(c, n->a);
 	fixed = fixedparams(ft);
