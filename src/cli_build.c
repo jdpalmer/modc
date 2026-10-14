@@ -1340,6 +1340,19 @@ wait_argv(HostPid pid) {
 	return 0;
 }
 
+/* Reap already-started async children after a mid-batch spawn failure. */
+static void
+reap_pids(HostPid* pids, int n) {
+	int i;
+
+	for (i = 0; i < n; i++) {
+		if (pids[i] < 0)
+			continue;
+		(void)host_wait_pid(pids[i]);
+		pids[i] = -1;
+	}
+}
+
 // Job parallelism: MODC_JOBS, else host_ncpu(), capped.
 static int
 job_parallelism(int nwork) {
@@ -1387,6 +1400,8 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 		batch = njobs - i;
 		if (batch > jobs_n)
 			batch = jobs_n;
+		for (j = 0; j < batch; j++)
+			pids[j] = -1;
 		for (j = 0; j < batch; j++) {
 			argv[0] = qbe_tool;
 			argv[1] = "-t";
@@ -1396,8 +1411,10 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 			argv[5] = jobs[i + j].qbe;
 			argv[6] = NULL;
 			pids[j] = spawn_argv(o->verbose, argv);
-			if (pids[j] < 0)
+			if (pids[j] < 0) {
+				reap_pids(pids, j);
 				return 1;
+			}
 		}
 		st = 0;
 		for (j = 0; j < batch; j++)
@@ -1405,6 +1422,8 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 				st = 1;
 		if (st)
 			return 1;
+		for (j = 0; j < batch; j++)
+			pids[j] = -1;
 		for (j = 0; j < batch; j++) {
 			argv[0] = cc;
 			argv[1] = "-c";
@@ -1413,8 +1432,10 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 			argv[4] = jobs[i + j].obj;
 			argv[5] = NULL;
 			pids[j] = spawn_argv(o->verbose, argv);
-			if (pids[j] < 0)
+			if (pids[j] < 0) {
+				reap_pids(pids, j);
 				return 1;
+			}
 		}
 		st = 0;
 		for (j = 0; j < batch; j++)
