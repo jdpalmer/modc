@@ -291,7 +291,19 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 	return 0;
 }
 
-// Clear TU state so the next root can reuse the same Compiler.
+/*
+ * Clear per-TU state so the next root can reuse the same Compiler.
+ *
+ * Cleared: lex tokens/pos; diag error_count/fatal; symbol hash (freed) and
+ * symbols_len/block/current_fn; unit funcs/globals/unit_files; type_list
+ * (type_init rebuilds builtins). Token/symbol/AST list pointers are dropped
+ * without free — arena-style for the process lifetime.
+ *
+ * Preserved: CompOpt; CompPaths; CompPp (macros, #pragma once, intern);
+ * diag quiet flags / diag_log; unit.src_files/src_text/strpool/static_seq
+ * (needed by export-load and multi-root build). Callers that need a fresh
+ * preprocessor (e.g. selftest) must pp_clear_macros / pp_clear_once themselves.
+ */
 void
 reset_comp_state(Compiler* c) {
 	c->lex.tokens = NULL;
