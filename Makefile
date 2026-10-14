@@ -5,7 +5,7 @@
 CC ?= cc
 CFLAGS ?= -O2 -g -Wall -Wno-unused
 ROOT := $(abspath .)
-.PHONY: all clean check check-special install uninstall format format-check
+.PHONY: all clean check check-special install uninstall format format-check asan ubsan
 
 PREFIX  ?= /usr/local
 DESTDIR ?=
@@ -19,6 +19,12 @@ SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c s
 OBJS := $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
 
 CFLAGS += -DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
+ifdef ASAN
+CFLAGS += -O1 -fsanitize=address -fno-omit-frame-pointer
+endif
+ifdef UBSAN
+CFLAGS += -O1 -fsanitize=undefined
+endif
 
 ifeq ($(filter check,$(MAKECMDGOALS)),check)
 export MODC_NO_SYSTEM_INCLUDES = 1
@@ -156,6 +162,15 @@ install: $(MODC)
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/modc
 	rm -rf $(DESTDIR)$(MODCLIB)
+
+# Rebuild with AddressSanitizer / UBSan (clears prior objs first).
+asan:
+	$(MAKE) clean
+	$(MAKE) all ASAN=1
+
+ubsan:
+	$(MAKE) clean
+	$(MAKE) all UBSAN=1
 
 clean:
 	rm -rf $(BUILD) $(MODC)
