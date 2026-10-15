@@ -1,4 +1,4 @@
-/* switch, goto, labels, and fallthrough; */
+/* switch, goto, labels, and [[fallthrough]]; */
 
 int classify(int x) {
 	switch (x) {
@@ -14,7 +14,7 @@ int case_fall(int x) {
 	s = 0;
 	switch (x) {
 		case 1: s = s + 1;
-		fallthrough;
+		[[fallthrough]];
 		case 2: s = s + 2;
 		break;
 		case 3: s = 3;

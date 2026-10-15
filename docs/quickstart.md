@@ -84,7 +84,7 @@ auto (v, ok) = parse(5);
 auto (doubled, _) = parse(3);  /* `_` ignores a slot; no local */
 ```
 
-In this example, `n` is inferred as an integer, while `parse(5)` returns a two-value tuple containing a result and a status flag. The `auto (v, ok)` statement infers the respective type for each field and binds them to `v` and `ok`. Use `_` to ignore selected slots without creating a variable (repeatable). Discarding an entire tuple return still requires `(void)parse(1);`. This pattern avoids the need for out-parameters or explicit struct definitions when returning multiple values.
+In this example, `n` is inferred as an integer, while `parse(5)` returns a two-value tuple containing a result and a status flag. The `auto (v, ok)` statement infers the respective type for each field and binds them to `v` and `ok`. Use `_` to ignore selected slots without creating a variable (repeatable). Discarding an entire tuple return is allowed unless the function is marked `[[nodiscard]]`, in which case the call must be assigned or cast with `(void)parse(1);`. This pattern avoids the need for out-parameters or explicit struct definitions when returning multiple values.
 
 ### Arrays
 
@@ -302,7 +302,9 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Condition Assignment Safety**: Assignments within conditional expressions are rejected unless explicitly wrapped in parentheses (`if ((x = 0))` is allowed; `if (x = 0)` is a compile-time error).
 
-- **Explicit Switch Execution**: Implicit fallthrough across `switch` cases results in a compile-time error. Cases must terminate with `break` or explicitly declare `fallthrough;`.
+- **Explicit Switch Execution**: Implicit fallthrough across `switch` cases results in a compile-time error. Cases must terminate with `break` or explicitly declare `[[fallthrough]];`.
+
+- **C23 Attributes**: `[[fallthrough]]` marks intentional switch fallthrough (required, not a warning). `[[maybe_unused]]` suppresses unused local/parameter errors (alongside `(void)x;`). `[[nodiscard]]` makes discarding a non-void call result a compile-time error. `[[unsequenced]]` and `[[reproducible]]` are accepted and ignored.
 
 - **Defensive Local Initialization**: All local variables must be initialized at their point of declaration (`int x = 0;`). The compiler actively diagnoses uninitialized reads, `goto` jumps that bypass local declarations, control flow falling off non-`void` functions, signed/unsigned comparisons (except non-negative integer literals that fit the unsigned side), and unsequenced modifications (`i = i++`).
 

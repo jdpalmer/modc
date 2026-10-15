@@ -19,6 +19,8 @@ static int loop_depth;
 /* `const` / `const?` before a declarator: apply to the first pointer / ranged level. */
 static int pending_pointee_const;
 static int pending_poly;
+/* Attributes seen inside declspecs (e.g. static [[nodiscard]] int f). */
+static unsigned pending_decl_attrs;
 
 // Current token; never advances. Past EOF, returns the final TkEof.
 static Tok*
@@ -257,7 +259,17 @@ static Type* parse_typename(Compiler* c);
 static Type* parse_declspec(Compiler* c, int* storage, int* saw_type);
 static Type* parse_declarator(Compiler* c, Type* base, char** name, int abstract);
 static int eat_vendor_attr(Compiler* c);
+static int eat_attr_specifier(Compiler* c, unsigned* flags);
+static unsigned parse_attr_seq(Compiler* c);
+static void apply_decl_attrs(Symbol* s, unsigned flags);
 static int eat_pragma_op(Compiler* c);
+
+/* C23 standard attribute flags collected from [[...]] sequences. */
+enum {
+	AtFallthrough = 1u << 0,
+	AtMaybeUnused = 1u << 1,
+	AtNodiscard = 1u << 2
+};
 static Initializer* parse_init(Compiler* c);
 static void parse_decl_or_def(Compiler* c, int in_func);
 static void parse_static_assert(Compiler* c);
@@ -334,12 +346,12 @@ parse_struct(Compiler* c, int kind, int outer_storage) {
 
 	tag = NULL;
 	sp = peek(c)->span;
-	while (eat_vendor_attr(c))
+	while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 		;
 	if (peek(c)->kind == TkIdent) {
 		tag = take(c)->s;
 	}
-	while (eat_vendor_attr(c))
+	while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 		;
 	t = type_struct(c, kind, tag, sp, outer_storage == StStatic ? StStatic : StNone);
 	if (!eat(c, PnLbrace))
@@ -598,6 +610,97 @@ eat_vendor_attr(Compiler* c) {
 	return 1;
 }
 
+// True when the next tokens begin a C23 [[ attribute-specifier.
+static int
+at_attr_specifier(Compiler* c) {
+	Tok *t, *n;
+
+	t = peek(c);
+	n = peekn(c, 1);
+	return t->kind == TkPunct && t->punct == PnLbrack && n->kind == TkPunct &&
+	       n->punct == PnLbrack;
+}
+
+/*
+ * Consume one [[ attribute-list ]] specifier. Known standard attributes OR into
+ * *flags (when non-NULL); unknown names and [[unsequenced]] / [[reproducible]]
+ * are ignored. Returns 1 if a specifier was consumed.
+ */
+static int
+eat_attr_specifier(Compiler* c, unsigned* flags) {
+	Tok* t;
+
+	if (!at_attr_specifier(c))
+		return 0;
+	take(c); /* [ */
+	take(c); /* [ */
+	while (peek(c)->kind != TkEof) {
+		if (at(c, PnRbrack) && peekn(c, 1)->kind == TkPunct &&
+		    peekn(c, 1)->punct == PnRbrack)
+			break;
+		if (eat(c, PnComma))
+			continue;
+		t = peek(c);
+		if (t->kind == TkIdent) {
+			const char* a;
+			const char* ns;
+
+			ns = NULL;
+			a = take(c)->s;
+			if (at(c, PnColon) && peekn(c, 1)->kind == TkPunct &&
+			    peekn(c, 1)->punct == PnColon) {
+				take(c);
+				take(c);
+				ns = a;
+				if (peek(c)->kind != TkIdent)
+					error_tok(c, peek(c), "expected attribute name after '::'");
+				else
+					a = take(c)->s;
+			}
+			if (at(c, PnLparen))
+				skip_paren_group(c);
+			/* Scoped attributes (gnu::…) are ignored; only unscoped standards apply. */
+			if (ns == NULL && a != NULL && flags != NULL) {
+				if (strcmp(a, "fallthrough") == 0)
+					*flags |= AtFallthrough;
+				else if (strcmp(a, "maybe_unused") == 0)
+					*flags |= AtMaybeUnused;
+				else if (strcmp(a, "nodiscard") == 0)
+					*flags |= AtNodiscard;
+				/* unsequenced / reproducible / unknown: ignore */
+			}
+			continue;
+		}
+		/* Skip unexpected tokens inside [[...]] rather than looping forever. */
+		take(c);
+	}
+	expect(c, PnRbrack, "']'");
+	expect(c, PnRbrack, "']'");
+	return 1;
+}
+
+// Consume a sequence of [[...]] attribute-specifiers; return combined flags.
+static unsigned
+parse_attr_seq(Compiler* c) {
+	unsigned flags;
+
+	flags = 0;
+	while (eat_attr_specifier(c, &flags))
+		;
+	return flags;
+}
+
+// Apply declaration attributes to a symbol (OR onto existing flags).
+static void
+apply_decl_attrs(Symbol* s, unsigned flags) {
+	if (s == NULL)
+		return;
+	if ((flags & AtMaybeUnused) && s->kind == SkVar)
+		s->maybe_unused = 1;
+	if ((flags & AtNodiscard) && s->kind == SkFunc)
+		s->nodiscard = 1;
+}
+
 // Parse declaration specifiers: storage, qualifiers, and base type.
 static Type*
 parse_declspec(Compiler* c, int* storage, int* saw_type) {
@@ -618,6 +721,8 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	t = NULL;
 	for (;;) {
 		if (eat_vendor_attr(c))
+			continue;
+		if (eat_attr_specifier(c, &pending_decl_attrs))
 			continue;
 		if (eatkw(c, KwTypedef)) {
 			*storage = StTypedef;
@@ -833,8 +938,10 @@ parse_param_list(Compiler* c, Type* ret) {
 	Type *params[MaxParams], *ty, *base;
 	char *names[MaxParams], *nm;
 	char was_arr[MaxParams];
+	char maybe_unused[MaxParams];
 	int64_t fixed_len[MaxParams];
 	int n, va, storage, saw, i, too_many;
+	unsigned pattrs;
 
 	n = 0;
 	va = 0;
@@ -858,6 +965,7 @@ parse_param_list(Compiler* c, Type* ret) {
 			va = 1;
 			break;
 		}
+		pattrs = parse_attr_seq(c);
 		storage = StNone;
 		saw = 0;
 		psp = peek(c)->span;
@@ -873,6 +981,7 @@ parse_param_list(Compiler* c, Type* ret) {
 		if (n < MaxParams) {
 			was_arr[n] = 0;
 			fixed_len[n] = -1;
+			maybe_unused[n] = (char)!!(pattrs & AtMaybeUnused);
 			if (is_ranged(ty)) {
 				/* ranged array parameter: pass by value */
 			} else if (is_array(ty)) {
@@ -912,6 +1021,8 @@ parse_param_list(Compiler* c, Type* ret) {
 			ty->param_array[i] = was_arr[i];
 		if (ty->param_fixed_len)
 			ty->param_fixed_len[i] = fixed_len[i];
+		if (ty->param_maybe_unused)
+			ty->param_maybe_unused[i] = maybe_unused[i];
 	}
 	return ty;
 }
@@ -956,7 +1067,7 @@ parse_suffix(Compiler* c, Type* base) {
 		base = parse_param_list(c, base);
 		expect(c, PnRparen, "')'");
 		/* Darwin/GNU: int f(int) __asm("_f"); after the parameter list. */
-		while (eat_vendor_attr(c))
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 			;
 		base = parse_suffix(c, base);
 		return base;
@@ -968,11 +1079,12 @@ parse_suffix(Compiler* c, Type* base) {
 static Type*
 parse_pointers(Compiler* c, Type* base) {
 	for (;;) {
-		while (eat_vendor_attr(c))
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 			;
 		if (!eat(c, PnStar))
 			break;
-		while (eat_vendor_attr(c) || eat_c_reject_kw(c, KwConst, "const") ||
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL) ||
+		       eat_c_reject_kw(c, KwConst, "const") ||
 		       eat_c_reject_kw(c, KwVolatile, "volatile") ||
 		       eat_c_reject_kw(c, KwRestrict, "restrict"))
 			;
@@ -997,7 +1109,7 @@ parse_declarator(Compiler* c, Type* base, char** name, int abstract) {
 
 	*name = NULL;
 	base = parse_pointers(c, base);
-	while (eat_vendor_attr(c))
+	while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 		;
 	if (looks_nested(c)) {
 		save = c->lex.pos;
@@ -1027,13 +1139,13 @@ parse_declarator(Compiler* c, Type* base, char** name, int abstract) {
 			*name = take(c)->s;
 		else if (!abstract)
 			error_tok(c, peek(c), "expected identifier");
-		while (eat_vendor_attr(c))
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 			;
 		return parse_suffix(c, ty);
 	}
 	if (peek(c)->kind == TkIdent) {
 		*name = take(c)->s;
-		while (eat_vendor_attr(c))
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 			;
 	} else if (!abstract)
 		error_tok(c, peek(c), "expected identifier");
@@ -1194,16 +1306,17 @@ skip_method_ret_prefix(Compiler* c) {
 	int depth;
 
 	for (;;) {
-		while (eat_vendor_attr(c))
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 			;
 		while (at(c, PnStar)) {
 			take(c);
-			while (eat_vendor_attr(c) || eat_c_reject_kw(c, KwConst, "const") ||
+			while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL) ||
+		       eat_c_reject_kw(c, KwConst, "const") ||
 			       eat_c_reject_kw(c, KwVolatile, "volatile") ||
 			       eat_c_reject_kw(c, KwRestrict, "restrict"))
 				;
 		}
-		while (eat_vendor_attr(c))
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 			;
 		if (!at(c, PnLbrack))
 			return;
@@ -1234,7 +1347,7 @@ parse_method_ret_prefix(Compiler* c, Type* base) {
 
 	for (;;) {
 		base = parse_pointers(c, base);
-		while (eat_vendor_attr(c))
+		while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 			;
 		if (!eat(c, PnLbrack))
 			return base;
@@ -1331,6 +1444,8 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 			fn->param_array[i + 1] = ft->param_array[i];
 		if (ft->param_fixed_len)
 			fn->param_fixed_len[i + 1] = ft->param_fixed_len[i];
+		if (ft->param_maybe_unused && fn->param_maybe_unused)
+			fn->param_maybe_unused[i + 1] = ft->param_maybe_unused[i];
 	}
 	free(params);
 	free(param_names);
@@ -2380,6 +2495,7 @@ parse_compound(Compiler* c, int scoped) {
 }
 
 static void parse_local_decl(Compiler* c, Node* blk);
+static void parse_local_decl_attrs(Compiler* c, Node* blk, unsigned attrs);
 
 // Build an NdName node for a resolved symbol.
 static Node*
@@ -2830,7 +2946,7 @@ walk_switch_fallthrough(Compiler* c, Node* n, int* has_code, int* terminated) {
 	if (n->kind == NdCase || n->kind == NdDefault) {
 		if (*has_code && !*terminated && user_source(c, n->span))
 			error_at(c, n->span,
-				 "implicit fallthrough; insert 'fallthrough;' or 'break'");
+				 "implicit fallthrough; insert '[[fallthrough]];' or 'break'");
 		*has_code = 0;
 		*terminated = 0;
 		return;
@@ -2899,6 +3015,8 @@ peek_for_init_decl(Compiler* c) {
 
 	save = c->lex.pos;
 	r = 0;
+	while (eat_attr_specifier(c, NULL))
+		;
 	if (peek_auto_local(c)) {
 		r = 1;
 		goto out;
@@ -2955,8 +3073,10 @@ parse_for_init_decl(Compiler* c) {
 	Node* d;
 	Span sp;
 	Initializer* in;
+	unsigned attrs;
 
 	sp = peek(c)->span;
+	attrs = parse_attr_seq(c);
 	if (peek_auto_local(c)) {
 		eatkw(c, KwAuto);
 		if (peek(c)->kind != TkIdent) {
@@ -2974,6 +3094,7 @@ parse_for_init_decl(Compiler* c) {
 		}
 		ty = decay(c, in->expr->type);
 		s = symbol_define(c, name, SkVar, ty, StLocal, sp);
+		apply_decl_attrs(s, attrs);
 		d->symbol = s;
 		d->type = ty;
 		return d;
@@ -2983,7 +3104,11 @@ parse_for_init_decl(Compiler* c) {
 		isoverload = 1;
 	storage = StNone;
 	saw = 0;
+	pending_decl_attrs = 0;
 	base = parse_declspec(c, &storage, &saw);
+	attrs |= pending_decl_attrs;
+	pending_decl_attrs = 0;
+	attrs |= parse_attr_seq(c);
 	if (!saw) {
 		error_at(c, sp, "expected declaration in for loop");
 		return NULL;
@@ -3016,6 +3141,7 @@ parse_for_init_decl(Compiler* c) {
 	else
 		storage = StLocal;
 	s = symbol_define(c, name, SkVar, ty, storage, sp);
+	apply_decl_attrs(s, attrs);
 	d = node(NdDecl, sp);
 	d->symbol = s;
 	d->type = ty;
@@ -3042,21 +3168,36 @@ parse_stmt(Compiler* c) {
 	Node *n, *a, *b, *d;
 	Span sp;
 	Symbol* s;
+	unsigned attrs;
 
 	sp = peek(c)->span;
-	if (at(c, PnLbrace))
+	attrs = parse_attr_seq(c);
+	if (attrs & AtFallthrough) {
+		if (switch_depth == 0)
+			error_at(c, sp, "[[fallthrough]] outside of switch");
+		if (attrs & ~AtFallthrough)
+			error_at(c, sp, "[[fallthrough]] cannot be combined with other attributes");
+		expect(c, PnSemi, "';'");
+		return node(NdFallthrough, sp);
+	}
+	if (at(c, PnLbrace)) {
+		if (attrs)
+			error_at(c, sp, "attribute not allowed here");
 		return parse_compound(c, 0);
+	}
 	if (atkw(c, KwStaticAssert)) {
+		if (attrs)
+			error_at(c, sp, "attribute not allowed here");
 		parse_static_assert(c);
 		return node(NdSkip, sp);
 	}
-	if (peek_destruct_decl(c))
-		return parse_destruct_decl(c, sp, atkw(c, KwAuto));
-	if (is_storage(c) || is_typename(c)) {
+	if (peek_destruct_decl(c) || peek_auto_local(c) || is_storage(c) || is_typename(c)) {
 		n = node(NdBlock, sp);
-		parse_local_decl(c, n);
+		parse_local_decl_attrs(c, n, attrs);
 		return n;
 	}
+	if (attrs)
+		error_at(c, sp, "attribute not allowed here");
 	if (eatkw(c, KwIf)) {
 		expect(c, PnLparen, "'('");
 		a = type_expr(c, parse_expr(c));
@@ -3196,12 +3337,6 @@ parse_stmt(Compiler* c) {
 			error_at(c, sp, "continue outside of loop");
 		expect(c, PnSemi, "';'");
 		return node(NdContinue, sp);
-	}
-	if (eatkw(c, KwFallthrough)) {
-		if (switch_depth == 0)
-			error_at(c, sp, "fallthrough outside of switch");
-		expect(c, PnSemi, "';'");
-		return node(NdFallthrough, sp);
 	}
 	if (eatkw(c, KwDefer)) {
 		n = node(NdDefer, sp);
@@ -3522,7 +3657,7 @@ validate_initializer(Compiler* c, Type* t, Initializer* in, Span sp) {
 
 // Parse `auto name = expr;` and define the local with inferred type.
 static void
-parse_auto_local(Compiler* c, Node* blk, Span sp) {
+parse_auto_local(Compiler* c, Node* blk, Span sp, unsigned attrs) {
 	char* name;
 	Type* ty;
 	Symbol* s;
@@ -3546,6 +3681,7 @@ parse_auto_local(Compiler* c, Node* blk, Span sp) {
 	}
 	ty = decay(c, in->expr->type);
 	s = symbol_define(c, name, SkVar, ty, StLocal, sp);
+	apply_decl_attrs(s, attrs);
 	d->symbol = s;
 	d->type = ty;
 	expect(c, PnSemi, "';'");
@@ -3554,7 +3690,7 @@ parse_auto_local(Compiler* c, Node* blk, Span sp) {
 
 // Parse one local variable declaration and append it to a block.
 static void
-parse_local_decl(Compiler* c, Node* blk) {
+parse_local_decl_attrs(Compiler* c, Node* blk, unsigned attrs) {
 	int storage, saw, isoverload;
 	Type *base, *ty;
 	char* name;
@@ -3572,7 +3708,7 @@ parse_local_decl(Compiler* c, Node* blk) {
 		return;
 	}
 	if (peek_auto_local(c)) {
-		parse_auto_local(c, blk, sp);
+		parse_auto_local(c, blk, sp, attrs);
 		return;
 	}
 	isoverload = 0;
@@ -3580,7 +3716,11 @@ parse_local_decl(Compiler* c, Node* blk) {
 		isoverload = 1;
 	storage = StNone;
 	saw = 0;
+	pending_decl_attrs = 0;
 	base = parse_declspec(c, &storage, &saw);
+	attrs |= pending_decl_attrs;
+	pending_decl_attrs = 0;
+	attrs |= parse_attr_seq(c);
 	if (at(c, PnSemi)) {
 		take(c);
 		return;
@@ -3599,11 +3739,12 @@ parse_local_decl(Compiler* c, Node* blk) {
 		} else if (is_func(ty)) {
 			reject_user_prototype(c, sp);
 			s = symbol_define_func(c, name, ty, storage == StNone ? StExtern : storage, sp, isoverload);
-			(void)s;
+			apply_decl_attrs(s, attrs);
 		} else {
 			int st = storage == StStatic ? StStatic : StLocal;
 
 			s = symbol_define(c, name, SkVar, ty, st, sp);
+			apply_decl_attrs(s, attrs);
 			d = node(NdDecl, sp);
 			d->symbol = s;
 			d->type = ty;
@@ -3646,6 +3787,11 @@ parse_local_decl(Compiler* c, Node* blk) {
 	}
 }
 
+static void
+parse_local_decl(Compiler* c, Node* blk) {
+	parse_local_decl_attrs(c, blk, 0);
+}
+
 // Skip MSVC/Clang pragma operators used as free-standing statements in headers.
 static int
 eat_pragma_op(Compiler* c) {
@@ -3675,8 +3821,13 @@ parse_decl_or_def(Compiler* c, int in_func) {
 	Symbol *s, *ps;
 	Node *fn, *body, *d;
 	Span sp;
+	unsigned attrs;
 
 	while (eat_pragma_op(c))
+		;
+	pending_decl_attrs = 0;
+	attrs = parse_attr_seq(c);
+	while (eat_vendor_attr(c) || eat_attr_specifier(c, &attrs))
 		;
 	doc = peek(c)->doc;
 	peek(c)->doc = NULL;
@@ -3700,17 +3851,21 @@ parse_decl_or_def(Compiler* c, int in_func) {
 	}
 	storage = StNone;
 	saw = 0;
+	pending_decl_attrs = 0;
 	if (at(c, PnLparen) && peek_tuple_type(c)) {
 		base = parse_tuple_type(c);
 		saw = 1;
 	} else {
 		base = parse_declspec(c, &storage, &saw);
+		attrs |= pending_decl_attrs;
+		pending_decl_attrs = 0;
 		/* `static (T, U) f(...)` — storage class precedes the tuple type. */
 		if (at(c, PnLparen) && peek_tuple_type(c)) {
 			base = parse_tuple_type(c);
 			saw = 1;
 		}
 	}
+	attrs |= parse_attr_seq(c);
 	if (at(c, PnSemi)) {
 		free(doc);
 		take(c);
@@ -3806,6 +3961,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			}
 		}
 		s->defined = 1;
+		apply_decl_attrs(s, attrs);
 		if (!in_func && c->syms.block == 0 && storage != StStatic)
 			s->doc = doc;
 		else
@@ -3827,6 +3983,8 @@ parse_decl_or_def(Compiler* c, int in_func) {
 					ps->param_fixed_len = ty->param_fixed_len[i];
 				else
 					ps->param_fixed_len = -1;
+				if (ty->param_maybe_unused && ty->param_maybe_unused[i])
+					ps->maybe_unused = 1;
 			}
 		}
 		body = parse_compound(c, 1);
@@ -3850,6 +4008,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			else
 				s = symbol_define_func(c, name, ty, storage == StStatic ? StStatic : StExtern, sp,
 						    isoverload);
+			apply_decl_attrs(s, attrs);
 			if (!in_func && c->syms.block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
@@ -3857,6 +4016,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			(void)s;
 		} else {
 			s = symbol_define(c, name, SkVar, ty, storage, sp);
+			apply_decl_attrs(s, attrs);
 			if (!in_func && c->syms.block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
@@ -4209,7 +4369,7 @@ skip_parsed_type_decl(Compiler* c) {
 	is_enum = atkw(c, KwEnum);
 	take(c); /* struct / union / enum */
 	/* SDK: struct __declspec(deprecated(...)) Tag { ... }; */
-	while (eat_vendor_attr(c))
+	while (eat_vendor_attr(c) || eat_attr_specifier(c, NULL))
 		;
 	t = peek(c);
 	if (t->kind == TkIdent && t->s) {
@@ -4250,6 +4410,7 @@ prescan_toplevel(Compiler* c) {
 	char *name, *recv_name, *recv_tag;
 	Symbol* s;
 	Span sp;
+	unsigned attrs;
 
 	pos0 = c->lex.pos;
 	sp = peek(c)->span;
@@ -4276,7 +4437,8 @@ prescan_toplevel(Compiler* c) {
 	 */
 	while (eat_pragma_op(c))
 		;
-	while (eat_vendor_attr(c))
+	attrs = parse_attr_seq(c);
+	while (eat_vendor_attr(c) || eat_attr_specifier(c, &attrs))
 		;
 	if (atkw(c, KwTypedef) || atkw(c, KwStruct) || atkw(c, KwUnion) || atkw(c, KwEnum)) {
 		skip_toplevel_semi(c);
@@ -4295,16 +4457,20 @@ prescan_toplevel(Compiler* c) {
 	}
 	storage = StNone;
 	saw = 0;
+	pending_decl_attrs = 0;
 	if (at(c, PnLparen) && peek_tuple_type(c)) {
 		base = parse_tuple_type(c);
 		saw = 1;
 	} else {
 		base = parse_declspec(c, &storage, &saw);
+		attrs |= pending_decl_attrs;
+		pending_decl_attrs = 0;
 		if (at(c, PnLparen) && peek_tuple_type(c)) {
 			base = parse_tuple_type(c);
 			saw = 1;
 		}
 	}
+	attrs |= parse_attr_seq(c);
 	if (at(c, PnSemi)) {
 		take(c);
 		return;
@@ -4336,6 +4502,7 @@ prescan_toplevel(Compiler* c) {
 			s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage, sp);
 		else
 			s = symbol_define_func(c, name, ty, storage, sp, isoverload);
+		apply_decl_attrs(s, attrs);
 		skip_braced(c);
 		(void)s;
 		return;
@@ -4345,6 +4512,7 @@ prescan_toplevel(Compiler* c) {
 		s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage == StStatic ? StStatic : StExtern, sp);
 	else
 		s = symbol_define_func(c, name, ty, storage == StStatic ? StStatic : StExtern, sp, isoverload);
+	apply_decl_attrs(s, attrs);
 	expect(c, PnSemi, "';'");
 	(void)s;
 }

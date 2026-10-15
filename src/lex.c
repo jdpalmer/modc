@@ -27,7 +27,6 @@ static const char* kwname[] = {
     "else",
     "enum",
     "extern",
-    "fallthrough",
     "float",
     "for",
     "goto",

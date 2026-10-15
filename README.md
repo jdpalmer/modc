@@ -29,7 +29,7 @@
 
 * **Switch/case ranges** such as `case 0 .. 10` and `case 'a' .. 'z'`
 
-* **Switch/case fallthrough** is explicit
+* **Switch/case fallthrough** is explicit (`[[fallthrough]];`)
 
 * **Switch/case enums** must be exhaustive
 

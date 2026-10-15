@@ -1030,23 +1030,36 @@ is_void_cast(Node* n) {
 	return n && n->kind == NdCast && n->type && n->type->kind == TyVoid;
 }
 
-// True if n is a multi-return call used as a discarded expression statement.
+// Callee symbol for a typed call (after overload / method lowering).
+static Symbol*
+call_callee_symbol(Node* n) {
+	if (n == NULL || n->kind != NdCall || n->a == NULL || n->a->kind != NdName)
+		return NULL;
+	return n->a->symbol;
+}
+
+// True if n is a discarded [[nodiscard]] call used as an expression statement.
 static int
-is_discarded_tuple_expr(Node* n) {
+is_discarded_nodiscard_expr(Node* n) {
+	Symbol* s;
+
 	if (n == NULL)
 		return 0;
 	if (is_void_cast(n))
 		return 0;
 	if (n->kind == NdComma)
-		return is_discarded_tuple_expr(n->b);
-	if (n->kind == NdCall && is_tuple(n->type))
-		return 1;
-	return 0;
+		return is_discarded_nodiscard_expr(n->b);
+	if (n->kind != NdCall)
+		return 0;
+	if (n->type && n->type->kind == TyVoid)
+		return 0;
+	s = call_callee_symbol(n);
+	return s && s->nodiscard;
 }
 
-// StmtVisitFn: error on discarded tuple returns; prune non-statement forms.
+// StmtVisitFn: error on discarded [[nodiscard]] returns; prune non-statement forms.
 static int
-discard_tuple_visit(Compiler* c, Node* n, void* ctx) {
+discard_nodiscard_visit(Compiler* c, Node* n, void* ctx) {
 	(void)ctx;
 	switch (n->kind) {
 	case NdBlock:
@@ -1069,17 +1082,17 @@ discard_tuple_visit(Compiler* c, Node* n, void* ctx) {
 	case NdSkip:
 		return 1;
 	default:
-		if (user_source(c, n->span) && is_discarded_tuple_expr(n))
+		if (user_source(c, n->span) && is_discarded_nodiscard_expr(n))
 			error_at(c, n->span,
-				 "discarded multi-return value; assign it or cast to void");
+				 "discarded [[nodiscard]] return value; assign it or cast to void");
 		return 1;
 	}
 }
 
-// Walk a statement tree for discarded multi-return values.
+// Walk a statement tree for discarded [[nodiscard]] call results.
 static void
-check_discard_tuple_stmt(Compiler* c, Node* n) {
-	walk_stmt(c, n, discard_tuple_visit, NULL);
+check_discard_nodiscard_stmt(Compiler* c, Node* n) {
+	walk_stmt(c, n, discard_nodiscard_visit, NULL);
 }
 
 
@@ -1101,7 +1114,7 @@ check_unused_func(Compiler* c, Node* fn) {
 	owner = fn->symbol;
 	mark_symbol_used(fn->a);
 	for (s = c->syms.symbols; s; s = s->next) {
-		if (s->owner != owner || s->kind != SkVar || s->used)
+		if (s->owner != owner || s->kind != SkVar || s->used || s->maybe_unused)
 			continue;
 		if (is_compiler_temp_name(s->name))
 			continue;
@@ -1114,14 +1127,14 @@ check_unused_func(Compiler* c, Node* fn) {
 	}
 }
 
-// Per-function pass for discarded tuple return diagnostics.
+// Per-function pass for discarded [[nodiscard]] return diagnostics.
 static void
-check_discard_tuple_func(Compiler* c, Node* fn) {
+check_discard_nodiscard_func(Compiler* c, Node* fn) {
 	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL)
 		return;
 	if (!user_source(c, fn->span))
 		return;
-	check_discard_tuple_stmt(c, fn->a);
+	check_discard_nodiscard_stmt(c, fn->a);
 }
 
 /* ---- method receiver: no null tests, no rebind ---- */
@@ -1545,7 +1558,7 @@ void type_check_unit(Compiler* c) {
 		check_enum_exhaust_func(c, c->unit.funcs[i]);
 		check_goto_over_decl(c, c->unit.funcs[i]);
 		check_unseq_func(c, c->unit.funcs[i]);
-		check_discard_tuple_func(c, c->unit.funcs[i]);
+		check_discard_nodiscard_func(c, c->unit.funcs[i]);
 		check_method_receiver_func(c, c->unit.funcs[i]);
 		check_unused_func(c, c->unit.funcs[i]);
 	}

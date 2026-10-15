@@ -1,8 +1,8 @@
-// fail: F:discarded multi-return value; assign it or cast to void
+// fail: F:discarded [[nodiscard]] return value; assign it or cast to void
 
-/* Discarded multi-return call is an error. */
+/* Discarded [[nodiscard]] multi-return call is an error. */
 
-(int, bool) maybe(int x) {
+[[nodiscard]] (int, bool) maybe(int x) {
 	return (x, true);
 }
 

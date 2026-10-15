@@ -51,7 +51,7 @@ Under the hood, tuple values lower to unnamed aggregate structs that conform to 
 
 ## Enforcement and Declarator Rules
 
-Discarding a tuple return value at a call site is a compile-time error. If ignoring a returned tuple is deliberate, the expression must be explicitly cast to `(void)parse(1);`. To keep some values and ignore others, use `_` in the destructuring list (`auto (v, _) = parse(1);`). `_` is special only in destructure bindings — elsewhere it is an ordinary identifier.
+Discarding a tuple return value at a call site is allowed by default. Mark the function `[[nodiscard]]` to make a discarded call a compile-time error; silence that with `(void)parse(1);` or by assigning the result. To keep some values and ignore others, use `_` in the destructuring list (`auto (v, _) = parse(1);`). `_` is special only in destructure bindings — elsewhere it is an ordinary identifier.
 
 While multi-declarator statements like `int a, b;` are rejected in user source code to enforce single declarations, tuple destructuring statements such as `auto (a, b) = f();` are recognized as a single destructuring statement rather than a declarator list. Standard parameter lists like `int f(int a, int b)` remain unaffected.
 

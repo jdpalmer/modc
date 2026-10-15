@@ -1,4 +1,4 @@
-// fail: F:implicit fallthrough; insert 'fallthrough;' or 'break'
+// fail: F:implicit fallthrough; insert '[[fallthrough]];' or 'break'
 
 int bad(int x) {
 	int s = { 0 };

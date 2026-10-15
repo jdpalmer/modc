@@ -72,7 +72,6 @@ enum {
 	KwElse,
 	KwEnum,
 	KwExtern,
-	KwFallthrough,
 	KwFloat,
 	KwFor,
 	KwGoto,
@@ -246,6 +245,8 @@ struct Type {
 	char* param_array;
 	// Per-param: N for fixed array param, else -1.
 	int64_t* param_fixed_len;
+	// Per-param: [[maybe_unused]] on the parameter.
+	char* param_maybe_unused;
 	// Tag name for struct/union/enum.
 	char* tag;
 	// Struct/union fields (or enum members as fields in some paths).
@@ -339,6 +340,10 @@ struct Symbol {
 	int dead;
 	// Name referenced (unused local/param diagnostics).
 	int used;
+	// [[maybe_unused]] — suppress unused local/param errors.
+	int maybe_unused;
+	// [[nodiscard]] — discarding a non-void call result is an error.
+	int nodiscard;
 	// Definition / declaration source location.
 	Span span;
 	// Enclosing function, if any.
