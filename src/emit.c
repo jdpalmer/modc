@@ -921,20 +921,25 @@ vimm(char cls, int64_t n, Type* t) {
 	return v;
 }
 
-// Branch to __modc_bounds_fail when index is not strictly less than len (unsigned).
-// idx and len must already be QBE class 'l'.
+// True when n is a fixed-array parameter (T[N] → pointer) with known N.
+static int
+node_fixed_param_len(Node* n, int64_t* out) {
+	if (n && n->kind == NdName && n->symbol && n->symbol->array_param &&
+	    n->symbol->param_fixed_len >= 0) {
+		if (out)
+			*out = n->symbol->param_fixed_len;
+		return 1;
+	}
+	return 0;
+}
+
+// Call __modc_bounds_fail(file, line, index, len) then continue at lok.
 static void
-emit_index_bounds(Compiler* c, Val idx, Val len, Span sp) {
-	Val ok, fp;
-	int lok, ltrap, off, n;
+emit_bounds_fail(Compiler* c, Val index, Val len, Span sp, int lok) {
+	Val fp;
+	int off, n;
 	const char* file;
 
-	ok = vtmp('w', NULL);
-	fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, idx.text, len.text);
-	lok = newlbl();
-	ltrap = newlbl();
-	emitjnz(ok.text, lok, ltrap);
-	emitlbl(ltrap);
 	file = sp.file && sp.file[0] ? sp.file : "?";
 	n = (int)strlen(file) + 1;
 	off = intern_bytes(c, file, n);
@@ -944,9 +949,40 @@ emit_index_bounds(Compiler* c, Val idx, Val len, Span sp) {
 	else
 		fprintf(outf, "\t%s =l add $%s, %d\n", fp.text, emit_str_symbol, off);
 	fprintf(outf, "\tcall $__modc_bounds_fail(l %s, w %d, l %s, l %s)\n",
-		fp.text, sp.line > 0 ? sp.line : 0, idx.text, len.text);
+		fp.text, sp.line > 0 ? sp.line : 0, index.text, len.text);
 	emitjmp(lok);
 	emitlbl(lok);
+}
+
+// Branch to __modc_bounds_fail when index is not strictly less than len (unsigned).
+// idx and len must already be QBE class 'l'.
+static void
+emit_index_bounds(Compiler* c, Val idx, Val len, Span sp) {
+	Val ok;
+	int lok, ltrap;
+
+	ok = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, idx.text, len.text);
+	lok = newlbl();
+	ltrap = newlbl();
+	emitjnz(ok.text, lok, ltrap);
+	emitlbl(ltrap);
+	emit_bounds_fail(c, idx, len, sp, lok);
+}
+
+// Branch to __modc_bounds_fail when NOT (a <= b) unsigned (subrange bounds).
+static void
+emit_ule_bounds(Compiler* c, Val a, Val b, Span sp) {
+	Val ok;
+	int lok, ltrap;
+
+	ok = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w culel %s, %s\n", ok.text, a.text, b.text);
+	lok = newlbl();
+	ltrap = newlbl();
+	emitjnz(ok.text, lok, ltrap);
+	emitlbl(ltrap);
+	emit_bounds_fail(c, a, b, sp, lok);
 }
 
 // Insert casts/extensions so a value matches the target QBE class.
@@ -1284,11 +1320,17 @@ emitlval(Compiler* c, Node* n) {
 			i = coerce(i, 'l', c->types.type_llong);
 		if (b.cls != 'l')
 			b = coerce(b, 'l', c->types.type_void_ptr);
-		if (c->opt.bounds_check && bt && bt->kind == TyArray && bt->len >= 0) {
+		if (c->opt.bounds_check) {
 			Val lenv;
+			int64_t flen;
 
-			lenv = vimm('l', bt->len, c->types.type_ullong);
-			emit_index_bounds(c, i, lenv, n->span);
+			if (bt && bt->kind == TyArray && bt->len >= 0) {
+				lenv = vimm('l', bt->len, c->types.type_ullong);
+				emit_index_bounds(c, i, lenv, n->span);
+			} else if (node_fixed_param_len(n->a, &flen)) {
+				lenv = vimm('l', flen, c->types.type_ullong);
+				emit_index_bounds(c, i, lenv, n->span);
+			}
 		}
 		if (step != 1) {
 			s = vtmp('l', c->types.type_llong);
@@ -2158,27 +2200,36 @@ emitexpr(Compiler* c, Node* n) {
 		slot = vtmp('l', n->type);
 		fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, storewidth(c, n->type));
 		bt = n->a ? n->a->type : NULL;
-		if (is_ranged(bt) && bt->base) {
-			base = emitexpr(c, n->a);
-			if (base.cls != 'l' && base.cls != '@')
-				base = coerce(base, 'l', c->types.type_void_ptr);
-			ptr = vtmp('l', type_ptr(c, bt->base));
-			fprintf(outf, "\t%s =l loadl %s\n", ptr.text, base.text);
-			lenoff = 8;
-			if (bt->fields && bt->fields->next)
-				lenoff = bt->fields->next->offset;
-			off = vtmp('l', c->types.type_void_ptr);
-			fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, lenoff);
-			lenv = vtmp('l', c->types.type_ullong);
-			fprintf(outf, "\t%s =l loadl %s\n", lenv.text, off.text);
-		} else if (is_array(bt) && bt->base) {
-			ptr = emitexpr(c, n->a);
-			if (ptr.cls != 'l')
-				ptr = coerce(ptr, 'l', type_ptr(c, bt->base));
-			lenv = vimm('l', bt->len >= 0 ? bt->len : 0, c->types.type_ullong);
-		} else {
-			ptr = emitexpr(c, n->a);
-			lenv = vimm('l', 0, c->types.type_ullong);
+		{
+			int64_t flen = 0;
+
+			if (is_ranged(bt) && bt->base) {
+				base = emitexpr(c, n->a);
+				if (base.cls != 'l' && base.cls != '@')
+					base = coerce(base, 'l', c->types.type_void_ptr);
+				ptr = vtmp('l', type_ptr(c, bt->base));
+				fprintf(outf, "\t%s =l loadl %s\n", ptr.text, base.text);
+				lenoff = 8;
+				if (bt->fields && bt->fields->next)
+					lenoff = bt->fields->next->offset;
+				off = vtmp('l', c->types.type_void_ptr);
+				fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, lenoff);
+				lenv = vtmp('l', c->types.type_ullong);
+				fprintf(outf, "\t%s =l loadl %s\n", lenv.text, off.text);
+			} else if (is_array(bt) && bt->base) {
+				ptr = emitexpr(c, n->a);
+				if (ptr.cls != 'l')
+					ptr = coerce(ptr, 'l', type_ptr(c, bt->base));
+				lenv = vimm('l', bt->len >= 0 ? bt->len : 0, c->types.type_ullong);
+			} else if (node_fixed_param_len(n->a, &flen)) {
+				ptr = emitexpr(c, n->a);
+				if (ptr.cls != 'l')
+					ptr = coerce(ptr, 'l', type_ptr(c, bt && bt->base ? bt->base : elem));
+				lenv = vimm('l', flen, c->types.type_ullong);
+			} else {
+				ptr = emitexpr(c, n->a);
+				lenv = vimm('l', 0, c->types.type_ullong);
+			}
 		}
 		if (n->b) {
 			lo = emitexpr(c, n->b);
@@ -2192,6 +2243,11 @@ emitexpr(Compiler* c, Node* n) {
 				hi = coerce(hi, 'l', c->types.type_ullong);
 		} else
 			hi = lenv;
+		/* Valid closed window: 0 <= lo <= hi <= parent len (unsigned). */
+		if (c->opt.bounds_check) {
+			emit_ule_bounds(c, hi, lenv, n->span);
+			emit_ule_bounds(c, lo, hi, n->span);
+		}
 		tmp = vtmp('l', c->types.type_ullong);
 		if (stride != 1)
 			fprintf(outf, "\t%s =l mul %s, %d\n", tmp.text, lo.text, stride);

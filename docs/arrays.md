@@ -54,7 +54,7 @@ optional-resource probing. %C’s use case is app assets in `.mc`; missing files
 are hard errors, and stubs are preferred over growing the preprocessor. Revisit
 only if a real stub or dogfood file needs them.
 
-Fixed arrays implicitly convert to `T[..]` where a ranged type is expected. In user translation units, declaring a parameter as `void f(int a[N])` enforces an exact `T[N]` matching requirement at call sites. Within `f`, calling `len(a)` correctly returns the compile-time length `N`.
+Fixed arrays implicitly convert to `T[..]` where a ranged type is expected. In user translation units, declaring a parameter as `void f(int a[N])` enforces an exact `T[N]` matching requirement at call sites. Within `f`, `len(a)` returns `N`, indexing uses that length under `--bounds-check`, and `a[lo..hi]` is allowed like a fixed array.
 
 ## Open Arrays `T[]`
 
@@ -107,11 +107,18 @@ not inherited by a subslice.
 
 ### Bounds checks (`--bounds-check`)
 
-By default, `s[i]` and `a[i]` on `T[..]` / `T[N]` are unchecked (same as C).
-Pass `--bounds-check` to `modc build`, `run`, `test`, or `emit` to insert an
-unsigned compare against `len` (or `N`) and call `__modc_bounds_fail` on
-overflow (see the `crash` package: message, cleanups, then abort). Raw `T*`
-indexing is never checked. Release builds omit the flag for zero cost.
+By default, indexing and subranges on `T[..]` / `T[N]` are unchecked (same as C).
+Pass `--bounds-check` to `modc build`, `run`, `test`, or `emit` to insert
+unsigned compares and call `__modc_bounds_fail` on overflow (see the `crash`
+package: message, cleanups, then abort):
+
+- `a[i]` / `s[i]` — require `i < N` or `i < len(s)`
+- `void f(int a[N])` — `a[i]` uses the parameter’s fixed `N` (open `T[]` / raw
+  `T*` stay unchecked)
+- `a[lo..hi]` / `s[lo..hi]` — require `lo <= hi` and `hi <=` parent length
+  (end exclusive; `a[2..]` checks `2 <= len`)
+
+Raw `T*` indexing is never checked. Release builds omit the flag for zero cost.
 
 Closed windows (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set
 `len == cap`. Writable scratch over a block is `ranged(p, 0, n)` — length

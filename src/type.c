@@ -2852,6 +2852,10 @@ Node* type_expr(Compiler* c, Node* n) {
 			elem = lt->base;
 		else if (is_array(lt) && lt->base)
 			elem = lt->base;
+		else if (n->a && n->a->kind == NdName && n->a->symbol &&
+			 n->a->symbol->array_param && n->a->symbol->param_fixed_len >= 0 &&
+			 is_ptr(lt) && lt->base)
+			elem = lt->base;
 		else {
 			error_at(c, n->span, "subrange requires a fixed or ranged array");
 			n->type = type_ranged(c, c->types.type_int);
@@ -2864,7 +2868,8 @@ Node* type_expr(Compiler* c, Node* n) {
 		if (n->b && n->c && eval_const(c, n->b, &lo) && eval_const(c, n->c, &hi) && lo > hi)
 			error_at(c, n->span, "subrange start greater than end");
 		n->type = type_ranged_qual(c, elem, (is_ranged(lt) && (lt->is_readonly || lt->is_poly)) ||
-							 (is_array(lt) && lt->is_readonly));
+							 (is_array(lt) && lt->is_readonly) ||
+							 (is_ptr(lt) && lt->is_readonly));
 		n->is_lvalue = 0;
 		return n;
 	}
