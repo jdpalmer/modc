@@ -852,6 +852,8 @@ int pkg_add_framework(Compiler* c, const char* name);
 int pkg_add_csource(Compiler* c, const char* from_file, const char* relpath);
 void comp_add_framework_path(Compiler* c, const char* dir);
 int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n);
+/* Append stdlib package sources (e.g. "crash") to a discovery list if missing. */
+int pkg_ensure(Compiler* c, const char* spec, char*** files, int* nfiles);
 int pkg_is_test_src(const char* path);
 void pkg_file_root(const char* mcfile, char* out, size_t out_len);
 void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len);

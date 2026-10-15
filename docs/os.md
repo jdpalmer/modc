@@ -239,3 +239,27 @@ bool tty_set_cooked(File *f);   /* restore attrs from set_raw */
 - `tty_stdin` / `stdout` / `stderr` use `file_from_fd_borrow` (or Win32 handle borrow). `File.close` does not close the process stdio descriptors.
 - `set_cooked` restores the attributes saved by a prior `set_raw` on the same fd/handle; without a save it returns false.
 - Buffering stays in `fs`: compose with `writer_from_file` / `reader_from_file`. Flush before mode changes. `Poll` / `isatty` / `size` see the underlying `File` only.
+
+## `crash`
+
+Process-fatal funnel (no `recover`). Linked into every `modc` build so
+`--bounds-check` and `<assert.h>` share one death path. Import the package to
+call `panic` / `crash_init` from user code:
+
+```c
+import "crash";
+
+typedef void (*CrashCleanup)();
+
+void crash_init(CrashCleanup fn); /* register cleanup + install fault handlers */
+
+overload void panic(const char[..] msg);
+overload void panic(const char[..] file, int line, const char[..] msg);
+```
+
+- `crash_init(term_close)` registers a LIFO cleanup and installs SEGV/ABRT/FPE(/BUS)
+  handlers (Unix) or a vectored exception handler (Windows). Pass `NULL` to only
+  install fault handlers. Call again to push another cleanup (cap 8).
+- On fatal: run cleanups, write a one-line message to stderr, then `abort`.
+- `__modc_bounds_fail` / `__modc_assert_fail` / `__modc_fatal` are the compiler
+  and assert entry points (same funnel).

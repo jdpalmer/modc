@@ -269,6 +269,12 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 	nfiles = 0;
 	if (pkg_discover(c, path, &files, &nfiles))
 		return 1;
+	if (pkg_ensure(c, "crash", &files, &nfiles)) {
+		for (i = 0; i < nfiles; i++)
+			free(files[i]);
+		free(files);
+		return 1;
+	}
 	r = compile_graph(c, files, nfiles, NULL, 0);
 	for (i = 0; i < nfiles; i++)
 		free(files[i]);
@@ -1652,6 +1658,12 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 #endif
 	if (pkg_discover(c, path, &files, &nfiles))
 		return 1;
+	if (pkg_ensure(c, "crash", &files, &nfiles)) {
+		for (i = 0; i < nfiles; i++)
+			free(files[i]);
+		free(files);
+		return 1;
+	}
 	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs) != 0) {
 		fprintf(stderr, "modc: too many packages in build graph\n");
 		for (i = 0; i < nfiles; i++)

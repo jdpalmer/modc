@@ -921,11 +921,13 @@ vimm(char cls, int64_t n, Type* t) {
 	return v;
 }
 
-// Branch to trap (abort) when index is not strictly less than len (unsigned).
+// Branch to __modc_bounds_fail when index is not strictly less than len (unsigned).
+// idx and len must already be QBE class 'l'.
 static void
-emit_index_bounds(Val idx, Val len) {
-	Val ok;
-	int lok, ltrap;
+emit_index_bounds(Compiler* c, Val idx, Val len, Span sp) {
+	Val ok, fp;
+	int lok, ltrap, off, n;
+	const char* file;
 
 	ok = vtmp('w', NULL);
 	fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, idx.text, len.text);
@@ -933,7 +935,16 @@ emit_index_bounds(Val idx, Val len) {
 	ltrap = newlbl();
 	emitjnz(ok.text, lok, ltrap);
 	emitlbl(ltrap);
-	fprintf(outf, "\tcall $abort()\n");
+	file = sp.file && sp.file[0] ? sp.file : "?";
+	n = (int)strlen(file) + 1;
+	off = intern_bytes(c, file, n);
+	fp = vtmp('l', c->types.type_void_ptr);
+	if (off == 0)
+		fprintf(outf, "\t%s =l copy $%s\n", fp.text, emit_str_symbol);
+	else
+		fprintf(outf, "\t%s =l add $%s, %d\n", fp.text, emit_str_symbol, off);
+	fprintf(outf, "\tcall $__modc_bounds_fail(l %s, w %d, l %s, l %s)\n",
+		fp.text, sp.line > 0 ? sp.line : 0, idx.text, len.text);
 	emitjmp(lok);
 	emitlbl(lok);
 }
@@ -1237,7 +1248,7 @@ emitlval(Compiler* c, Node* n) {
 				fprintf(outf, "\t%s =l add %s, %d\n", s.text, agg.text, lenoff);
 				lenv = vtmp('l', c->types.type_ullong);
 				fprintf(outf, "\t%s =l loadl %s\n", lenv.text, s.text);
-				emit_index_bounds(i, lenv);
+				emit_index_bounds(c, i, lenv, n->span);
 			}
 			b = p;
 			step = type_size(c, n->a->type->base);
@@ -1277,7 +1288,7 @@ emitlval(Compiler* c, Node* n) {
 			Val lenv;
 
 			lenv = vimm('l', bt->len, c->types.type_ullong);
-			emit_index_bounds(i, lenv);
+			emit_index_bounds(c, i, lenv, n->span);
 		}
 		if (step != 1) {
 			s = vtmp('l', c->types.type_llong);
@@ -3490,11 +3501,12 @@ int emit_qbe(Compiler* c, FILE* out) {
 	for (i = 0; i < c->unit.funcs_len; i++)
 		collect(c, c->unit.funcs[i]);
 	emitsuall(c);
-	emitstrdata(c);
 	for (i = 0; i < c->unit.globals_len; i++)
 		emitgsym(c, c->unit.globals[i]);
 	for (i = 0; i < c->unit.funcs_len; i++)
 		emitfunc(c, c->unit.funcs[i]);
+	/* After funcs: bounds traps intern file paths during emit_index_bounds. */
+	emitstrdata(c);
 	reset_su_ids(c);
 	return 0;
 }
@@ -3523,13 +3535,14 @@ int emit_qbe_pkg(Compiler* c, FILE* out, const char* pkg_dir, const char* str_sy
 		if (node_in_pkg(c->unit.globals[i], pkg_dir))
 			collect(c, c->unit.globals[i]);
 	emitsuall(c);
-	emitstrdata(c);
 	for (i = 0; i < c->unit.globals_len; i++)
 		if (node_in_pkg(c->unit.globals[i], pkg_dir))
 			emitgsym(c, c->unit.globals[i]);
 	for (i = 0; i < c->unit.funcs_len; i++)
 		if (node_in_pkg(c->unit.funcs[i], pkg_dir))
 			emitfunc(c, c->unit.funcs[i]);
+	/* After funcs: bounds traps intern file paths during emit_index_bounds. */
+	emitstrdata(c);
 	reset_su_ids(c);
 	emit_str_symbol = "__string";
 	emit_pkg_filter = NULL;

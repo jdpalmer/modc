@@ -750,6 +750,50 @@ int pkg_resolve_spec(Compiler* c, const char* spec, char* out, size_t out_len) {
 	return try_pkg_search(c, spec, out, out_len) ? 0 : 1;
 }
 
+// Append sources for a stdlib package spec when not already in the graph.
+int pkg_ensure(Compiler* c, const char* spec, char*** files, int* nfiles) {
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX];
+	char** srcs;
+	int nsrcs, i, j;
+
+	if (spec == NULL || spec[0] == 0 || files == NULL || nfiles == NULL)
+		return 1;
+	if (pkg_resolve_spec(c, spec, root, sizeof(root))) {
+		error_at(c, (Span){c->paths.infile ? c->paths.infile : spec, 1, 1, 1},
+			 "cannot find package \"%s\"", spec);
+		return 1;
+	}
+	if (host_abspath(root, abs, sizeof(abs)) == 0)
+		snprintf(root, sizeof(root), "%s", abs);
+	srcs = NULL;
+	nsrcs = 0;
+	if (list_sources(root, &srcs, &nsrcs)) {
+		error_at(c, (Span){root, 1, 1, 1},
+			 "package \"%s\" has no .mc sources", spec);
+		return 1;
+	}
+	for (i = 0; i < nsrcs; i++) {
+		char srcabs[HOST_PATH_MAX], fileabs[HOST_PATH_MAX];
+
+		if (host_abspath(srcs[i], srcabs, sizeof(srcabs)) != 0)
+			snprintf(srcabs, sizeof(srcabs), "%s", srcs[i]);
+		for (j = 0; j < *nfiles; j++) {
+			if (host_abspath((*files)[j], fileabs, sizeof(fileabs)) != 0)
+				snprintf(fileabs, sizeof(fileabs), "%s", (*files)[j]);
+			if (strcmp(fileabs, srcabs) == 0)
+				break;
+		}
+		if (j < *nfiles)
+			continue;
+		*files = xrealloc(*files, (size_t)(*nfiles + 1) * sizeof(char*));
+		(*files)[(*nfiles)++] = xstrdup(srcabs);
+	}
+	for (i = 0; i < nsrcs; i++)
+		free(srcs[i]);
+	free(srcs);
+	return 0;
+}
+
 // Discover all .mc sources reachable from a package root via imports.
 int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n) {
 	Disc d;

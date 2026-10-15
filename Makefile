@@ -78,7 +78,14 @@ check: $(MODC)
 	./modc test -M test test/testdriver
 	./modc selftest
 	./modc build --bounds-check -o $(BUILD)/bounds_oob test/bounds_oob.mc
-	@$(BUILD)/bounds_oob >/dev/null 2>&1; test $$? -ne 0
+	@$(BUILD)/bounds_oob >$(BUILD)/bounds_oob.out 2>$(BUILD)/bounds_oob.err; test $$? -ne 0
+	@grep -q 'bounds: index' $(BUILD)/bounds_oob.err
+	./modc build -o $(BUILD)/crash_panic test/crash_panic_die.mc
+	@$(BUILD)/crash_panic >/dev/null 2>&1; test $$? -ne 0
+	./modc build -o $(BUILD)/crash_cleanup test/crash_cleanup_die.mc
+	@$(BUILD)/crash_cleanup >$(BUILD)/crash_cleanup.out 2>$(BUILD)/crash_cleanup.err; test $$? -ne 0
+	@grep -q cleaned $(BUILD)/crash_cleanup.err
+	@grep -q after-cleanup $(BUILD)/crash_cleanup.err
 
 # Optional host integration (vendor, cache, format, doc, includes).
 check-special: $(MODC)

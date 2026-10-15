@@ -8,11 +8,33 @@
 #include <stdint.h>
 
 typedef int BOOL;
+typedef long LONG;
 typedef unsigned int DWORD;
 typedef unsigned int UINT;
 typedef unsigned short WCHAR;
 typedef void *HANDLE;
 typedef void *HGLOBAL;
+typedef void *PVOID;
+
+#define EXCEPTION_CONTINUE_SEARCH 0
+#define EXCEPTION_ACCESS_VIOLATION 0xC0000005u
+#define EXCEPTION_ILLEGAL_INSTRUCTION 0xC000001Du
+
+typedef struct _EXCEPTION_RECORD {
+	DWORD ExceptionCode;
+	DWORD ExceptionFlags;
+	struct _EXCEPTION_RECORD *ExceptionRecord;
+	PVOID ExceptionAddress;
+	DWORD NumberParameters;
+	uintptr_t ExceptionInformation[15];
+} EXCEPTION_RECORD;
+
+typedef struct _EXCEPTION_POINTERS {
+	EXCEPTION_RECORD *ExceptionRecord;
+	PVOID ContextRecord;
+} EXCEPTION_POINTERS;
+
+typedef LONG (*PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS *info);
 
 #define INVALID_HANDLE_VALUE ((HANDLE)(intptr_t)-1)
 #define INVALID_FILE_ATTRIBUTES 0xffffffffu
@@ -227,3 +249,5 @@ DWORD SearchPathA(const char *path, const char *name, const char *ext,
     DWORD buflen, char *buf, char **filepart);
 char *GetEnvironmentStringsA(void);
 BOOL FreeEnvironmentStringsA(char *block);
+
+PVOID AddVectoredExceptionHandler(DWORD first, PVECTORED_EXCEPTION_HANDLER handler);
