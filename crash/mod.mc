@@ -62,12 +62,8 @@ static void crash_die() {
 #endif
 }
 
-/*
- * Handlers are non-static: taking the address of a package-private static
- * currently emits the wrong linker name. Keep these as ordinary globals.
- */
 #ifdef _WIN32
-LONG crash_vectored(EXCEPTION_POINTERS* info) {
+static LONG crash_vectored(EXCEPTION_POINTERS* info) {
 	DWORD code = 0;
 	if (info == NULL || info.ExceptionRecord == NULL) {
 		return EXCEPTION_CONTINUE_SEARCH;
@@ -83,7 +79,7 @@ LONG crash_vectored(EXCEPTION_POINTERS* info) {
 	return EXCEPTION_CONTINUE_SEARCH;
 }
 #else
-void crash_on_signal(int sig) {
+static void crash_on_signal(int sig) {
 	if (crash_reporting == 0) {
 		crash_reporting = 1;
 		crash_run_cleanups();

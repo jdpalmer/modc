@@ -2056,7 +2056,9 @@ emitexpr(Compiler* c, Node* n) {
 		return emitgaddr(c, n);
 	case NdName:
 		if (n->symbol && n->symbol->kind == SkFunc) {
-			snprintf(v.text, sizeof(v.text), "$%s", n->symbol->name);
+			/* Decay to function pointer: use mangled linkname
+			 * (static / overload / method), not the source name. */
+			val_set_link(&v, n->symbol, 0);
 			v.cls = 'l';
 			return v;
 		}

@@ -11,6 +11,10 @@ int sub(int a, int b) {
 	return a - b;
 }
 
+static int mul(int a, int b) {
+	return a * b;
+}
+
 int callfp(int(*fp)(int, int), int a, int b) {
 	return fp(a, b);
 }
@@ -31,6 +35,25 @@ int via_addr() {
 	return (*fp)(10, 32);
 }
 
+/* Package-private static: decay and & must use the mangled linkname. */
+int via_static_decay() {
+	int(*fp)(int, int) = { 0 };
+	fp = mul;
+	return fp(6, 7);
+}
+
+int via_static_addr() {
+	int(*fp)(int, int) = { 0 };
+	fp = &mul;
+	return (*fp)(6, 7);
+}
+
+static int(*g_static_fp)(int, int) = mul;
+
+int via_static_global() {
+	return g_static_fp(3, 14);
+}
+
 int choose(int which, int a, int b) {
 	int(*fp)(int, int) = { 0 };
 	if (which) {
@@ -46,6 +69,10 @@ int main() {
 	assert_eq(callstar(add, 2, 3), 5);
 	assert_eq(via_local(), 42);
 	assert_eq(via_addr(), 42);
+	assert_eq(via_static_decay(), 42);
+	assert_eq(via_static_addr(), 42);
+	assert_eq(via_static_global(), 42);
+	assert_eq(callfp(mul, 6, 7), 42);
 	assert_eq(choose(1, 10, 7), 17);
 	assert_eq(choose(0, 10, 7), 3);
 	return 0;

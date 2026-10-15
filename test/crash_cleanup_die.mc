@@ -4,8 +4,7 @@ import "crash";
 
 static int cleaned = 0;
 
-/* Non-static: address-of package-private static emits the wrong link name. */
-void on_fatal() {
+static void on_fatal() {
 	cleaned = 1;
 	(void)write(2, "cleaned\n", 8);
 }
