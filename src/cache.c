@@ -3,6 +3,7 @@
 // Layout under .modc-cache/:
 //   foreign/<hex>.o
 //   pkg/<id>-<hex>/pkg.o + iface (API/export digest) + needs (dep API mix)
+//   pkg/<id>/srcstamp + impl (mtime+size fast path for content impl hash)
 //   prog/<hex>/linkmeta + stamp
 //   linkmeta (stable; seeds partial rebuilds when ghex changes)
 //

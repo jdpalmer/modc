@@ -271,13 +271,13 @@ host_is_file(const char* path) {
 	return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
-// mtime (unix seconds) + size for cache keys; 0 on success.
+// mtime (unix nanoseconds since epoch) + size for cache keys; 0 on success.
 int
-host_file_stamp(const char* path, long long* mtime_sec, unsigned long long* size) {
+host_file_stamp(const char* path, long long* mtime_nsec, unsigned long long* size) {
 	WIN32_FILE_ATTRIBUTE_DATA fad;
 	ULARGE_INTEGER u;
 
-	if (path == NULL || path[0] == 0 || mtime_sec == NULL || size == NULL)
+	if (path == NULL || path[0] == 0 || mtime_nsec == NULL || size == NULL)
 		return -1;
 	if (!GetFileAttributesExA(path, GetFileExInfoStandard, &fad))
 		return -1;
@@ -285,8 +285,8 @@ host_file_stamp(const char* path, long long* mtime_sec, unsigned long long* size
 		return -1;
 	u.LowPart = fad.ftLastWriteTime.dwLowDateTime;
 	u.HighPart = fad.ftLastWriteTime.dwHighDateTime;
-	/* FILETIME (100ns since 1601) → unix seconds. */
-	*mtime_sec = (long long)((u.QuadPart - 116444736000000000ULL) / 10000000ULL);
+	/* FILETIME (100ns since 1601) → unix nanoseconds. */
+	*mtime_nsec = (long long)((u.QuadPart - 116444736000000000ULL) * 100ULL);
 	u.LowPart = fad.nFileSizeLow;
 	u.HighPart = fad.nFileSizeHigh;
 	*size = u.QuadPart;
@@ -870,16 +870,24 @@ host_is_file(const char* path) {
 	return stat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
-// mtime (unix seconds) + size for cache keys; 0 on success.
+// mtime (unix nanoseconds since epoch) + size for cache keys; 0 on success.
 int
-host_file_stamp(const char* path, long long* mtime_sec, unsigned long long* size) {
+host_file_stamp(const char* path, long long* mtime_nsec, unsigned long long* size) {
 	struct stat st;
 
-	if (path == NULL || path[0] == 0 || mtime_sec == NULL || size == NULL)
+	if (path == NULL || path[0] == 0 || mtime_nsec == NULL || size == NULL)
 		return -1;
 	if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
 		return -1;
-	*mtime_sec = (long long)st.st_mtime;
+#if defined(__APPLE__)
+	*mtime_nsec = (long long)st.st_mtimespec.tv_sec * 1000000000LL +
+		      (long long)st.st_mtimespec.tv_nsec;
+#elif defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
+	defined(__NetBSD__) || defined(__sun)
+	*mtime_nsec = (long long)st.st_mtim.tv_sec * 1000000000LL + (long long)st.st_mtim.tv_nsec;
+#else
+	*mtime_nsec = (long long)st.st_mtime * 1000000000LL;
+#endif
 	*size = (unsigned long long)st.st_size;
 	return 0;
 }

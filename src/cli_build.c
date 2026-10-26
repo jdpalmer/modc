@@ -975,14 +975,30 @@ collect_build_pkgs(char** files, int nfiles, BuildPkg* pkgs, int* npkgs) {
 	return 0;
 }
 
+/* Mix path identity + mtime(ns) + size (no file bytes). Missing files get a salt. */
+static uint64_t
+mix_path_stamp(uint64_t h, const char* path, const char* path_key) {
+	long long mtime_ns;
+	unsigned long long size;
+
+	h = cache_hash_mix(h, cache_hash_str(path_key ? path_key : ""));
+	if (path == NULL || host_file_stamp(path, &mtime_ns, &size) != 0)
+		return cache_hash_mix(h, cache_hash_str("!missing"));
+	h = cache_hash_mix(h, (uint64_t)mtime_ns);
+	h = cache_hash_mix(h, (uint64_t)size);
+	return h;
+}
+
 // Mix *.h under dir (recursive) into an impl hash. Skips symlinks.
 // Relpath from pkgroot is mixed so renames invalidate even with identical bytes.
 static uint64_t
-hash_pkg_headers_rec(const char* dir, const char* pkgroot, uint64_t h, int depth) {
+hash_pkg_headers_rec(const char* dir, const char* pkgroot, uint64_t h, int depth,
+		     int stamp_only) {
 	HostDir* d;
 	const char* name;
 	char path[HOST_PATH_MAX];
 	size_t n, rootlen;
+	const char* key;
 
 	if (depth > 32)
 		return h;
@@ -997,7 +1013,7 @@ hash_pkg_headers_rec(const char* dir, const char* pkgroot, uint64_t h, int depth
 		if (host_is_symlink(path))
 			continue;
 		if (host_is_dir(path)) {
-			h = hash_pkg_headers_rec(path, pkgroot, h, depth + 1);
+			h = hash_pkg_headers_rec(path, pkgroot, h, depth + 1, stamp_only);
 			continue;
 		}
 		n = strlen(name);
@@ -1007,12 +1023,39 @@ hash_pkg_headers_rec(const char* dir, const char* pkgroot, uint64_t h, int depth
 			continue;
 		if (strncmp(path, pkgroot, rootlen) == 0 &&
 		    (path[rootlen] == '/' || path[rootlen] == '\\'))
-			h = cache_hash_mix(h, cache_hash_str(path + rootlen));
+			key = path + rootlen;
 		else
-			h = cache_hash_mix(h, cache_hash_str(path));
-		h = cache_mix_file(h, path);
+			key = path;
+		if (stamp_only)
+			h = mix_path_stamp(h, path, key);
+		else {
+			h = cache_hash_mix(h, cache_hash_str(key));
+			h = cache_mix_file(h, path);
+		}
 	}
 	host_closedir(d);
+	return h;
+}
+
+/* mtime+size stamp over the same inputs as pkg_impl_hash (no content reads). */
+static uint64_t
+pkg_src_stamp(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
+	uint64_t h;
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], key[HOST_PATH_MAX];
+	int i;
+
+	cache_path_key(pkg->dir, projroot, key, sizeof(key));
+	h = cache_hash_str(key);
+	for (i = 0; i < nfiles; i++) {
+		pkg_file_root(files[i], root, sizeof(root));
+		if (host_abspath(root, abs, sizeof(abs)) == 0)
+			snprintf(root, sizeof(root), "%s", abs);
+		if (strcmp(root, pkg->dir) != 0)
+			continue;
+		cache_path_key(files[i], projroot, key, sizeof(key));
+		h = mix_path_stamp(h, files[i], key);
+	}
+	h = hash_pkg_headers_rec(pkg->dir, pkg->dir, h, 0, 1);
 	return h;
 }
 
@@ -1033,7 +1076,7 @@ pkg_impl_hash(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 			continue;
 		h = cache_mix_file(h, files[i]);
 	}
-	h = hash_pkg_headers_rec(pkg->dir, pkg->dir, h, 0);
+	h = hash_pkg_headers_rec(pkg->dir, pkg->dir, h, 0, 0);
 	return h;
 }
 
@@ -1070,6 +1113,36 @@ pkg_parse_iface_hex(const char* s, uint64_t* out) {
 		return 1;
 	*out = (uint64_t)v;
 	return 0;
+}
+
+/*
+ * Prefer a cached impl hash when pkg/<id>/srcstamp still matches (mtime+size).
+ * On miss, content-hash and refresh pkg/<id>/{srcstamp,impl}.
+ */
+static uint64_t
+pkg_impl_hash_cached(BuildPkg* pkg, char** files, int nfiles, const char* projroot,
+		     const char* crooot) {
+	uint64_t stamp, impl;
+	char stamppath[HOST_PATH_MAX], implpath[HOST_PATH_MAX];
+	char stamphex[24], implhex[24], stored[64];
+
+	stamp = pkg_src_stamp(pkg, files, nfiles, projroot);
+	cache_hash_hex(stamp, stamphex, sizeof(stamphex));
+	snprintf(stamppath, sizeof(stamppath), "%s/pkg/%s/srcstamp", crooot, pkg->id);
+	snprintf(implpath, sizeof(implpath), "%s/pkg/%s/impl", crooot, pkg->id);
+	stored[0] = 0;
+	if (cache_read_str(stamppath, stored, sizeof(stored)) == 0 &&
+	    strcmp(stored, stamphex) == 0) {
+		stored[0] = 0;
+		if (cache_read_str(implpath, stored, sizeof(stored)) == 0 &&
+		    pkg_parse_iface_hex(stored, &impl) == 0)
+			return impl;
+	}
+	impl = pkg_impl_hash(pkg, files, nfiles, projroot);
+	cache_hash_hex(impl, implhex, sizeof(implhex));
+	(void)cache_write_str(stamppath, stamphex);
+	(void)cache_write_str(implpath, implhex);
+	return impl;
 }
 
 /* True if any transitive import still has an unknown API digest. */
@@ -1858,7 +1931,8 @@ compile_check(Compiler* c, CliOpts* o, const char* path) {
 	cache_project_root(path, projroot, sizeof(projroot));
 	knobs = hash_compile_knobs(c, projroot);
 	for (i = 0; i < npkgs; i++)
-		pkgs[i].impl = pkg_impl_hash(&pkgs[i], files, nfiles, projroot);
+		pkgs[i].impl =
+			pkg_impl_hash_cached(&pkgs[i], files, nfiles, projroot, crooot);
 	if (pkg_fill_imports(c, pkgs, npkgs, files, nfiles) != 0) {
 		for (i = 0; i < nfiles; i++)
 			free(files[i]);
@@ -1945,7 +2019,8 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	cache_project_root(path, projroot, sizeof(projroot));
 	knobs = hash_compile_knobs(c, projroot);
 	for (i = 0; i < npkgs; i++)
-		pkgs[i].impl = pkg_impl_hash(&pkgs[i], files, nfiles, projroot);
+		pkgs[i].impl =
+			pkg_impl_hash_cached(&pkgs[i], files, nfiles, projroot, crooot);
 	if (pkg_fill_imports(c, pkgs, npkgs, files, nfiles) != 0) {
 		for (i = 0; i < nfiles; i++)
 			free(files[i]);
