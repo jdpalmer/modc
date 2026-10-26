@@ -222,6 +222,18 @@ check-special: $(MODC)
 	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/api.log
 	@grep -q 'cache miss pkg app' $(BUILD)/cache_iface/api.log
 	$(BUILD)/cache_iface/out
+	# --- cache: modc check reuses exports; body-only keeps importer hit ---
+	./modc check -M $(BUILD)/cache_iface/roots $(BUILD)/cache_iface/app/main.mc \
+		-v 2>&1 | tee $(BUILD)/cache_iface/check_hit.log
+	@grep -q 'cache hit graph' $(BUILD)/cache_iface/check_hit.log
+	@printf '%s\n' 'static int secret() { return 7; } /* check-body */' \
+		'int lib_val() { return secret(); }' \
+		'int lib_extra() { return 1; }' \
+		> $(BUILD)/cache_iface/roots/lib/mod.mc
+	./modc check -M $(BUILD)/cache_iface/roots $(BUILD)/cache_iface/app/main.mc \
+		-v 2>&1 | tee $(BUILD)/cache_iface/check_body.log
+	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/check_body.log
+	@grep -q 'cache hit pkg app' $(BUILD)/cache_iface/check_body.log
 	# --- cache: MODC_SYSINCLUDE / MODC_INCLUDE change must miss ---
 	@rm -rf $(BUILD)/cache_sysinc
 	@mkdir -p $(BUILD)/cache_sysinc/inc_a $(BUILD)/cache_sysinc/inc_b \

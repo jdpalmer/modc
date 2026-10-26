@@ -30,7 +30,7 @@ cmd_check(Compiler* c, CliOpts* o, int argc, char** argv) {
 	for (r = 0; r < o->files_len; r++) {
 		if (o->verbose)
 			fprintf(stderr, "checking %s\n", o->files[r]);
-		if (compile_file(c, o->files[r], NULL))
+		if (compile_check(c, o, o->files[r]))
 			err = 1;
 		if (r + 1 < o->files_len)
 			reset_comp_state(c);

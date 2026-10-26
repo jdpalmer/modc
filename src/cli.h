@@ -49,6 +49,8 @@ int parse_target_name(const char* name); /* Target* or -1 */
 void reset_comp_state(Compiler* c);
 int compile_file(Compiler* c, const char* path, FILE* outf);
 int emit_one(Compiler* c, CliOpts* o, const char* path);
+/* Typecheck with package export cache (no codegen). */
+int compile_check(Compiler* c, CliOpts* o, const char* path);
 int compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, const char* outpath);
 char* default_out_name(const char* path, int target);
 void ensure_build_root(CliOpts* o);

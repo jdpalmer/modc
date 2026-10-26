@@ -37,7 +37,7 @@ But %C is loaded with a number of useful build tools:
 modc build                    # build current dir; -o defaults to dir name
 modc build hello.mc -o hello  # modc → qbe → cc → binary
 modc build pkgdir/            # same for a package directory
-modc check hello.mc           # parse + type-check only
+modc check hello.mc           # type-check (reuses package export cache)
 modc emit hello.mc            # QBE IL to stdout
 modc run hello.mc             # build temp, run, delete
 modc build hello.mc -o hello -- -lglfw   # extra linker flags after --

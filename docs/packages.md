@@ -366,7 +366,8 @@ straight to the linker (for example `modc build main.mc -- -lGL`).
 
 Most day-to-day commands already understand packages. `modc vendor` resolves
 `modc.ini` into `modc.lock` and `vendor/`. `modc check file.mc` resolves
-imports and type-checks the graph. `modc build` (with a file, a directory, or
+imports and type-checks the graph, reusing `.modc-cache` package exports when
+valid (same API-aware invalidation as `build`). `modc build` (with a file, a directory, or
 `.` by default) compiles the root plus its packages, applies `c_libs` /
 frameworks, and links; directory roots omit `*_test.mc`. The project root is
 inferred automatically, so the usual project command is simply `modc build`;
