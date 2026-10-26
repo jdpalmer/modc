@@ -4,9 +4,11 @@
  * Compilation pipeline: lex → [pp] → parse → type check → emit → QBE
  *
  * Consumes the lexer Tok stream and rewrites c->lex.tokens in place. Conditional
- * stack is IfOn / IfWait / IfDone. Macro expansion follows Prosser-ish
- * argument expand / # / ## rules. After pp_run, parse sees a flat token list
- * with no directives left. #embed injects a TkEmbed blob (bytes in strpool).
+ * stack is IfOn / IfWait / IfDone. Rejected branches fast-forward to the next
+ * `#` directive (FPC skipuntildirective idea on a Tok[] stream — no expand/emit).
+ * Macro expansion follows Prosser-ish argument expand / # / ## rules. After
+ * pp_run, parse sees a flat token list with no directives left. #embed injects
+ * a TkEmbed blob (bytes in strpool).
  */
 #include "ast.h"
 #include "host_os.h"
@@ -2085,6 +2087,21 @@ skipping_now(int* st, int nsp) {
 	return 0;
 }
 
+/* Advance to the next bol '#' (or EOF). Dead code stays unexpanded/unemitted. */
+static void
+skip_to_directive(Tok* src, int src_files_len, int* i) {
+	Tok* t;
+
+	while (*i < src_files_len) {
+		t = &src[*i];
+		if (t->kind == TkEof)
+			return;
+		if (t->bol && tok_is_hash(t))
+			return;
+		(*i)++;
+	}
+}
+
 // Parse one c_sources path operand from a #pragma modc directive.
 static char*
 pragma_collect_csource(Compiler* c, Tok* src, int src_files_len, int* i) {
@@ -2172,11 +2189,16 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 		t = &src[i];
 		if (t->kind == TkEof)
 			break;
+		skip = skipping_now(st, *nsp);
+		/* Dead branch: jump to next #directive instead of walking each tok. */
+		if (skip && !(t->bol && tok_is_hash(t))) {
+			skip_to_directive(src, src_files_len, &i);
+			continue;
+		}
 		if (t->kind == TkNewline) {
 			i++;
 			continue;
 		}
-		skip = skipping_now(st, *nsp);
 		if (t->bol && tok_is_hash(t)) {
 			i++;
 			while (i < src_files_len && src[i].kind == TkNewline)
@@ -2388,10 +2410,6 @@ process(Compiler* c, Tok* src, int src_files_len, int* st, int* nsp) {
 			}
 			/* unknown directive: ignore */
 			skip_nl(src, src_files_len, &i);
-			continue;
-		}
-		if (skip) {
-			i++;
 			continue;
 		}
 		if (t->kind == TkIdent) {
