@@ -289,7 +289,7 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_expstab $(BUILD)/cache_expstab/app/main.mc \
 		-o $(BUILD)/cache_expstab/out
 	@ex1=$$(ls $(BUILD)/cache_expstab/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 3$$' "$$ex1"; \
+		grep -q '^modc-export 1$$' "$$ex1"; \
 		grep -q '^pkg -$$' "$$ex1"; \
 		mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app; \
 		cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc; \

@@ -865,7 +865,7 @@ int vendor_cmd(int argc, char** argv);
 /* 0 if vendor/NAME/.modc-vendor-rev matches that package's modc.lock rev. */
 int vendor_pkg_rev_matches(const char* projroot, const char* pkg_dir);
 /* Single on-disk cache/export schema; bump when layout or export format changes. */
-enum { ModcCacheSchema = 3 };
+enum { ModcCacheSchema = 1 };
 
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);
