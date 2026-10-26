@@ -715,11 +715,13 @@ cache_host_os(void) {
 #endif
 }
 
-// Fingerprint toolchain, target, and user -D/-I for package cache keys.
-// Also mixes modc_include + sysinc search paths: #include <x> can resolve to a
-// different file while recorded .deps still validate against the old path.
+/*
+ * Shared compile environment for package knobs and foreign .o keys: version,
+ * schema, target/OS, cc/cxx/qbe stamps, -D/-I/-F, modc/sys includes, flags.
+ * #include <x> can resolve differently while .deps still name the old path.
+ */
 static uint64_t
-hash_compile_knobs(Compiler* c, const char* projroot) {
+hash_compile_env(Compiler* c, const char* projroot) {
 	uint64_t h;
 	char key[HOST_PATH_MAX];
 	int i;
@@ -743,6 +745,10 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 		cache_path_key(c->paths.incpaths[i], projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
 	}
+	for (i = 0; i < c->paths.framework_paths_len; i++) {
+		cache_path_key(c->paths.framework_paths[i], projroot, key, sizeof(key));
+		h = cache_hash_mix(h, cache_hash_str(key));
+	}
 	if (c->paths.modc_include && c->paths.modc_include[0]) {
 		cache_path_key(c->paths.modc_include, projroot, key, sizeof(key));
 		h = cache_hash_mix(h, cache_hash_str(key));
@@ -756,46 +762,25 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	return h;
 }
 
-// Content-address key for one c_sources object (arch-aware).
-// Mixes source identity and the per-file -I(srcdir) so identical bytes in
-// different directories do not share an object (local #includes differ).
+static uint64_t
+hash_compile_knobs(Compiler* c, const char* projroot) {
+	return hash_compile_env(c, projroot);
+}
+
+/* Foreign .o key: compile env + source identity + which driver builds this file. */
 static uint64_t
 foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* projroot) {
 	uint64_t h;
 	char key[HOST_PATH_MAX], srcdir[HOST_PATH_MAX];
-	int i;
 
-	h = cache_mix_file(0, src);
+	h = hash_compile_env(c, projroot);
+	h = cache_mix_file(h, src);
 	cache_path_key(src, projroot, key, sizeof(key));
 	h = cache_hash_mix(h, cache_hash_str(key));
 	src_dirname(src, srcdir, sizeof(srcdir));
 	cache_path_key(srcdir, projroot, key, sizeof(key));
 	h = cache_hash_mix(h, cache_hash_str(key));
-	h = cache_hash_mix(h, cache_hash_str(MODC_VERSION));
 	h = cache_hash_mix(h, cache_hash_tool(comp));
-	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
-	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
-	for (i = 0; i < c->paths.cli_defs_len; i++)
-		h = cache_hash_mix(h, cache_hash_str(c->paths.cli_defs[i]));
-	for (i = 0; i < c->paths.incpaths_len; i++) {
-		cache_path_key(c->paths.incpaths[i], projroot, key, sizeof(key));
-		h = cache_hash_mix(h, cache_hash_str(key));
-	}
-	for (i = 0; i < c->paths.framework_paths_len; i++) {
-		cache_path_key(c->paths.framework_paths[i], projroot, key, sizeof(key));
-		h = cache_hash_mix(h, cache_hash_str(key));
-	}
-	if (c->paths.modc_include && c->paths.modc_include[0]) {
-		cache_path_key(c->paths.modc_include, projroot, key, sizeof(key));
-		h = cache_hash_mix(h, cache_hash_str(key));
-	}
-	if (!c->paths.no_system_includes) {
-		for (i = 0; i < c->paths.sysincpaths_len; i++) {
-			cache_path_key(c->paths.sysincpaths[i], projroot, key, sizeof(key));
-			h = cache_hash_mix(h, cache_hash_str(key));
-		}
-	}
-	h = cache_hash_mix(h, c->paths.no_system_includes ? 1 : 0);
 	if (src_is_objc(src))
 		h = cache_hash_mix(h, cache_hash_str("-fobjc-arc"));
 #ifdef _WIN32
