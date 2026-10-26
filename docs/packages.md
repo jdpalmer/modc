@@ -357,7 +357,11 @@ per-file mtime+size (`pkg/<id>/srcstamp`) and reuses the prior content hash when
 stamps match, so unchanged trees avoid re-reading file bytes. Package `export`
 artifacts are path-stable (no absolute checkout paths; symbols sorted) so API
 digests do not thrash when a tree is moved or rebuilt via a different path.
-Purge old caches with `modc clean` or `rm -rf .modc-cache`.
+Packages under `vendor/` are **frozen** to `modc.lock`: while the lock file is
+unchanged, the compiler reuses their cached objects/exports without rehashing
+or rechecking vendor sources (edit `vendor/` and run `modc vendor`, or
+`modc clean`, to refresh). Purge old caches with `modc clean` or
+`rm -rf .modc-cache`.
 
 Header inclusion priority follows [interop.md](interop.md) (`modc` stubs, then
 `-I` paths, then system headers). C header symbols remain strictly scoped to the

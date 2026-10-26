@@ -117,6 +117,19 @@ check-special: $(MODC)
 	./modc vendor -C $(BUILD)/vendor_app
 	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
 	$(BUILD)/vendor_app-bin
+	# Vendored packages freeze to modc.lock: touching vendor sources must not miss.
+	@printf '%s\n' 'import "log";' 'int engine_val() { log_ping(); return 7; } /* touch */' \
+		> $(BUILD)/vendor_app/vendor/engine/mod.mc
+	./modc build -v $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin \
+		2>&1 | tee $(BUILD)/vendor_freeze.log
+	@grep -q 'cache hit pkg engine' $(BUILD)/vendor_freeze.log
+	@grep -q 'cache hit graph' $(BUILD)/vendor_freeze.log
+	# Updating the lock fingerprint must invalidate the freeze.
+	@printf '\n# freeze-bust\n' >> $(BUILD)/vendor_app/modc.lock
+	./modc build -v $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin \
+		2>&1 | tee $(BUILD)/vendor_freeze2.log
+	@grep -q 'cache miss pkg engine' $(BUILD)/vendor_freeze2.log
+	$(BUILD)/vendor_app-bin
 	@printf '\n/* v2 */\n' >> $(BUILD)/vrepos/log/mod.mc
 	@cd $(BUILD)/vrepos/log && git add mod.mc && git -c user.email=t@test.com -c user.name=t commit -q -m v2 && git tag v2
 	@printf '[package]\nname = ui\n\n[deps.log]\ngit = file://$(BUILD)/vrepos/log\ntag = v2\n' > $(BUILD)/vrepos/ui/modc.ini

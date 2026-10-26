@@ -33,6 +33,8 @@ typedef struct {
 	int hit;
 	/* Must parse/emit this package (not reuse cached .o). */
 	int need_emit;
+	/* Under projroot/vendor/ — frozen to modc.lock (FPC -Ur style). */
+	int vendored;
 	/* Direct import edges into pkgs[] indices. */
 	int imports[MaxCachePkgs];
 	int nimports;
@@ -727,6 +729,7 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	/* Import-closure needs keyed by dep export/API digests + selective parse. */
 	h = cache_hash_mix(h, cache_hash_str("needs-iface-v1"));
 	h = cache_hash_mix(h, cache_hash_str("export-v3"));
+	h = cache_hash_mix(h, cache_hash_str("vendor-freeze-v1"));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
@@ -1039,6 +1042,17 @@ hash_pkg_headers_rec(const char* dir, const char* pkgroot, uint64_t h, int depth
 	return h;
 }
 
+/* True if package lives under projroot/vendor/ (importable third-party tree). */
+static int
+pkg_is_vendored(const char* pkg_dir, const char* projroot) {
+	char key[HOST_PATH_MAX];
+
+	if (pkg_dir == NULL || projroot == NULL || projroot[0] == 0)
+		return 0;
+	cache_path_key(pkg_dir, projroot, key, sizeof(key));
+	return strncmp(key, "vendor/", 7) == 0 || strcmp(key, "vendor") == 0;
+}
+
 /* mtime+size stamp over the same inputs as pkg_impl_hash (no content reads). */
 static uint64_t
 pkg_src_stamp(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
@@ -1058,6 +1072,24 @@ pkg_src_stamp(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 		h = mix_path_stamp(h, files[i], key);
 	}
 	h = hash_pkg_headers_rec(pkg->dir, pkg->dir, h, 0, 1);
+	return h;
+}
+
+/*
+ * Vendored packages freeze to modc.lock: one lock fingerprint instead of
+ * walking vendor sources. No lock → fall back to normal src stamp.
+ */
+static uint64_t
+pkg_vendor_stamp(BuildPkg* pkg, const char* projroot) {
+	uint64_t h;
+	char key[HOST_PATH_MAX], lockpath[HOST_PATH_MAX];
+
+	cache_path_key(pkg->dir, projroot, key, sizeof(key));
+	h = cache_hash_mix(cache_hash_str("vendor-freeze"), cache_hash_str(key));
+	snprintf(lockpath, sizeof(lockpath), "%s/modc.lock", projroot);
+	if (!host_is_file(lockpath))
+		return 0;
+	h = cache_mix_file(h, lockpath);
 	return h;
 }
 
@@ -1118,8 +1150,9 @@ pkg_parse_iface_hex(const char* s, uint64_t* out) {
 }
 
 /*
- * Prefer a cached impl hash when pkg/<id>/srcstamp still matches (mtime+size).
- * On miss, content-hash and refresh pkg/<id>/{srcstamp,impl}.
+ * Prefer a cached impl hash when pkg/<id>/srcstamp still matches.
+ * Vendored packages with modc.lock stamp against the lock file only (skip
+ * walking vendor sources until the lock changes).
  */
 static uint64_t
 pkg_impl_hash_cached(BuildPkg* pkg, char** files, int nfiles, const char* projroot,
@@ -1127,8 +1160,17 @@ pkg_impl_hash_cached(BuildPkg* pkg, char** files, int nfiles, const char* projro
 	uint64_t stamp, impl;
 	char stamppath[HOST_PATH_MAX], implpath[HOST_PATH_MAX];
 	char stamphex[24], implhex[24], stored[64];
+	int frozen;
 
-	stamp = pkg_src_stamp(pkg, files, nfiles, projroot);
+	frozen = 0;
+	stamp = 0;
+	if (pkg->vendored) {
+		stamp = pkg_vendor_stamp(pkg, projroot);
+		if (stamp != 0)
+			frozen = 1;
+	}
+	if (!frozen)
+		stamp = pkg_src_stamp(pkg, files, nfiles, projroot);
 	cache_hash_hex(stamp, stamphex, sizeof(stamphex));
 	snprintf(stamppath, sizeof(stamppath), "%s/pkg/%s/srcstamp", crooot, pkg->id);
 	snprintf(implpath, sizeof(implpath), "%s/pkg/%s/impl", crooot, pkg->id);
@@ -1197,7 +1239,8 @@ pkg_resolve_ifaces(BuildPkg* pkgs, int npkgs, const char* crooot) {
 	}
 }
 
-/* Frontend hit: export + iface + deps + needs. require_obj also needs pkg.o (build). */
+/* Frontend hit: export + iface + deps + needs. require_obj also needs pkg.o (build).
+ * Vendored packages skip .deps revalidation (frozen to modc.lock). */
 static void
 pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot, int require_obj) {
 	int i;
@@ -1210,8 +1253,9 @@ pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot, int require_obj)
 		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[i].id,
 			 pkgs[i].hex);
 		snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
-		if (!host_is_file(expath) || !host_is_file(pkgs[i].ifacepath) ||
-		    !cache_deps_valid(depmeta))
+		if (!host_is_file(expath) || !host_is_file(pkgs[i].ifacepath))
+			continue;
+		if (!pkgs[i].vendored && !cache_deps_valid(depmeta))
 			continue;
 		if (require_obj && !host_is_file(pkgs[i].objpath))
 			continue;
@@ -1943,9 +1987,11 @@ compile_check(Compiler* c, CliOpts* o, const char* path) {
 	cache_root_for(path, crooot, sizeof(crooot));
 	cache_project_root(path, projroot, sizeof(projroot));
 	knobs = hash_compile_knobs(c, projroot);
-	for (i = 0; i < npkgs; i++)
+	for (i = 0; i < npkgs; i++) {
+		pkgs[i].vendored = pkg_is_vendored(pkgs[i].dir, projroot);
 		pkgs[i].impl =
 			pkg_impl_hash_cached(&pkgs[i], files, nfiles, projroot, crooot);
+	}
 	if (pkg_fill_imports(c, pkgs, npkgs, files, nfiles) != 0) {
 		for (i = 0; i < nfiles; i++)
 			free(files[i]);
@@ -2031,9 +2077,11 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	cache_root_for(path, crooot, sizeof(crooot));
 	cache_project_root(path, projroot, sizeof(projroot));
 	knobs = hash_compile_knobs(c, projroot);
-	for (i = 0; i < npkgs; i++)
+	for (i = 0; i < npkgs; i++) {
+		pkgs[i].vendored = pkg_is_vendored(pkgs[i].dir, projroot);
 		pkgs[i].impl =
 			pkg_impl_hash_cached(&pkgs[i], files, nfiles, projroot, crooot);
+	}
 	if (pkg_fill_imports(c, pkgs, npkgs, files, nfiles) != 0) {
 		for (i = 0; i < nfiles; i++)
 			free(files[i]);
