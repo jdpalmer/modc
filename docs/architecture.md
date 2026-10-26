@@ -15,8 +15,8 @@ self-hosting.
 |-------|--------|--------|
 | Lex | `lex_pp_file` / lexer | Tokens; optional `TComment` for `modc format` |
 | PP | same call path | Macros, includes, `#pragma modc …` |
-| Parse | `parse_unit` | Recursive descent; builds AST and symbols |
-| Type | `type_expr` (during parse) + `type_check_unit` | Conversions during parse; whole-unit passes after |
+| Parse | `parse_unit` | Recursive descent; builds AST and symbols. `opt.parse_only` skips function bodies (API/check). |
+| Type | `type_expr` (during parse) + `type_check_unit` | Conversions during parse; whole-unit passes after (skipped when `parse_only`) |
 | Emit | `emit_qbe` / `emit_qbe_pkg` | QBE IL text |
 | Link | `modc build` in `cli_build.c` | `qbe` → host `cc`; cache under `.modc-cache/` |
 

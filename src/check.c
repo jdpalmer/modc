@@ -1552,6 +1552,9 @@ void type_check_unit(Compiler* c) {
 	check_global_initializers(c);
 	check_emitter_limits(c);
 	check_pkg_private_leaks(c);
+	/* parse_only: no bodies — skip CFG / body walks. */
+	if (c->opt.parse_only)
+		return;
 	for (i = 0; i < c->unit.funcs_len; i++) {
 		check_uninit_func(c, c->unit.funcs[i]);
 		check_falloff_func(c, c->unit.funcs[i]);

@@ -551,6 +551,8 @@ enum {
 struct CompOpt {
 	// Check only; do not emit/link.
 	int check_only;
+	/* Parse decls + signatures only; skip function bodies (FPC parse_only). */
+	int parse_only;
 	// Insert runtime index bounds traps.
 	int bounds_check;
 	// Codegen / ABI target (Target*).

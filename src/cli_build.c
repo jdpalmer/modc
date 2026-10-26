@@ -2074,23 +2074,33 @@ pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState
  * Typecheck path using .modc-cache exports when valid (no codegen).
  * Hits require export+iface+deps+needs (object optional). Writes export
  * artifacts for miss packages so later checks/builds can reuse them.
+ *
+ * Uses parse_only: decls + signatures (skip function bodies). That matches
+ * FPC's interface parse — enough for API/export/cascade; body diagnostics
+ * run on build. Selftest still uses compile_file (full parse).
  */
 int
 compile_check(Compiler* c, CliOpts* o, const char* path) {
 	PkgCacheState st;
-	int r;
+	int r, prev_parse_only;
 
-	if (pkgs_cache_prepare(c, path, 0, &st) != 0)
+	prev_parse_only = c->opt.parse_only;
+	c->opt.parse_only = 1;
+	if (pkgs_cache_prepare(c, path, 0, &st) != 0) {
+		c->opt.parse_only = prev_parse_only;
 		return 1;
+	}
 	if (pkgs_all_cache_hit(st.pkgs, st.npkgs)) {
 		pkgs_log_each(o, st.pkgs, st.npkgs, "hit");
 		cache_log(o->verbose, "hit", "graph");
 		pkgs_free_files(&st);
+		c->opt.parse_only = prev_parse_only;
 		return 0;
 	}
 	cache_log(o->verbose, "miss", "graph");
 	r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles, st.crooot);
 	pkgs_free_files(&st);
+	c->opt.parse_only = prev_parse_only;
 	return r;
 }
 

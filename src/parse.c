@@ -3972,6 +3972,22 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			snprintf(buf, sizeof(buf), "__f%d_%s", ++c->unit.static_seq, name);
 			s->linkname = xstrdup(buf);
 		}
+		/*
+		 * parse_only (FPC-style): keep the signature, skip the body.
+		 * Used by modc check / API export refresh — bodies are typechecked
+		 * on build (or when parse_only is clear).
+		 */
+		if (c->opt.parse_only) {
+			skip_braced(c);
+			fn = node(NdFunc, sp);
+			fn->symbol = s;
+			fn->type = ty;
+			fn->a = NULL;
+			s->node = fn;
+			add_func(c, fn);
+			(void)in_func;
+			return;
+		}
 		c->syms.current_fn = s;
 		symbol_push_block(c);
 		for (i = 0; i < ty->params_len; i++) {

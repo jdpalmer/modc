@@ -257,6 +257,14 @@ check-special: $(MODC)
 		-v 2>&1 | tee $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache hit pkg app' $(BUILD)/cache_iface/check_body.log
+	# --- check is parse_only: body type errors ignored; build catches them ---
+	@rm -rf $(BUILD)/check_parse_only
+	@mkdir -p $(BUILD)/check_parse_only
+	@printf '%s\n' 'int main() { return "nope"; }' \
+		> $(BUILD)/check_parse_only/main.mc
+	./modc check $(BUILD)/check_parse_only/main.mc
+	@./modc build $(BUILD)/check_parse_only/main.mc \
+		-o $(BUILD)/check_parse_only/out >/dev/null 2>&1; test $$? -ne 0
 	# --- cache: same basename packages get distinct ids (no shared meta) ---
 	@rm -rf $(BUILD)/cache_pkgid
 	@mkdir -p $(BUILD)/cache_pkgid/left/util $(BUILD)/cache_pkgid/right/util \
