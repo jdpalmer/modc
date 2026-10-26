@@ -247,6 +247,28 @@ check-special: $(MODC)
 		-v 2>&1 | tee $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache hit pkg app' $(BUILD)/cache_iface/check_body.log
+	# --- cache: same basename packages get distinct ids (no shared srcstamp) ---
+	@rm -rf $(BUILD)/cache_pkgid
+	@mkdir -p $(BUILD)/cache_pkgid/left/util $(BUILD)/cache_pkgid/right/util \
+		$(BUILD)/cache_pkgid/app
+	@printf '%s\n' 'int left_util() { return 1; }' \
+		> $(BUILD)/cache_pkgid/left/util/mod.mc
+	@printf '%s\n' 'int right_util() { return 2; }' \
+		> $(BUILD)/cache_pkgid/right/util/mod.mc
+	@printf '%s\n' 'import "left/util";' 'import "right/util";' \
+		'int main() { return left_util() + right_util() == 3 ? 0 : 1; }' \
+		> $(BUILD)/cache_pkgid/app/main.mc
+	./modc build -M $(BUILD)/cache_pkgid $(BUILD)/cache_pkgid/app/main.mc \
+		-o $(BUILD)/cache_pkgid/out
+	$(BUILD)/cache_pkgid/out
+	@test $$(ls -d $(BUILD)/cache_pkgid/app/.modc-cache/pkg/util-*/srcstamp | wc -l | tr -d ' ') -eq 2
+	@printf '%s\n' 'int left_util() { return 1; } /* touch */' \
+		> $(BUILD)/cache_pkgid/left/util/mod.mc
+	./modc build -M $(BUILD)/cache_pkgid $(BUILD)/cache_pkgid/app/main.mc \
+		-o $(BUILD)/cache_pkgid/out -v 2>&1 | tee $(BUILD)/cache_pkgid/touch.log
+	@grep -q 'cache miss pkg util-' $(BUILD)/cache_pkgid/touch.log
+	@grep -q 'cache hit pkg util-' $(BUILD)/cache_pkgid/touch.log
+	$(BUILD)/cache_pkgid/out
 	# --- cache: export bytes are path-stable (same API → identical digest) ---
 	@rm -rf $(BUILD)/cache_expstab $(BUILD)/cache_expstab2
 	@mkdir -p $(BUILD)/cache_expstab/lib $(BUILD)/cache_expstab/app

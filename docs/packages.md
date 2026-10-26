@@ -354,9 +354,12 @@ project headers. A package's object is keyed by its own sources; **importers**
 invalidate only when a dependency's public API (the cached `export` digest)
 changes—not on every dependency body edit. Source fingerprinting first checks
 per-file mtime+size (`pkg/<id>/srcstamp`) and reuses the prior content hash when
-stamps match, so unchanged trees avoid re-reading file bytes. Package `export`
-artifacts are path-stable (no absolute checkout paths; symbols sorted) so API
-digests do not thrash when a tree is moved or rebuilt via a different path.
+stamps match, so unchanged trees avoid re-reading file bytes. Package cache ids
+are `basename` plus a hash of the project-relative package path, so two packages
+that share a directory name (e.g. `left/util` and `right/util`) keep separate
+`srcstamp`/`impl`/`iface` slots. Package `export` artifacts are path-stable (no
+absolute checkout paths; symbols sorted) so API digests do not thrash when a
+tree is moved or rebuilt via a different path.
 Packages under `vendor/` are **frozen** to `modc.lock`: while the lock file is
 unchanged, the compiler reuses their cached objects/exports without rehashing
 or rechecking vendor sources (edit `vendor/` and run `modc vendor`, or

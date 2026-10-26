@@ -730,6 +730,7 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	h = cache_hash_mix(h, cache_hash_str("needs-iface-v1"));
 	h = cache_hash_mix(h, cache_hash_str("export-v3"));
 	h = cache_hash_mix(h, cache_hash_str("vendor-freeze-v1"));
+	h = cache_hash_mix(h, cache_hash_str("pkg-id-v2"));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
@@ -933,29 +934,10 @@ toolong:
 	return 1;
 }
 
-// Sanitize package directory basename for cache path segments.
-static void
-pkg_id_from_dir(const char* dir, char* out, size_t out_len) {
-	const char* base;
-	size_t i, j;
-
-	base = host_path_basename(dir);
-	if (base[0] == 0)
-		base = "root";
-	for (i = 0, j = 0; base[i] && j + 1 < out_len; i++) {
-		char ch = base[i];
-		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-		    (ch >= '0' && ch <= '9') || ch == '_' || ch == '-')
-			out[j++] = ch;
-		else
-			out[j++] = '_';
-	}
-	out[j] = 0;
-}
-
 // Unique absolute package roots from the discovered .mc file list.
 static int
-collect_build_pkgs(char** files, int nfiles, BuildPkg* pkgs, int* npkgs) {
+collect_build_pkgs(char** files, int nfiles, BuildPkg* pkgs, int* npkgs,
+		   const char* projroot) {
 	int i, j, n;
 	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX];
 
@@ -973,7 +955,7 @@ collect_build_pkgs(char** files, int nfiles, BuildPkg* pkgs, int* npkgs) {
 			return 1;
 		memset(&pkgs[n], 0, sizeof(pkgs[n]));
 		snprintf(pkgs[n].dir, sizeof(pkgs[n].dir), "%s", root);
-		pkg_id_from_dir(root, pkgs[n].id, sizeof(pkgs[n].id));
+		cache_pkg_id(root, projroot, pkgs[n].id, sizeof(pkgs[n].id));
 		n++;
 	}
 	*npkgs = n;
@@ -1977,15 +1959,15 @@ compile_check(Compiler* c, CliOpts* o, const char* path) {
 		free(files);
 		return 1;
 	}
-	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs) != 0) {
+	cache_root_for(path, crooot, sizeof(crooot));
+	cache_project_root(path, projroot, sizeof(projroot));
+	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs, projroot) != 0) {
 		fprintf(stderr, "modc: too many packages in build graph\n");
 		for (i = 0; i < nfiles; i++)
 			free(files[i]);
 		free(files);
 		return 1;
 	}
-	cache_root_for(path, crooot, sizeof(crooot));
-	cache_project_root(path, projroot, sizeof(projroot));
 	knobs = hash_compile_knobs(c, projroot);
 	for (i = 0; i < npkgs; i++) {
 		pkgs[i].vendored = pkg_is_vendored(pkgs[i].dir, projroot);
@@ -2067,15 +2049,15 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		free(files);
 		return 1;
 	}
-	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs) != 0) {
+	cache_root_for(path, crooot, sizeof(crooot));
+	cache_project_root(path, projroot, sizeof(projroot));
+	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs, projroot) != 0) {
 		fprintf(stderr, "modc: too many packages in build graph\n");
 		for (i = 0; i < nfiles; i++)
 			free(files[i]);
 		free(files);
 		return 1;
 	}
-	cache_root_for(path, crooot, sizeof(crooot));
-	cache_project_root(path, projroot, sizeof(projroot));
 	knobs = hash_compile_knobs(c, projroot);
 	for (i = 0; i < npkgs; i++) {
 		pkgs[i].vendored = pkg_is_vendored(pkgs[i].dir, projroot);

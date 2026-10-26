@@ -871,6 +871,8 @@ void cache_hash_hex(uint64_t h, char* out, size_t out_len);
 int cache_root_for(const char* entry, char* out, size_t out_len);
 int cache_project_root(const char* entry, char* out, size_t out_len);
 void cache_path_key(const char* path, const char* projroot, char* out, size_t out_len);
+/* Package cache id: basename + "-" + hex(path key); unique per package root. */
+void cache_pkg_id(const char* pkg_dir, const char* projroot, char* out, size_t out_len);
 void cache_log(int verbose, const char* hitmiss, const char* what);
 int cache_copy_file(const char* src, const char* dst);
 int cache_write_bytes(const char* path, const void* data, size_t n);

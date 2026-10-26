@@ -2,8 +2,8 @@
 //
 // Layout under .modc-cache/:
 //   foreign/<hex>.o
-//   pkg/<id>-<hex>/pkg.o + iface (API/export digest) + needs (dep API mix)
-//   pkg/<id>/srcstamp + impl (mtime+size fast path for content impl hash)
+//   pkg/<id>-<hex>/pkg.o + export + iface + needs + pkg.o.deps
+//   pkg/<id>/srcstamp + impl + iface (id = basename + path-key hash)
 //   prog/<hex>/linkmeta + stamp
 //   linkmeta (stable; seeds partial rebuilds when ghex changes)
 //
@@ -212,6 +212,38 @@ int cache_project_root(const char* entry, char* out, size_t out_len) {
 	}
 	host_dirname(crooot, out, out_len);
 	return out[0] == 0;
+}
+
+/*
+ * Cache path segment for a package: sanitized basename + "-" + path-key hash.
+ * Basename alone collides when two packages share a directory name (e.g. two
+ * util/ roots); the hash is over cache_path_key so in-tree ids stay stable.
+ */
+void cache_pkg_id(const char* pkg_dir, const char* projroot, char* out, size_t out_len) {
+	char key[HOST_PATH_MAX], hex[24], base[96];
+	const char* b;
+	size_t i, j;
+	uint64_t h;
+
+	if (out == NULL || out_len == 0)
+		return;
+	out[0] = 0;
+	b = pkg_dir && pkg_dir[0] ? host_path_basename(pkg_dir) : "";
+	if (b == NULL || b[0] == 0)
+		b = "pkg";
+	for (i = 0, j = 0; b[i] && j + 1 < sizeof(base); i++) {
+		char ch = b[i];
+		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		    (ch >= '0' && ch <= '9') || ch == '_' || ch == '-')
+			base[j++] = ch;
+		else
+			base[j++] = '_';
+	}
+	base[j] = 0;
+	cache_path_key(pkg_dir, projroot, key, sizeof(key));
+	h = cache_hash_str(key[0] ? key : (pkg_dir ? pkg_dir : ""));
+	cache_hash_hex(h, hex, sizeof(hex));
+	snprintf(out, out_len, "%s-%s", base, hex);
 }
 
 // Canonicalize path for hashing: project-relative with / if under projroot.

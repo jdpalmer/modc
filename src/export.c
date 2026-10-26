@@ -375,7 +375,7 @@ write_tok(FILE* f, const char* s) {
 		fputs(s, f);
 }
 
-/* Basename id for stable foreign package refs (mirrors cli_build pkg_id_from_dir). */
+/* Basename id for stable foreign package refs in export text (not cache paths). */
 static void
 pkg_ref_id(const char* dir, char* out, size_t out_len) {
 	const char* base;
