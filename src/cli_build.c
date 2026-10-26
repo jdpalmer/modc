@@ -1936,6 +1936,89 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 	return 0;
 }
 
+/* Discovered package graph + cache fingerprints shared by check and build. */
+typedef struct {
+	char** files;
+	int nfiles;
+	BuildPkg pkgs[MaxCachePkgs];
+	int npkgs;
+	uint64_t knobs;
+	char crooot[HOST_PATH_MAX];
+	char projroot[HOST_PATH_MAX];
+} PkgCacheState;
+
+static void
+pkgs_free_files(PkgCacheState* st) {
+	int i;
+
+	if (st == NULL || st->files == NULL)
+		return;
+	for (i = 0; i < st->nfiles; i++)
+		free(st->files[i]);
+	free(st->files);
+	st->files = NULL;
+	st->nfiles = 0;
+}
+
+static int
+pkgs_all_cache_hit(BuildPkg* pkgs, int npkgs) {
+	int i;
+
+	for (i = 0; i < npkgs; i++)
+		if (!pkgs[i].hit)
+			return 0;
+	return 1;
+}
+
+static void
+pkgs_log_each(CliOpts* o, BuildPkg* pkgs, int npkgs, const char* hitmiss) {
+	int i;
+	char what[HOST_PATH_MAX];
+
+	for (i = 0; i < npkgs; i++) {
+		snprintf(what, sizeof(what), "pkg %s", pkgs[i].id);
+		cache_log(o->verbose, hitmiss, what);
+	}
+}
+
+/*
+ * Discover import graph, fingerprint packages, fill import reachability and
+ * cache keys/hits. require_obj=1 for build (pkg.o required); 0 for check.
+ * On failure frees files and returns 1; on success caller owns st->files.
+ */
+static int
+pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState* st) {
+	int i;
+
+	memset(st, 0, sizeof(*st));
+	if (pkg_discover(c, path, &st->files, &st->nfiles))
+		return 1;
+	if (pkg_ensure(c, "crash", &st->files, &st->nfiles)) {
+		pkgs_free_files(st);
+		return 1;
+	}
+	cache_root_for(path, st->crooot, sizeof(st->crooot));
+	cache_project_root(path, st->projroot, sizeof(st->projroot));
+	if (collect_build_pkgs(st->files, st->nfiles, st->pkgs, &st->npkgs, st->projroot) !=
+	    0) {
+		fprintf(stderr, "modc: too many packages in build graph\n");
+		pkgs_free_files(st);
+		return 1;
+	}
+	st->knobs = hash_compile_knobs(c, st->projroot);
+	for (i = 0; i < st->npkgs; i++) {
+		st->pkgs[i].vendored = pkg_is_vendored(st->pkgs[i].dir, st->projroot);
+		st->pkgs[i].impl = pkg_impl_hash_cached(&st->pkgs[i], st->files, st->nfiles,
+							st->projroot, st->crooot);
+	}
+	if (pkg_fill_imports(c, st->pkgs, st->npkgs, st->files, st->nfiles) != 0) {
+		pkgs_free_files(st);
+		return 1;
+	}
+	pkg_fill_keys(st->pkgs, st->npkgs, st->knobs, st->crooot, require_obj);
+	return 0;
+}
+
 /*
  * Typecheck path using .modc-cache exports when valid (no codegen).
  * Hits require export+iface+deps+needs (object optional). Writes export
@@ -1943,68 +2026,20 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
  */
 int
 compile_check(Compiler* c, CliOpts* o, const char* path) {
-	char** files;
-	int nfiles, npkgs, i, all_hit, r;
-	BuildPkg pkgs[MaxCachePkgs];
-	uint64_t knobs;
-	char crooot[HOST_PATH_MAX], projroot[HOST_PATH_MAX], what[HOST_PATH_MAX];
+	PkgCacheState st;
+	int r;
 
-	files = NULL;
-	nfiles = 0;
-	if (pkg_discover(c, path, &files, &nfiles))
+	if (pkgs_cache_prepare(c, path, 0, &st) != 0)
 		return 1;
-	if (pkg_ensure(c, "crash", &files, &nfiles)) {
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
-		return 1;
-	}
-	cache_root_for(path, crooot, sizeof(crooot));
-	cache_project_root(path, projroot, sizeof(projroot));
-	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs, projroot) != 0) {
-		fprintf(stderr, "modc: too many packages in build graph\n");
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
-		return 1;
-	}
-	knobs = hash_compile_knobs(c, projroot);
-	for (i = 0; i < npkgs; i++) {
-		pkgs[i].vendored = pkg_is_vendored(pkgs[i].dir, projroot);
-		pkgs[i].impl =
-			pkg_impl_hash_cached(&pkgs[i], files, nfiles, projroot, crooot);
-	}
-	if (pkg_fill_imports(c, pkgs, npkgs, files, nfiles) != 0) {
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
-		return 1;
-	}
-	/* Object optional: check reuses export artifacts from build or prior check. */
-	pkg_fill_keys(pkgs, npkgs, knobs, crooot, 0);
-
-	all_hit = 1;
-	for (i = 0; i < npkgs; i++) {
-		if (pkgs[i].need_emit)
-			all_hit = 0;
-	}
-	if (all_hit) {
-		for (i = 0; i < npkgs; i++) {
-			snprintf(what, sizeof(what), "pkg %s", pkgs[i].id);
-			cache_log(o->verbose, "hit", what);
-		}
+	if (pkgs_all_cache_hit(st.pkgs, st.npkgs)) {
+		pkgs_log_each(o, st.pkgs, st.npkgs, "hit");
 		cache_log(o->verbose, "hit", "graph");
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
+		pkgs_free_files(&st);
 		return 0;
 	}
-
 	cache_log(o->verbose, "miss", "graph");
-	r = pkgs_frontend_compile(c, o, pkgs, npkgs, files, nfiles, crooot);
-	for (i = 0; i < nfiles; i++)
-		free(files[i]);
-	free(files);
+	r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles, st.crooot);
+	pkgs_free_files(&st);
 	return r;
 }
 
@@ -2012,20 +2047,16 @@ compile_check(Compiler* c, CliOpts* o, const char* path) {
  * dir is an existing temp directory; caller cleans artifacts. */
 int
 compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, const char* outpath) {
-	char** files;
-	int nfiles, npkgs, i, j, all_hit, r;
-	BuildPkg pkgs[MaxCachePkgs];
-	uint64_t knobs, ghash;
-	char crooot[HOST_PATH_MAX], projroot[HOST_PATH_MAX], ghex[24], meta[HOST_PATH_MAX],
-		meta_stable[HOST_PATH_MAX], stamp[HOST_PATH_MAX];
+	PkgCacheState st;
+	int i, r;
+	uint64_t ghash;
+	char ghex[24], meta[HOST_PATH_MAX], meta_stable[HOST_PATH_MAX], stamp[HOST_PATH_MAX];
 	char stamphex[24], stored[64], what[HOST_PATH_MAX];
 	char foreign[MaxForeignObj][512];
 	char objs[MaxCachePkgs][512];
 	int nforeign;
 	uint64_t linkh;
 
-	files = NULL;
-	nfiles = 0;
 	/* Fail fast on bad MODC_CC / MODC_QBE even on a full graph cache hit. */
 	if (tool_cc(c) == NULL || tool_qbe() == NULL)
 		return 1;
@@ -2041,60 +2072,25 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		}
 	}
 #endif
-	if (pkg_discover(c, path, &files, &nfiles))
+	if (pkgs_cache_prepare(c, path, 1, &st) != 0)
 		return 1;
-	if (pkg_ensure(c, "crash", &files, &nfiles)) {
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
-		return 1;
-	}
-	cache_root_for(path, crooot, sizeof(crooot));
-	cache_project_root(path, projroot, sizeof(projroot));
-	if (collect_build_pkgs(files, nfiles, pkgs, &npkgs, projroot) != 0) {
-		fprintf(stderr, "modc: too many packages in build graph\n");
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
-		return 1;
-	}
-	knobs = hash_compile_knobs(c, projroot);
-	for (i = 0; i < npkgs; i++) {
-		pkgs[i].vendored = pkg_is_vendored(pkgs[i].dir, projroot);
-		pkgs[i].impl =
-			pkg_impl_hash_cached(&pkgs[i], files, nfiles, projroot, crooot);
-	}
-	if (pkg_fill_imports(c, pkgs, npkgs, files, nfiles) != 0) {
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
-		return 1;
-	}
-	pkg_fill_keys(pkgs, npkgs, knobs, crooot, 1);
-	ghash = graph_digest(pkgs, npkgs, knobs);
+	ghash = graph_digest(st.pkgs, st.npkgs, st.knobs);
 	cache_hash_hex(ghash, ghex, sizeof(ghex));
-	snprintf(meta, sizeof(meta), "%s/prog/%s/linkmeta", crooot, ghex);
+	snprintf(meta, sizeof(meta), "%s/prog/%s/linkmeta", st.crooot, ghex);
 	/* Stable path: ghex changes on partial rebuild, so seeding from meta
 	 * alone would miss hit packages' pragmas from the prior graph. */
-	snprintf(meta_stable, sizeof(meta_stable), "%s/linkmeta", crooot);
-	snprintf(stamp, sizeof(stamp), "%s/prog/%s/stamp", crooot, ghex);
+	snprintf(meta_stable, sizeof(meta_stable), "%s/linkmeta", st.crooot);
+	snprintf(stamp, sizeof(stamp), "%s/prog/%s/stamp", st.crooot, ghex);
 
-	all_hit = 1;
-	for (i = 0; i < npkgs; i++) {
-		if (!pkgs[i].hit)
-			all_hit = 0;
-	}
-
-	if (all_hit && host_is_file(meta) && load_link_meta(c, meta) == 0) {
+	if (pkgs_all_cache_hit(st.pkgs, st.npkgs) && host_is_file(meta) &&
+	    load_link_meta(c, meta) == 0) {
 		int foreign_ready;
 
-		for (i = 0; i < npkgs; i++) {
-			snprintf(what, sizeof(what), "pkg %s", pkgs[i].id);
-			cache_log(o->verbose, "hit", what);
-			snprintf(objs[i], sizeof(objs[i]), "%s", pkgs[i].objpath);
-		}
+		pkgs_log_each(o, st.pkgs, st.npkgs, "hit");
+		for (i = 0; i < st.npkgs; i++)
+			snprintf(objs[i], sizeof(objs[i]), "%s", st.pkgs[i].objpath);
 		cache_log(o->verbose, "hit", "graph");
-		linkh = link_stamp_hash(c, o, pkgs, npkgs, outpath, projroot);
+		linkh = link_stamp_hash(c, o, st.pkgs, st.npkgs, outpath, st.projroot);
 		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
 		foreign_ready = 1;
 		for (i = 0; i < c->paths.csources_len; i++) {
@@ -2103,10 +2099,10 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 
 			key = foreign_obj_key(c, c->paths.csources[i],
 					      src_is_cxx(c->paths.csources[i]) ? tool_cxx()
-									: tool_cc(c),
-					      projroot);
+									      : tool_cc(c),
+					      st.projroot);
 			cache_hash_hex(key, hex, sizeof(hex));
-			snprintf(cached, sizeof(cached), "%s/foreign/%s.o", crooot, hex);
+			snprintf(cached, sizeof(cached), "%s/foreign/%s.o", st.crooot, hex);
 			snprintf(depmeta, sizeof(depmeta), "%s.deps", cached);
 			if (!host_is_file(cached) || !cache_deps_valid(depmeta))
 				foreign_ready = 0;
@@ -2119,23 +2115,17 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		if (foreign_ready && host_is_file(outpath) &&
 		    cache_read_str(stamp, stored, sizeof(stored)) == 0 &&
 		    strcmp(stored, stamphex) == 0) {
-			for (i = 0; i < nfiles; i++)
-				free(files[i]);
-			free(files);
+			pkgs_free_files(&st);
 			return 0;
 		}
 		if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0) {
-			for (i = 0; i < nfiles; i++)
-				free(files[i]);
-			free(files);
+			pkgs_free_files(&st);
 			return 1;
 		}
-		r = link_modc_objs(c, o, outpath, objs, npkgs, foreign, nforeign);
+		r = link_modc_objs(c, o, outpath, objs, st.npkgs, foreign, nforeign);
 		if (r == 0)
 			(void)cache_write_str(stamp, stamphex);
-		for (i = 0; i < nfiles; i++)
-			free(files[i]);
-		free(files);
+		pkgs_free_files(&st);
 		return r;
 	}
 
@@ -2149,8 +2139,8 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		 * never reappear. Seed from the prior linkmeta, then let the
 		 * need_emit packages' PP add/override via pkg_add_*. */
 		partial = 0;
-		for (pi = 0; pi < npkgs; pi++)
-			if (!pkgs[pi].need_emit) {
+		for (pi = 0; pi < st.npkgs; pi++)
+			if (!st.pkgs[pi].need_emit) {
 				partial = 1;
 				break;
 			}
@@ -2160,32 +2150,27 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		if (partial && host_is_file(meta_stable) &&
 		    merge_link_meta(c, meta_stable) != 0) {
 			fprintf(stderr, "modc: cannot read linkmeta %s\n", meta_stable);
-			for (i = 0; i < nfiles; i++)
-				free(files[i]);
-			free(files);
+			pkgs_free_files(&st);
 			return 1;
 		}
 
-		r = pkgs_frontend_compile(c, o, pkgs, npkgs, files, nfiles, crooot);
+		r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles,
+					  st.crooot);
 		if (r != 0) {
-			for (i = 0; i < nfiles; i++)
-				free(files[i]);
-			free(files);
+			pkgs_free_files(&st);
 			return 1;
 		}
 
-		for (i = 0; i < npkgs; i++)
-			snprintf(objs[i], sizeof(objs[i]), "%s", pkgs[i].objpath);
+		for (i = 0; i < st.npkgs; i++)
+			snprintf(objs[i], sizeof(objs[i]), "%s", st.pkgs[i].objpath);
 		nmiss = 0;
-		for (i = 0; i < npkgs; i++) {
-			if (!pkgs[i].need_emit)
+		for (i = 0; i < st.npkgs; i++) {
+			if (!st.pkgs[i].need_emit)
 				continue;
-			miss[nmiss].pkg = &pkgs[i];
-			if (emit_pkg_qbe(c, &pkgs[i], i, dir, miss[nmiss].qbe,
+			miss[nmiss].pkg = &st.pkgs[i];
+			if (emit_pkg_qbe(c, &st.pkgs[i], i, dir, miss[nmiss].qbe,
 					 sizeof(miss[nmiss].qbe)) != 0) {
-				for (j = 0; j < nfiles; j++)
-					free(files[j]);
-				free(files);
+				pkgs_free_files(&st);
 				return 1;
 			}
 			snprintf(miss[nmiss].asmpath, sizeof(miss[nmiss].asmpath),
@@ -2195,16 +2180,11 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			nmiss++;
 		}
 		if (assemble_pkg_jobs(c, o, miss, nmiss) != 0) {
-			for (i = 0; i < nfiles; i++)
-				free(files[i]);
-			free(files);
+			pkgs_free_files(&st);
 			return 1;
 		}
 	}
-	for (i = 0; i < nfiles; i++)
-		free(files[i]);
-	free(files);
-	files = NULL;
+	pkgs_free_files(&st);
 	if (save_link_meta(c, o, meta) != 0)
 		return 1;
 	if (save_link_meta(c, o, meta_stable) != 0)
@@ -2212,9 +2192,9 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 
 	if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0)
 		return 1;
-	r = link_modc_objs(c, o, outpath, objs, npkgs, foreign, nforeign);
+	r = link_modc_objs(c, o, outpath, objs, st.npkgs, foreign, nforeign);
 	if (r == 0) {
-		linkh = link_stamp_hash(c, o, pkgs, npkgs, outpath, projroot);
+		linkh = link_stamp_hash(c, o, st.pkgs, st.npkgs, outpath, st.projroot);
 		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
 		(void)cache_write_str(stamp, stamphex);
 	}
