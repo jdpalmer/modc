@@ -1978,8 +1978,10 @@ parse_primary(Compiler* c) {
 				s = symbol_define(c, t->s, SkFunc, ft, StExtern, t->span);
 				n->symbol = s;
 				n->type = ft;
-			} else
+			} else {
 				error_tok(c, t, "undeclared identifier %s", t->s);
+				n->type = c->types.type_error;
+			}
 		} else {
 			n->type = s->type;
 			n->int_val = s->int_val;
@@ -2010,7 +2012,7 @@ parse_primary(Compiler* c) {
 	error_tok(c, t, "expected expression");
 	take(c);
 	n = node(NdLit, t->span);
-	n->type = c->types.type_int;
+	n->type = c->types.type_error;
 	return n;
 }
 

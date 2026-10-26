@@ -102,6 +102,10 @@ void type_init(Compiler* c) {
 	c->types.type_double = mkprim(c, TyDouble, 8, 8, 0);
 	c->types.type_bool = mkprim(c, TyBool, 1, 1, 0);
 	c->types.type_void_ptr = type_ptr(c, c->types.type_void);
+	/* Poison: complete/laid out so size/align queries are safe during recovery. */
+	c->types.type_error = mkprim(c, TyError, 0, 1, 0);
+	c->types.type_error->complete = 1;
+	c->types.type_error->laid_out = 1;
 }
 
 // Allocate a Type on the Compiler pool; nodes are never freed so Type* stays stable.
@@ -645,6 +649,18 @@ int is_int(Type* t) {
 	}
 }
 
+int is_error(Type* t) {
+	return t && t->kind == TyError;
+}
+
+/* Mark n as poison-typed so later type_expr checks stay quiet. */
+static Node*
+type_poison(Compiler* c, Node* n) {
+	if (n)
+		n->type = c->types.type_error;
+	return n;
+}
+
 // True if t is an integer or floating-point type.
 static int
 is_arith(Type* t) {
@@ -708,7 +724,7 @@ is_signed_int(Type* t) {
 Type* decay(Compiler* c, Type* t) {
 	Type* p;
 
-	if (t == NULL)
+	if (t == NULL || is_error(t))
 		return t;
 	if (t->kind == TyArray) {
 		p = type_ptr(c, t->base);
@@ -725,6 +741,8 @@ Type* decay(Compiler* c, Type* t) {
 Type* promote(Compiler* c, Type* t) {
 	if (t == NULL)
 		return c->types.type_int;
+	if (is_error(t))
+		return t;
 	if (t->kind == TyFloat || t->kind == TyDouble)
 		return t;
 	if (t->kind == TyPtr || t->kind == TyArray || t->kind == TyFunc)
@@ -741,6 +759,8 @@ Type* promote(Compiler* c, Type* t) {
 // Common type for binary arithmetic after integer promotions on both operands.
 static Type*
 usual_arith(Compiler* c, Type* a, Type* b) {
+	if (is_error(a) || is_error(b))
+		return c->types.type_error;
 	a = promote(c, a);
 	b = promote(c, b);
 	if (a->kind == TyDouble || b->kind == TyDouble)
@@ -768,6 +788,9 @@ int type_eq(Type* a, Type* b) {
 	if (a == b)
 		return 1;
 	if (a == NULL || b == NULL)
+		return 0;
+	/* Poison equals only itself — conversions treat it as a soft match separately. */
+	if (a->kind == TyError || b->kind == TyError)
 		return 0;
 	/* char and unsigned char are the same type (%C char is unsigned) */
 	if ((a->kind == TyChar || a->kind == TyUChar) && (b->kind == TyChar || b->kind == TyUChar))
@@ -1009,6 +1032,9 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 	Type *from, *to;
 
 	if (dst == NULL || src == NULL)
+		return 1;
+	/* Poison participates in any conversion so recovery stays quiet. */
+	if (is_error(dst) || is_error(src))
 		return 1;
 	to = dst;
 	from = src;
@@ -1384,6 +1410,8 @@ void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src) {
 
 	if (!user_source(c, sp) || dst == NULL || src == NULL)
 		return;
+	if (is_error(dst) || is_error(src->type))
+		return;
 	if (is_array(dst))
 		from = src->type;
 	else
@@ -1574,6 +1602,8 @@ type_name(Type* t) {
 		return t->tag ? t->tag : "union";
 	case TyEnum:
 		return t->tag ? t->tag : "enum";
+	case TyError:
+		return "<error>";
 	default:
 		return "?";
 	}
@@ -2050,6 +2080,12 @@ lower_method_call(Compiler* c, Node* n) {
 	recv = type_expr(c, n->a->a);
 	if (recv == NULL || recv->type == NULL)
 		return n;
+	if (is_error(recv->type)) {
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i])
+				n->children[i] = type_expr(c, n->children[i]);
+		return type_poison(c, n);
+	}
 	if (!is_ptr(recv->type)) {
 		if (!recv->is_lvalue)
 			error_at(c, n->span, "method call requires an lvalue receiver");
@@ -2164,6 +2200,12 @@ type_expr_call(Compiler* c, Node* n) {
 	if (n->a && n->a->kind == NdMethod)
 		return lower_method_call(c, n);
 	n->a = type_expr(c, n->a);
+	if (is_error(n->a ? n->a->type : NULL)) {
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i])
+				n->children[i] = type_expr(c, n->children[i]);
+		return type_poison(c, n);
+	}
 	if (n->a && n->a->kind == NdName && n->a->s && symbol_has_overload(c, n->a->s) && !n->int_val) {
 		for (i = 0; i < n->children_len; i++)
 			if (n->children[i])
@@ -2393,6 +2435,9 @@ type_expr_call(Compiler* c, Node* n) {
 			for (i = 0; i < n->children_len; i++)
 				if (n->children[i] && n->children[i]->type == NULL)
 					n->children[i] = type_expr(c, n->children[i]);
+			for (i = 0; i < n->children_len; i++)
+				if (n->children[i] && is_error(n->children[i]->type))
+					return type_poison(c, n);
 			check_call_args(c, n->span, ft, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
 			check_format_call(c, n, ft);
@@ -2403,13 +2448,22 @@ type_expr_call(Compiler* c, Node* n) {
 			for (i = 0; i < n->children_len; i++)
 				if (n->children[i] && n->children[i]->type == NULL)
 					n->children[i] = type_expr(c, n->children[i]);
+			for (i = 0; i < n->children_len; i++)
+				if (n->children[i] && is_error(n->children[i]->type))
+					return type_poison(c, n);
 			check_call_args(c, n->span, ft->base, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
 			check_format_call(c, n, ft->base);
 		}
 		n->type = instantiate_poly_return(c, ft->base, n->children, n->children_len);
-	} else
-		n->type = c->types.type_int;
+	} else {
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i] && n->children[i]->type == NULL)
+				n->children[i] = type_expr(c, n->children[i]);
+		if (n->type == NULL && user_source(c, n->span))
+			error_at(c, n->span, "called object is not a function");
+		return type_poison(c, n);
+	}
 	return n;
 }
 
@@ -2462,6 +2516,8 @@ type_expr_bin(Compiler* c, Node* n) {
 	enum_chk = n->type == NULL;
 	n->a = type_expr(c, n->a);
 	n->b = type_expr(c, n->b);
+	if (is_error(n->a ? n->a->type : NULL) || is_error(n->b ? n->b->type : NULL))
+		return type_poison(c, n);
 	lt = n->a ? decay(c, n->a->type) : NULL;
 	rt = n->b ? decay(c, n->b->type) : NULL;
 	if (enum_chk)
@@ -2480,7 +2536,7 @@ type_expr_bin(Compiler* c, Node* n) {
 			n->type = usual_arith(c, lt, rt);
 		else {
 			valid = 0;
-			n->type = c->types.type_int;
+			n->type = c->types.type_error;
 		}
 	} else if (n->op == PnMinus) {
 		if (compatible_ptrs(lt, rt)) {
@@ -2497,36 +2553,36 @@ type_expr_bin(Compiler* c, Node* n) {
 			n->type = usual_arith(c, lt, rt);
 		else {
 			valid = 0;
-			n->type = c->types.type_int;
+			n->type = c->types.type_error;
 		}
 	} else if (n->op == PnStar || n->op == PnSlash) {
 		valid = is_arith(lt) && is_arith(rt);
-		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_int;
+		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_error;
 	} else if (n->op == PnPercent || n->op == PnAmp ||
 		   n->op == PnPipe || n->op == PnCaret) {
 		valid = is_int(lt) && is_int(rt);
-		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_int;
+		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_error;
 	} else if (n->op == PnAmpAmp || n->op == PnPipePipe) {
 		valid = is_scalar(lt) && is_scalar(rt);
-		n->type = c->types.type_bool;
+		n->type = valid ? c->types.type_bool : c->types.type_error;
 	} else if (n->op == PnEqEq || n->op == PnBangEq) {
 		valid = (is_arith(lt) && is_arith(rt)) || compatible_ptrs(lt, rt) ||
 			(is_ptr(lt) && is_null_expr(n->b)) ||
 			(is_ptr(rt) && is_null_expr(n->a));
-		n->type = c->types.type_bool;
+		n->type = valid ? c->types.type_bool : c->types.type_error;
 	} else if (n->op == PnLt || n->op == PnGt || n->op == PnLe || n->op == PnGe) {
 		valid = (is_arith(lt) && is_arith(rt)) || compatible_ptrs(lt, rt);
-		if (n->type == NULL)
+		if (n->type == NULL && valid)
 			check_sign_compare(c, n->span, n->a, n->b);
-		n->type = c->types.type_bool;
+		n->type = valid ? c->types.type_bool : c->types.type_error;
 	} else if (n->op == PnShl || n->op == PnShr) {
 		valid = is_int(lt) && is_int(rt);
-		if (n->type == NULL)
+		if (n->type == NULL && valid)
 			check_shift_count(c, n->span, lt, n->b);
-		n->type = valid ? promote(c, lt) : c->types.type_int;
+		n->type = valid ? promote(c, lt) : c->types.type_error;
 	} else {
 		valid = 0;
-		n->type = c->types.type_int;
+		n->type = c->types.type_error;
 	}
 	if (enum_chk && !valid)
 		bad_binary_operands(c, n);
@@ -2582,7 +2638,9 @@ type_expr_assign(Compiler* c, Node* n) {
 	void_arith_chk = (n->op == PnPlusEq || n->op == PnMinusEq) && n->type == NULL;
 	n->a = type_expr(c, n->a);
 	n->b = type_expr(c, n->b);
-	n->type = n->a ? n->a->type : c->types.type_int;
+	if (is_error(n->a ? n->a->type : NULL) || is_error(n->b ? n->b->type : NULL))
+		return type_poison(c, n);
+	n->type = n->a ? n->a->type : c->types.type_error;
 	n->is_lvalue = 0;
 	ptr_arith = n->a && is_ptr(n->a->type);
 	if (enum_chk && n->a && !is_modifiable_lvalue(n->a))
@@ -2648,6 +2706,8 @@ type_expr_field(Compiler* c, Node* n) {
 	int off;
 
 	n->a = type_expr(c, n->a);
+	if (is_error(n->a ? n->a->type : NULL))
+		return type_poison(c, n);
 	if (n->kind == NdArrow && user_source(c, n->span))
 		error_at(c, n->span, "%%C uses '.' for field access; '->' is for headers");
 	lt = field_lhs(n->a ? n->a->type : NULL);
@@ -2661,14 +2721,14 @@ type_expr_field(Compiler* c, Node* n) {
 		return n;
 	}
 	f = find_field(lt, n->s, &off);
-	if (f == NULL)
+	if (f == NULL) {
 		error_at(c, n->span, "no field named %s", n->s ? n->s : "");
-	else {
-		check_pkg_private_field(c, lt, f, n->span);
-		n->type = f->type;
-		n->int_val = off;
-		n->is_lvalue = 1;
+		return type_poison(c, n);
 	}
+	check_pkg_private_field(c, lt, f, n->span);
+	n->type = f->type;
+	n->int_val = off;
+	n->is_lvalue = 1;
 	return n;
 }
 
@@ -2679,6 +2739,8 @@ Node* type_expr(Compiler* c, Node* n) {
 	Field* f;
 
 	if (n == NULL)
+		return n;
+	if (n->type && is_error(n->type))
 		return n;
 	if (n->type && n->kind != NdCast && n->kind != NdSizeof && n->kind != NdSizeofT && n->kind != NdBin && n->kind != NdUn && n->kind != NdPost && n->kind != NdCall && n->kind != NdIndex && n->kind != NdAddr && n->kind != NdDeref && n->kind != NdAssign && n->kind != NdCond && n->kind != NdComma && n->kind != NdDot && n->kind != NdArrow && n->kind != NdTupleLit)
 		return n;
@@ -2694,12 +2756,16 @@ Node* type_expr(Compiler* c, Node* n) {
 			n->type = n->symbol->type;
 		return n;
 	case NdSizeofT:
+		if (is_error(n->type))
+			return type_poison(c, n);
 		n->int_val = type_size(c, n->type);
 		n->type = c->types.type_ullong;
 		n->kind = NdLit;
 		return n;
 	case NdSizeof:
 		n->a = type_expr(c, n->a);
+		if (is_error(n->a ? n->a->type : NULL))
+			return type_poison(c, n);
 		if (n->a && n->a->kind == NdName && n->a->symbol && n->a->symbol->array_param && user_source(c, n->span) && n->a->symbol->param_fixed_len < 0)
 			error_at(c, n->span,
 				 "sizeof on array parameter '%s' is the size of a pointer",
@@ -2712,6 +2778,8 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	case NdCast:
 		n->a = type_expr(c, n->a);
+		if (is_error(n->a ? n->a->type : NULL) || is_error(n->type))
+			return type_poison(c, n);
 		check_unnecessary_cast(c, NULL, n);
 		if (n->type && is_ranged(n->type))
 			n->a = apply_implicit_conversions(c, n->type, n->a);
@@ -2721,6 +2789,8 @@ Node* type_expr(Compiler* c, Node* n) {
 	case NdAddr:
 		nk = n->type == NULL;
 		n->a = type_expr(c, n->a);
+		if (is_error(n->a ? n->a->type : NULL))
+			return type_poison(c, n);
 		if (nk && n->a && !n->a->is_lvalue &&
 		    (!n->a->type || n->a->type->kind != TyFunc))
 			error_at(c, n->span, "address-of requires an lvalue or function");
@@ -2730,16 +2800,22 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	case NdDeref:
 		n->a = type_expr(c, n->a);
+		if (is_error(n->a ? n->a->type : NULL))
+			return type_poison(c, n);
 		lt = n->a ? decay(c, n->a->type) : NULL;
 		if (lt && is_ptr(lt)) {
 			n->type = lt->base;
 			n->is_lvalue = 1;
-		} else
+		} else {
 			error_at(c, n->span, "indirection requires a pointer");
+			return type_poison(c, n);
+		}
 		return n;
 	case NdUn:
 		nk = n->type == NULL;
 		n->a = type_expr(c, n->a);
+		if (is_error(n->a ? n->a->type : NULL))
+			return type_poison(c, n);
 		if (n->op == PnBang) {
 			if (nk && n->a && !is_scalar(decay(c, n->a->type)))
 				error_at(c, n->span, "operator '!' requires a scalar operand");
@@ -2761,20 +2837,24 @@ Node* type_expr(Compiler* c, Node* n) {
 					 punct_spell(n->op));
 			if (n->type == NULL && n->a)
 				reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
-			n->type = n->a ? n->a->type : c->types.type_int;
+			n->type = n->a ? n->a->type : c->types.type_error;
 			n->is_lvalue = 0;
 			return n;
 		}
 		if (nk && n->a &&
 		    ((n->op == PnTilde && !is_int(n->a->type)) ||
 		     ((n->op == PnPlus || n->op == PnMinus) &&
-		      !is_arith(n->a->type))))
+		      !is_arith(n->a->type)))) {
 			error_at(c, n->span, "invalid operand to unary operator '%s'",
 				 punct_spell(n->op));
-		n->type = n->a ? promote(c, n->a->type) : c->types.type_int;
+			return type_poison(c, n);
+		}
+		n->type = n->a ? promote(c, n->a->type) : c->types.type_error;
 		return n;
 	case NdPost:
 		n->a = type_expr(c, n->a);
+		if (is_error(n->a ? n->a->type : NULL))
+			return type_poison(c, n);
 		if (n->type == NULL && n->a && !is_modifiable_lvalue(n->a))
 			error_at(c, n->span, "operator '%s' requires a modifiable lvalue",
 				 punct_spell(n->op));
@@ -2789,12 +2869,14 @@ Node* type_expr(Compiler* c, Node* n) {
 				 punct_spell(n->op));
 		if (n->type == NULL && n->a && (n->op == PnPlusPlus || n->op == PnMinusMinus))
 			reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
-		n->type = n->a ? n->a->type : c->types.type_int;
+		n->type = n->a ? n->a->type : c->types.type_error;
 		return n;
 	case NdIndex:
 		nk = n->type == NULL;
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
+		if (is_error(n->a ? n->a->type : NULL) || is_error(n->b ? n->b->type : NULL))
+			return type_poison(c, n);
 		lt = n->a ? n->a->type : NULL;
 		if (is_ranged(lt) && lt->base) {
 			if (nk && n->b && !is_int(n->b->type))
@@ -2815,8 +2897,10 @@ Node* type_expr(Compiler* c, Node* n) {
 			if (nk && lt && !is_int(lt))
 				error_at(c, n->a->span, "array subscript must be an integer");
 			n->type = ptr_base(n->b->type);
-		} else
+		} else {
 			error_at(c, n->span, "subscripted value is not an array or pointer");
+			return type_poison(c, n);
+		}
 		n->is_lvalue = 1;
 		return n;
 	case NdSubrange: {
@@ -2828,6 +2912,9 @@ Node* type_expr(Compiler* c, Node* n) {
 			n->b = type_expr(c, n->b);
 		if (n->c)
 			n->c = type_expr(c, n->c);
+		if (is_error(n->a ? n->a->type : NULL) || is_error(n->b ? n->b->type : NULL) ||
+		    is_error(n->c ? n->c->type : NULL))
+			return type_poison(c, n);
 		lt = n->a ? n->a->type : NULL;
 		elem = NULL;
 		if (!is_ranged(lt) && !(lt && is_array(lt) && lt->base)) {
@@ -2905,6 +2992,9 @@ Node* type_expr(Compiler* c, Node* n) {
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
 		n->c = type_expr(c, n->c);
+		if (is_error(n->a ? n->a->type : NULL) || is_error(n->b ? n->b->type : NULL) ||
+		    is_error(n->c ? n->c->type : NULL))
+			return type_poison(c, n);
 		if (nk && n->a && !is_scalar(decay(c, n->a->type)))
 			error_at(c, n->a->span,
 				 "conditional expression requires a scalar condition");
@@ -2944,7 +3034,9 @@ Node* type_expr(Compiler* c, Node* n) {
 	case NdComma:
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
-		n->type = n->b ? n->b->type : c->types.type_int;
+		if (is_error(n->a ? n->a->type : NULL) || is_error(n->b ? n->b->type : NULL))
+			return type_poison(c, n);
+		n->type = n->b ? n->b->type : c->types.type_error;
 		return n;
 	default:
 		return n;

@@ -327,6 +327,7 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc) {
 		char needle[HOST_PATH_MAX * 2];
 		const char* raw;
 		char* dir = fail_directive(line);
+		int absent;
 
 		if (dir == NULL)
 			continue;
@@ -334,7 +335,11 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc) {
 			continue;
 		if (dir[0] == '#')
 			continue;
-		if (strncmp(dir, "F:", 2) == 0)
+		absent = 0;
+		if (strncmp(dir, "!F:", 3) == 0) {
+			raw = dir + 3;
+			absent = 1;
+		} else if (strncmp(dir, "F:", 2) == 0)
 			raw = dir + 2;
 		else
 			raw = dir;
@@ -342,9 +347,15 @@ run_expect_fail(Compiler* c, CliOpts* base, const char* mc) {
 			raw++;
 		if (*raw == 0)
 			continue;
-		saw_needle = 1;
+		if (!absent)
+			saw_needle = 1;
 		expand_root(raw, needle, sizeof(needle));
-		if (!file_contains(c->diag.diag_log, needle)) {
+		if (absent) {
+			if (file_contains(c->diag.diag_log, needle)) {
+				fprintf(stderr, "FAIL: %s: unexpected needle: %s\n", mc, needle);
+				missing = 1;
+			}
+		} else if (!file_contains(c->diag.diag_log, needle)) {
 			fprintf(stderr, "FAIL: %s: missing needle: %s\n", mc, needle);
 			missing = 1;
 		}

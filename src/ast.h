@@ -202,7 +202,9 @@ enum {
 	TyFunc,
 	TyStruct,
 	TyUnion,
-	TyEnum
+	TyEnum,
+	/* Poison for error recovery (FPC generrordef); suppresses cascade diagnostics. */
+	TyError
 };
 
 // One struct/union field (linked list via next).
@@ -664,6 +666,8 @@ struct CompTypes {
 	Type *type_int, *type_uint, *type_long, *type_ulong;
 	Type *type_llong, *type_ullong;
 	Type *type_float, *type_double, *type_bool, *type_void_ptr;
+	/* Singleton poison type for parse/type recovery. */
+	Type* type_error;
 	// All heap types (never freed individually).
 	Type* type_list;
 	/* Hash intern for T[..] / tuples (avoids O(n) type_list scans). */
@@ -812,6 +816,8 @@ int is_int(Type* t);
 int is_scalar(Type* t);
 int is_ptr(Type* t);
 int is_func(Type* t);
+/* True if t is the TyError poison (cascade suppression). */
+int is_error(Type* t);
 int is_array(Type* t);
 int is_aggr(Type* t);
 int is_ranged(Type* t);
