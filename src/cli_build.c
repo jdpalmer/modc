@@ -32,7 +32,7 @@ typedef struct {
 	int hit;
 	/* Must parse/emit this package (not reuse cached .o). */
 	int need_emit;
-	/* Under projroot/vendor/ — frozen to modc.lock (FPC -Ur style). */
+	/* Under projroot/vendor/ — may freeze hashing to modc.lock (FPC -Ur). */
 	int vendored;
 	/* Direct import edges into pkgs[] indices. */
 	int imports[MaxCachePkgs];
@@ -1053,8 +1053,8 @@ pkg_src_stamp(BuildPkg* pkg, char** files, int nfiles, const char* projroot) {
 }
 
 /*
- * Vendored packages freeze to modc.lock: one lock fingerprint instead of
- * walking vendor sources. No lock → fall back to normal src stamp.
+ * Lock-only stamp for vendored packages (skip walking vendor sources).
+ * Caller must ensure vendor_pkg_rev_matches first. No lock → 0 (no freeze).
  */
 static uint64_t
 pkg_vendor_stamp(BuildPkg* pkg, const char* projroot) {
@@ -1203,8 +1203,8 @@ pkg_meta_save(const char* path, const PkgMeta* m) {
 
 /*
  * Prefer a cached impl hash when pkg/<id>/meta stamp still matches.
- * Vendored packages with modc.lock stamp against the lock file only (skip
- * walking vendor sources until the lock changes).
+ * Vendored packages whose .modc-vendor-rev matches modc.lock freeze hashing to
+ * the lock (skip walking vendor sources); export/needs/deps still gate hits.
  */
 static uint64_t
 pkg_impl_hash_cached(BuildPkg* pkg, char** files, int nfiles, const char* projroot,
@@ -1216,7 +1216,7 @@ pkg_impl_hash_cached(BuildPkg* pkg, char** files, int nfiles, const char* projro
 
 	frozen = 0;
 	stamp = 0;
-	if (pkg->vendored) {
+	if (pkg->vendored && vendor_pkg_rev_matches(projroot, pkg->dir) == 0) {
 		stamp = pkg_vendor_stamp(pkg, projroot);
 		if (stamp != 0)
 			frozen = 1;
@@ -1287,8 +1287,7 @@ pkg_resolve_ifaces(BuildPkg* pkgs, int npkgs, const char* crooot) {
 	}
 }
 
-/* Frontend hit: export + deps + needs. require_obj also needs pkg.o (build).
- * Vendored packages skip deps revalidation (frozen to modc.lock). */
+/* Frontend hit: export + deps + needs. require_obj also needs pkg.o (build). */
 static void
 pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot, int require_obj) {
 	int i;
@@ -1303,7 +1302,7 @@ pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot, int require_obj)
 		pkg_key_deps_path(depmeta, sizeof(depmeta), crooot, pkgs[i].id, pkgs[i].hex);
 		if (!host_is_file(expath))
 			continue;
-		if (!pkgs[i].vendored && !cache_deps_valid(depmeta))
+		if (!cache_deps_valid(depmeta))
 			continue;
 		if (require_obj && !host_is_file(pkgs[i].objpath))
 			continue;

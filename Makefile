@@ -117,7 +117,7 @@ check-special: $(MODC)
 	./modc vendor -C $(BUILD)/vendor_app
 	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
 	$(BUILD)/vendor_app-bin
-	# Vendored packages freeze to modc.lock: touching vendor sources must not miss.
+	# Vendored freeze (lock+rev): touching vendor sources must not miss.
 	@printf '%s\n' 'import "log";' 'int engine_val() { log_ping(); return 7; } /* touch */' \
 		> $(BUILD)/vendor_app/vendor/engine/mod.mc
 	./modc build -v $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin \
@@ -129,6 +129,16 @@ check-special: $(MODC)
 	./modc build -v $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin \
 		2>&1 | tee $(BUILD)/vendor_freeze2.log
 	@grep -q 'cache miss pkg engine' $(BUILD)/vendor_freeze2.log
+	$(BUILD)/vendor_app-bin
+	# Re-vendor, then missing .modc-vendor-rev refuses freeze (source edit misses).
+	./modc vendor -C $(BUILD)/vendor_app
+	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
+	@rm -f $(BUILD)/vendor_app/vendor/engine/.modc-vendor-rev
+	@printf '%s\n' 'import "log";' 'int engine_val() { log_ping(); return 7; } /* rev */' \
+		> $(BUILD)/vendor_app/vendor/engine/mod.mc
+	./modc build -v $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin \
+		2>&1 | tee $(BUILD)/vendor_freeze_rev.log
+	@grep -q 'cache miss pkg engine' $(BUILD)/vendor_freeze_rev.log
 	$(BUILD)/vendor_app-bin
 	@printf '\n/* v2 */\n' >> $(BUILD)/vrepos/log/mod.mc
 	@cd $(BUILD)/vrepos/log && git add mod.mc && git -c user.email=t@test.com -c user.name=t commit -q -m v2 && git tag v2
@@ -279,7 +289,7 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_expstab $(BUILD)/cache_expstab/app/main.mc \
 		-o $(BUILD)/cache_expstab/out
 	@ex1=$$(ls $(BUILD)/cache_expstab/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 1$$' "$$ex1"; \
+		grep -q '^modc-export 2$$' "$$ex1"; \
 		grep -q '^pkg -$$' "$$ex1"; \
 		mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app; \
 		cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc; \

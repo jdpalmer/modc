@@ -361,11 +361,14 @@ keep separate `meta` slots. Per-key artifacts live under `pkg/<id>-<hex>/`
 (`export`, `pkg.o`, `needs`, `deps`). Package `export` artifacts are path-stable
 (no absolute checkout paths; symbols sorted) so API digests do not thrash when a
 tree is moved or rebuilt via a different path.
-Packages under `vendor/` are **frozen** to `modc.lock`: while the lock file is
-unchanged, the compiler reuses their cached objects/exports without rehashing
-or rechecking vendor sources (edit `vendor/` and run `modc vendor`, or
-`modc clean`, to refresh). Purge old caches with `modc clean` or
-`rm -rf .modc-cache`.
+Packages under `vendor/` may **freeze hashing** to `modc.lock` when that
+package's `.modc-vendor-rev` matches the lock (same check as
+`modc vendor --check`): the compiler skips rehashing vendor sources while the
+lock is unchanged, but still requires valid `export` / `needs` / `deps` for a
+hit—like FPC `-Ur`. If the rev is missing or stale, hashing falls back to
+normal source stamps. Hand-editing `vendor/` without `modc vendor` or
+`modc clean` can leave objects reused until the lock changes. Purge old caches
+with `modc clean` or `rm -rf .modc-cache`.
 
 Header inclusion priority follows [interop.md](interop.md) (`modc` stubs, then
 `-I` paths, then system headers). C header symbols remain strictly scoped to the

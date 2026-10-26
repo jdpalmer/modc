@@ -1103,6 +1103,46 @@ vendor_check(VendorCtx* ctx) {
 	return 0;
 }
 
+/*
+ * True (0) when pkg_dir's .modc-vendor-rev matches its [pkg.NAME] rev in
+ * projroot/modc.lock. Used by the build cache to refuse a lock-only freeze when
+ * vendor/ is missing or out of sync (same idea as `modc vendor --check`).
+ */
+int
+vendor_pkg_rev_matches(const char* projroot, const char* pkg_dir) {
+	VendorCtx ctx;
+	LockedPkg pkgs[MaxLocked];
+	char rev[128], lockpath[1024];
+	const char* name;
+	int n, i, found;
+
+	if (projroot == NULL || projroot[0] == 0 || pkg_dir == NULL || pkg_dir[0] == 0)
+		return 1;
+	snprintf(lockpath, sizeof(lockpath), "%s/modc.lock", projroot);
+	if (!host_is_file(lockpath))
+		return 1;
+	if (read_stamp(pkg_dir, rev, sizeof(rev)) != 0)
+		return 1;
+	name = host_path_basename(pkg_dir);
+	if (name == NULL || name[0] == 0)
+		return 1;
+	memset(&ctx, 0, sizeof(ctx));
+	snprintf(ctx.root, sizeof(ctx.root), "%s", projroot);
+	snprintf(ctx.vendor, sizeof(ctx.vendor), "%s/vendor", projroot);
+	memset(pkgs, 0, sizeof(pkgs));
+	if (load_lock(&ctx, pkgs, &n) != 0)
+		return 1;
+	found = 0;
+	for (i = 0; i < n; i++) {
+		if (strcmp(pkgs[i].name, name) != 0)
+			continue;
+		found = strcmp(pkgs[i].rev, rev) == 0;
+		break;
+	}
+	locked_free_all(pkgs, n);
+	return found ? 0 : 1;
+}
+
 // modc vendor entry: resolve modc.ini deps, write modc.lock, and populate vendor/.
 int vendor_cmd(int argc, char** argv) {
 	VendorCtx ctx;

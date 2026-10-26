@@ -862,8 +862,10 @@ int pkg_resolve_spec(Compiler* c, const char* spec, char* out, size_t out_len);
 /* Resolve top-level import "spec" strings in path to absolute package roots. */
 int pkg_import_roots(Compiler* c, const char* path, char*** out_roots, int* out_n);
 int vendor_cmd(int argc, char** argv);
+/* 0 if vendor/NAME/.modc-vendor-rev matches that package's modc.lock rev. */
+int vendor_pkg_rev_matches(const char* projroot, const char* pkg_dir);
 /* Single on-disk cache/export schema; bump when layout or export format changes. */
-enum { ModcCacheSchema = 1 };
+enum { ModcCacheSchema = 2 };
 
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);
