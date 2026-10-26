@@ -14,7 +14,8 @@
 #include "host_os.h"
 
 enum {
-	ExportVer = 2,
+	/* v3: path-stable — pkg line is "-", pkg_root is "-" (self) or "@id" (foreign). */
+	ExportVer = 3,
 	ExportMaxTypeId = 100000,
 	ExportMaxFields = 4096
 };
@@ -70,13 +71,16 @@ sym_in_pkg(Symbol* s, const char* pkg_dir) {
 	return path_eq(root, pkg_dir);
 }
 
+static int pkg_ref_matches(const char* root_tok, const char* pkg); /* fwd */
+
 static int
 type_foreign(Compiler* c, Type* t, const char* pkg_dir) {
 	Symbol* s;
 
 	if (t == NULL)
 		return 0;
-	if (t->pkg_root && t->pkg_root[0] && pkg_dir && !path_eq(t->pkg_root, pkg_dir))
+	if (t->pkg_root && t->pkg_root[0] && pkg_dir &&
+	    !pkg_ref_matches(t->pkg_root, pkg_dir))
 		return 1;
 	if (t->tag == NULL || t->tag[0] == 0)
 		return 0;
@@ -371,6 +375,78 @@ write_tok(FILE* f, const char* s) {
 		fputs(s, f);
 }
 
+/* Basename id for stable foreign package refs (mirrors cli_build pkg_id_from_dir). */
+static void
+pkg_ref_id(const char* dir, char* out, size_t out_len) {
+	const char* base;
+	size_t i, j;
+
+	base = host_path_basename(dir);
+	if (base == NULL || base[0] == 0)
+		base = "root";
+	for (i = 0, j = 0; base[i] && j + 1 < out_len; i++) {
+		char ch = base[i];
+		if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		    (ch >= '0' && ch <= '9') || ch == '_' || ch == '-')
+			out[j++] = ch;
+		else
+			out[j++] = '_';
+	}
+	out[j] = 0;
+}
+
+/*
+ * Write a path-stable package root token:
+ *   -        → owning / exporting package (restored from pkg_dir on load)
+ *   @id      → foreign package basename
+ *   already @id is passed through
+ */
+static void
+write_pkg_root(FILE* f, const char* root, const char* self_pkg) {
+	char abs[HOST_PATH_MAX], id[128];
+
+	if (root == NULL || root[0] == 0) {
+		fputs("-", f);
+		return;
+	}
+	if (root[0] == '@') {
+		fputs(root, f);
+		return;
+	}
+	path_abs(root, abs, sizeof(abs));
+	if (self_pkg && self_pkg[0] && path_eq(abs, self_pkg)) {
+		fputs("-", f);
+		return;
+	}
+	pkg_ref_id(abs[0] ? abs : root, id, sizeof(id));
+	fputc('@', f);
+	fputs(id, f);
+}
+
+static int
+sym_export_cmp(const void* a, const void* b) {
+	const Symbol* sa = *(const Symbol* const*)a;
+	const Symbol* sb = *(const Symbol* const*)b;
+	int c;
+
+	if (sa->kind != sb->kind)
+		return sa->kind - sb->kind;
+	c = strcmp(sa->name ? sa->name : "", sb->name ? sb->name : "");
+	if (c)
+		return c;
+	c = strcmp(sa->linkname ? sa->linkname : "", sb->linkname ? sb->linkname : "");
+	if (c)
+		return c;
+	c = strcmp(sa->recv_tag ? sa->recv_tag : "", sb->recv_tag ? sb->recv_tag : "");
+	if (c)
+		return c;
+	if (sa->int_val < sb->int_val)
+		return -1;
+	if (sa->int_val > sb->int_val)
+		return 1;
+	return 0;
+}
+
 static int
 mkdir_parents(const char* path) {
 	char buf[HOST_PATH_MAX];
@@ -392,7 +468,7 @@ mkdir_parents(const char* path) {
 }
 
 static void
-write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id) {
+write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id, const char* self_pkg) {
 	Type* t = ent->type;
 	Field* fld;
 	const char* pn;
@@ -439,7 +515,7 @@ write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id) {
 			 * fields stay omitted (complete=0). */
 			fprintf(f, " %d %d 0 %d ", t->size, t->align > 0 ? t->align : 1,
 				t->pkg_private);
-			write_tok(f, t->pkg_root);
+			write_pkg_root(f, t->pkg_root, self_pkg);
 			fprintf(f, " %d %d %d %d 0\n", t->is_ranged, t->is_tuple, t->is_readonly,
 				t->is_poly);
 			break;
@@ -448,7 +524,7 @@ write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id) {
 		for (fld = t->fields; fld; fld = fld->next)
 			nf++;
 		fprintf(f, " %d %d %d %d ", t->size, t->align, t->complete, t->pkg_private);
-		write_tok(f, t->pkg_root);
+		write_pkg_root(f, t->pkg_root, self_pkg);
 		fprintf(f, " %d %d %d %d %d", t->is_ranged, t->is_tuple, t->is_readonly, t->is_poly,
 			nf);
 		if (t->is_ranged)
@@ -497,6 +573,9 @@ export_write_pkg(Compiler* c, const char* pkg_dir, const char* path) {
 			continue;
 		symtab_add(&syms, s);
 	}
+	/* Stable symbol order → stable type-id assignment for iface digests. */
+	if (syms.len > 1)
+		qsort(syms.syms, (size_t)syms.len, sizeof(Symbol*), sym_export_cmp);
 	for (i = 0; i < syms.len; i++)
 		collect_sym_types(c, &types, &syms, syms.syms[i], pkg_dir);
 
@@ -515,14 +594,11 @@ export_write_pkg(Compiler* c, const char* pkg_dir, const char* path) {
 	err = 0;
 	if (fprintf(f, "modc-export %d\n", ExportVer) < 0)
 		err = 1;
-	if (!err && fputs("pkg ", f) == EOF)
-		err = 1;
-	if (!err)
-		write_tok(f, pkg_dir);
-	if (!err && fputc('\n', f) == EOF)
+	/* Path-stable: real package dir is supplied to export_load, not stored. */
+	if (!err && fputs("pkg -\n", f) == EOF)
 		err = 1;
 	for (i = 0; !err && i < types.len; i++)
-		write_type(f, &types, &types.ents[i], i + 1);
+		write_type(f, &types, &types.ents[i], i + 1, pkg_dir);
 	for (i = 0; !err && i < syms.len; i++)
 		write_sym(f, &types, syms.syms[i]);
 	if (ferror(f) || fflush(f) != 0)
@@ -586,6 +662,35 @@ read_tok(char** pp) {
 static int
 tok_is_dash(const char* s) {
 	return s == NULL || strcmp(s, "-") == 0;
+}
+
+/* Map export pkg_root token to an in-memory string. */
+static char*
+load_pkg_root_tok(const char* tok, const char* pkg_dir) {
+	char abs[HOST_PATH_MAX];
+
+	if (tok_is_dash(tok))
+		return (pkg_dir && pkg_dir[0]) ? xstrdup(pkg_dir) : NULL;
+	if (tok[0] == '@')
+		return xstrdup(tok);
+	path_abs(tok, abs, sizeof(abs));
+	return xstrdup(abs[0] ? abs : tok);
+}
+
+/* True if export pkg_root token refers to package directory pkg. */
+static int
+pkg_ref_matches(const char* root_tok, const char* pkg) {
+	char id[128];
+
+	if (tok_is_dash(root_tok) || root_tok == NULL || root_tok[0] == 0)
+		return 1;
+	if (pkg == NULL || pkg[0] == 0)
+		return 0;
+	if (root_tok[0] == '@') {
+		pkg_ref_id(pkg, id, sizeof(id));
+		return strcmp(root_tok + 1, id) == 0;
+	}
+	return path_eq(root_tok, pkg);
 }
 
 typedef struct {
@@ -710,9 +815,9 @@ export_tag_may_reuse(Symbol* s, Type* existing, const char* pkg, const char* res
 		if (!sym_in_pkg(s, pkg))
 			return 0;
 		if (existing->pkg_root && existing->pkg_root[0] &&
-		    !path_eq(existing->pkg_root, pkg))
+		    !pkg_ref_matches(existing->pkg_root, pkg))
 			return 0;
-		if (!tok_is_dash(rootbuf) && rootbuf[0] && !path_eq(rootbuf, pkg))
+		if (rootbuf[0] && !pkg_ref_matches(rootbuf, pkg))
 			return 0;
 	}
 
@@ -808,7 +913,7 @@ fill_tuple_inplace(Compiler* c, Type* t, Type** elts, int n) {
 }
 
 static int
-fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt) {
+fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* pkg_dir) {
 	Type* t = lt->type;
 	char* p = lt->rest;
 	char* tok;
@@ -923,7 +1028,7 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt) {
 		tok = read_tok(&p);
 		if (!lt->reused || t->pkg_root == NULL) {
 			free(t->pkg_root);
-			t->pkg_root = tok_is_dash(tok) ? NULL : xstrdup(tok);
+			t->pkg_root = load_pkg_root_tok(tok, pkg_dir);
 		}
 		tok = read_tok(&p);
 		ranged = tok ? atoi(tok) : 0;
@@ -1112,13 +1217,13 @@ load_one_sym(Compiler* c, Type** map, int max_id, const char* home, LoadSym* ls,
 }
 
 int
-export_load(Compiler* c, const char* path) {
+export_load(Compiler* c, const char* path, const char* pkg_dir) {
 	char *text, *line, *next, *p, *tok;
 	Type **map = NULL;
 	LoadTy* ltypes = NULL;
 	LoadSym* lsyms = NULL;
 	int max_id = 0, map_cap = 0, ntypes = 0, nsyms = 0, cap_t = 0, cap_s = 0, ver, i, id;
-	char pkg[HOST_PATH_MAX], home[HOST_PATH_MAX];
+	char pkg[HOST_PATH_MAX], home[HOST_PATH_MAX], pkg_abs[HOST_PATH_MAX];
 	size_t n;
 	Type* prim;
 
@@ -1128,6 +1233,10 @@ export_load(Compiler* c, const char* path) {
 	if (text == NULL)
 		return 1;
 	pkg[0] = 0;
+	if (pkg_dir && pkg_dir[0]) {
+		path_abs(pkg_dir, pkg_abs, sizeof(pkg_abs));
+		snprintf(pkg, sizeof(pkg), "%s", pkg_abs[0] ? pkg_abs : pkg_dir);
+	}
 	line = text;
 	while (line && *line) {
 		next = strchr(line, '\n');
@@ -1151,9 +1260,9 @@ export_load(Compiler* c, const char* path) {
 		} else if (strncmp(p, "pkg ", 4) == 0) {
 			p += 4;
 			tok = read_tok(&p);
-			if (tok_is_dash(tok))
-				pkg[0] = 0;
-			else
+			/* v3: "pkg -" — real dir comes from pkg_dir argument.
+			 * Legacy absolute paths still accepted if pkg_dir was omitted. */
+			if (!tok_is_dash(tok) && tok && tok[0] && pkg[0] == 0)
 				snprintf(pkg, sizeof(pkg), "%s", tok);
 		} else if (p[0] == 'T' && isspace((unsigned char)p[1])) {
 			p += 1;
@@ -1281,7 +1390,8 @@ export_load(Compiler* c, const char* path) {
 		for (i = 0; i < ntypes; i++) {
 			if (ltypes[i].kind == NULL)
 				continue;
-			if (fill_type_payload(c, map, max_id, &ltypes[i]) != 0) {
+			if (fill_type_payload(c, map, max_id, &ltypes[i],
+					      pkg[0] ? pkg : NULL) != 0) {
 				c->paths.infile = saved_infile;
 				free(text);
 				free(map);

@@ -881,8 +881,9 @@ int cache_deps_valid(const char* path);
 int cache_depfile_to_deps(const char* depfile, const char* path);
 /* Write public API of package pkg_dir from Compiler into path. 0 ok. */
 int export_write_pkg(Compiler* c, const char* pkg_dir, const char* path);
-/* Load export file into Compiler (symbols/types). 0 ok. */
-int export_load(Compiler* c, const char* path);
+/* Load export file into Compiler (symbols/types). pkg_dir is the real package
+ * root (export v3 stores "-" instead of absolute paths). 0 ok. */
+int export_load(Compiler* c, const char* path, const char* pkg_dir);
 char* fmt_source(Compiler* c);
 
 #endif

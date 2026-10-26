@@ -354,8 +354,10 @@ project headers. A package's object is keyed by its own sources; **importers**
 invalidate only when a dependency's public API (the cached `export` digest)
 changes—not on every dependency body edit. Source fingerprinting first checks
 per-file mtime+size (`pkg/<id>/srcstamp`) and reuses the prior content hash when
-stamps match, so unchanged trees avoid re-reading file bytes. Purge old caches
-with `modc clean` or `rm -rf .modc-cache`.
+stamps match, so unchanged trees avoid re-reading file bytes. Package `export`
+artifacts are path-stable (no absolute checkout paths; symbols sorted) so API
+digests do not thrash when a tree is moved or rebuilt via a different path.
+Purge old caches with `modc clean` or `rm -rf .modc-cache`.
 
 Header inclusion priority follows [interop.md](interop.md) (`modc` stubs, then
 `-I` paths, then system headers). C header symbols remain strictly scoped to the

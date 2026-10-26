@@ -234,6 +234,25 @@ check-special: $(MODC)
 		-v 2>&1 | tee $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache hit pkg app' $(BUILD)/cache_iface/check_body.log
+	# --- cache: export bytes are path-stable (same API → identical digest) ---
+	@rm -rf $(BUILD)/cache_expstab $(BUILD)/cache_expstab2
+	@mkdir -p $(BUILD)/cache_expstab/lib $(BUILD)/cache_expstab/app
+	@printf '%s\n' 'int add(int a, int b) { return a + b; }' \
+		> $(BUILD)/cache_expstab/lib/mod.mc
+	@printf '%s\n' 'import "lib";' 'int main() { return add(1, 2) == 3 ? 0 : 1; }' \
+		> $(BUILD)/cache_expstab/app/main.mc
+	./modc build -M $(BUILD)/cache_expstab $(BUILD)/cache_expstab/app/main.mc \
+		-o $(BUILD)/cache_expstab/out
+	@ex1=$$(ls $(BUILD)/cache_expstab/app/.modc-cache/pkg/lib-*/export | head -1); \
+		grep -q '^modc-export 3$$' "$$ex1"; \
+		grep -q '^pkg -$$' "$$ex1"; \
+		mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app; \
+		cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc; \
+		cp $(BUILD)/cache_expstab/app/main.mc $(BUILD)/cache_expstab2/app/main.mc; \
+		./modc build -M $(BUILD)/cache_expstab2 $(BUILD)/cache_expstab2/app/main.mc \
+			-o $(BUILD)/cache_expstab2/out; \
+		ex2=$$(ls $(BUILD)/cache_expstab2/app/.modc-cache/pkg/lib-*/export | head -1); \
+		cmp -s "$$ex1" "$$ex2"
 	# --- cache: MODC_SYSINCLUDE / MODC_INCLUDE change must miss ---
 	@rm -rf $(BUILD)/cache_sysinc
 	@mkdir -p $(BUILD)/cache_sysinc/inc_a $(BUILD)/cache_sysinc/inc_b \

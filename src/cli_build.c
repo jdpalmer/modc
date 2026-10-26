@@ -76,9 +76,10 @@ now_sec(void) {
 }
 
 /* Lex/parse/typecheck an already-discovered file list. Does not emit or free files.
- * After type_init, loads each path in exports[0..nexports). */
+ * After type_init, loads each exports[i] with package dir export_dirs[i]. */
 static int
-compile_graph(Compiler* c, char** files, int nfiles, char** exports, int nexports) {
+compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** export_dirs,
+	      int nexports) {
 	int i, r;
 	TuCache* cache;
 	int profile;
@@ -86,7 +87,8 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, int nexport
 
 	type_init(c);
 	for (i = 0; i < nexports; i++) {
-		if (exports[i] && export_load(c, exports[i]) != 0) {
+		if (exports[i] &&
+		    export_load(c, exports[i], export_dirs ? export_dirs[i] : NULL) != 0) {
 			fprintf(stderr, "modc: failed to load export %s\n", exports[i]);
 			return 1;
 		}
@@ -278,7 +280,7 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 		free(files);
 		return 1;
 	}
-	r = compile_graph(c, files, nfiles, NULL, 0);
+	r = compile_graph(c, files, nfiles, NULL, NULL, 0);
 	for (i = 0; i < nfiles; i++)
 		free(files[i]);
 	free(files);
@@ -724,7 +726,7 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	h = cache_hash_str(MODC_VERSION);
 	/* Import-closure needs keyed by dep export/API digests + selective parse. */
 	h = cache_hash_mix(h, cache_hash_str("needs-iface-v1"));
-	h = cache_hash_mix(h, cache_hash_str("export-v2"));
+	h = cache_hash_mix(h, cache_hash_str("export-v3"));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
@@ -1709,13 +1711,13 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 }
 
 /* Packages without need_emit + export artifact → load; need_emit sources → typecheck.
- * tc_files aliases entries in files[]; exps are xstrdup'd. Caller frees both arrays
- * and each exps[i]. Returns 0. */
+ * tc_files aliases entries in files[]; exps/exp_dirs are xstrdup'd. Caller frees. */
 static int
 collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
-		  const char* crooot, char*** out_exps, int* out_nexp,
+		  const char* crooot, char*** out_exps, char*** out_exp_dirs, int* out_nexp,
 		  char*** out_tc, int* out_ntc) {
 	char** exps;
+	char** exp_dirs;
 	char** tc_files;
 	int* load_exp;
 	int nexp, ntc, pi, fi;
@@ -1724,6 +1726,7 @@ collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
 	load_exp = xmalloc((size_t)npkgs * sizeof(int));
 	memset(load_exp, 0, (size_t)npkgs * sizeof(int));
 	exps = xmalloc((size_t)npkgs * sizeof(char*));
+	exp_dirs = xmalloc((size_t)npkgs * sizeof(char*));
 	nexp = 0;
 	for (pi = 0; pi < npkgs; pi++) {
 		if (pkgs[pi].need_emit)
@@ -1733,7 +1736,9 @@ collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
 		if (!host_is_file(expath))
 			continue;
 		load_exp[pi] = 1;
-		exps[nexp++] = xstrdup(expath);
+		exps[nexp] = xstrdup(expath);
+		exp_dirs[nexp] = xstrdup(pkgs[pi].dir);
+		nexp++;
 	}
 	tc_files = xmalloc((size_t)nfiles * sizeof(char*));
 	ntc = 0;
@@ -1753,6 +1758,7 @@ collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
 	}
 	free(load_exp);
 	*out_exps = exps;
+	*out_exp_dirs = exp_dirs;
 	*out_nexp = nexp;
 	*out_tc = tc_files;
 	*out_ntc = ntc;
@@ -1804,6 +1810,7 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 		      char** files, int nfiles, const char* crooot) {
 	char** tc_files;
 	char** exps;
+	char** exp_dirs;
 	int ntc, nexp, pi, demoted, pass, i, r;
 	uint64_t iface_at_start[MaxCachePkgs];
 	char expath[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
@@ -1818,19 +1825,25 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 	for (pass = 0; pass < MaxCachePkgs; pass++) {
 		if (pass > 0)
 			reset_frontend_state(c);
-		collect_export_tc(pkgs, npkgs, files, nfiles, crooot, &exps, &nexp, &tc_files,
-				  &ntc);
+		collect_export_tc(pkgs, npkgs, files, nfiles, crooot, &exps, &exp_dirs, &nexp,
+				  &tc_files, &ntc);
 		if (ntc == 0) {
-			for (pi = 0; pi < nexp; pi++)
+			for (pi = 0; pi < nexp; pi++) {
 				free(exps[pi]);
+				free(exp_dirs[pi]);
+			}
 			free(exps);
+			free(exp_dirs);
 			free(tc_files);
 			break;
 		}
-		r = compile_graph(c, tc_files, ntc, exps, nexp);
-		for (pi = 0; pi < nexp; pi++)
+		r = compile_graph(c, tc_files, ntc, exps, exp_dirs, nexp);
+		for (pi = 0; pi < nexp; pi++) {
 			free(exps[pi]);
+			free(exp_dirs[pi]);
+		}
 		free(exps);
+		free(exp_dirs);
 		free(tc_files);
 		if (r != 0)
 			return 1;
