@@ -25,11 +25,14 @@ typedef struct {
 	char dir[HOST_PATH_MAX];
 	char id[128];
 	uint64_t impl;
+	uint64_t iface; /* public API digest (export file hash); 0 = unknown */
 	uint64_t key;
 	char hex[24];
 	char objpath[HOST_PATH_MAX];
 	char ifacepath[HOST_PATH_MAX];
 	int hit;
+	/* Must parse/emit this package (not reuse cached .o). */
+	int need_emit;
 	/* Direct import edges into pkgs[] indices. */
 	int imports[MaxCachePkgs];
 	int nimports;
@@ -719,8 +722,8 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	int i;
 
 	h = cache_hash_str(MODC_VERSION);
-	/* Import-closure needs (not all-packages) + selective parse. */
-	h = cache_hash_mix(h, cache_hash_str("needs-imports-v1"));
+	/* Import-closure needs keyed by dep export/API digests + selective parse. */
+	h = cache_hash_mix(h, cache_hash_str("needs-iface-v1"));
 	h = cache_hash_mix(h, cache_hash_str("export-v2"));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
@@ -1054,8 +1057,36 @@ save_modc_deps(Compiler* c, const char* path) {
 	return i;
 }
 
-// Compute cache paths and hit flags from implementation hashes.
-// needs = mix of transitive import impl hashes (not every package in the graph).
+/* Parse a 16-digit hex digest written by cache_hash_hex. 0 ok. */
+static int
+pkg_parse_iface_hex(const char* s, uint64_t* out) {
+	char* end;
+	unsigned long long v;
+
+	if (s == NULL || s[0] == 0)
+		return 1;
+	v = strtoull(s, &end, 16);
+	if (end == s || *end != 0)
+		return 1;
+	*out = (uint64_t)v;
+	return 0;
+}
+
+/* True if any transitive import still has an unknown API digest. */
+static int
+pkg_needs_incomplete(BuildPkg* pkgs, int npkgs, int i) {
+	int j;
+
+	for (j = 0; j < npkgs; j++) {
+		if (i == j || !pkgs[i].reach[j])
+			continue;
+		if (pkgs[j].iface == 0)
+			return 1;
+	}
+	return 0;
+}
+
+// needs = mix of transitive import API (export) digests.
 static uint64_t
 pkg_needs_hash(BuildPkg* pkgs, int npkgs, int i) {
 	uint64_t needsh;
@@ -1065,12 +1096,33 @@ pkg_needs_hash(BuildPkg* pkgs, int npkgs, int i) {
 	for (j = 0; j < npkgs; j++) {
 		if (i == j || !pkgs[i].reach[j])
 			continue;
-		needsh = cache_hash_mix(needsh, pkgs[j].impl);
+		needsh = cache_hash_mix(needsh, pkgs[j].iface);
 	}
 	return needsh;
 }
 
-// Set hit from cached obj + iface + deps + needs (import-closure).
+/* Resolve iface: hash export at this key, else last-known stable pkg/<id>/iface. */
+static void
+pkg_resolve_ifaces(BuildPkg* pkgs, int npkgs, const char* crooot) {
+	int i;
+	char expath[HOST_PATH_MAX], stable[HOST_PATH_MAX], stored[64];
+
+	for (i = 0; i < npkgs; i++) {
+		pkgs[i].iface = 0;
+		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[i].id,
+			 pkgs[i].hex);
+		if (host_is_file(pkgs[i].objpath) && host_is_file(expath)) {
+			pkgs[i].iface = cache_hash_file(expath);
+			continue;
+		}
+		snprintf(stable, sizeof(stable), "%s/pkg/%s/iface", crooot, pkgs[i].id);
+		stored[0] = 0;
+		if (cache_read_str(stable, stored, sizeof(stored)) == 0)
+			(void)pkg_parse_iface_hex(stored, &pkgs[i].iface);
+	}
+}
+
+// Set hit from cached obj + iface + deps + needs (import-closure API digests).
 static void
 pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot) {
 	int i;
@@ -1082,6 +1134,8 @@ pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot) {
 		snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
 		if (!host_is_file(pkgs[i].objpath) || !host_is_file(pkgs[i].ifacepath) ||
 		    !cache_deps_valid(depmeta))
+			continue;
+		if (pkg_needs_incomplete(pkgs, npkgs, i))
 			continue;
 		snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
 			 pkgs[i].id, pkgs[i].hex);
@@ -1110,7 +1164,10 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot) {
 		snprintf(pkgs[i].ifacepath, sizeof(pkgs[i].ifacepath),
 			 "%s/pkg/%s-%s/iface", crooot, pkgs[i].id, pkgs[i].hex);
 	}
+	pkg_resolve_ifaces(pkgs, npkgs, crooot);
 	pkg_refresh_hits(pkgs, npkgs, crooot);
+	for (i = 0; i < npkgs; i++)
+		pkgs[i].need_emit = !pkgs[i].hit;
 }
 
 // Record direct imports and transitive reachability among build packages.
@@ -1572,7 +1629,7 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 	return 0;
 }
 
-/* Hit packages with an export artifact → load paths; other sources → typecheck list.
+/* Packages without need_emit + export artifact → load; need_emit sources → typecheck.
  * tc_files aliases entries in files[]; exps are xstrdup'd. Caller frees both arrays
  * and each exps[i]. Returns 0. */
 static int
@@ -1581,22 +1638,22 @@ collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
 		  char*** out_tc, int* out_ntc) {
 	char** exps;
 	char** tc_files;
-	int* load_hit;
+	int* load_exp;
 	int nexp, ntc, pi, fi;
 	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], expath[HOST_PATH_MAX];
 
-	load_hit = xmalloc((size_t)npkgs * sizeof(int));
-	memset(load_hit, 0, (size_t)npkgs * sizeof(int));
+	load_exp = xmalloc((size_t)npkgs * sizeof(int));
+	memset(load_exp, 0, (size_t)npkgs * sizeof(int));
 	exps = xmalloc((size_t)npkgs * sizeof(char*));
 	nexp = 0;
 	for (pi = 0; pi < npkgs; pi++) {
-		if (!pkgs[pi].hit)
+		if (pkgs[pi].need_emit)
 			continue;
 		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[pi].id,
 			 pkgs[pi].hex);
 		if (!host_is_file(expath))
 			continue;
-		load_hit[pi] = 1;
+		load_exp[pi] = 1;
 		exps[nexp++] = xstrdup(expath);
 	}
 	tc_files = xmalloc((size_t)nfiles * sizeof(char*));
@@ -1608,19 +1665,54 @@ collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
 		for (pi = 0; pi < npkgs; pi++) {
 			if (strcmp(pkgs[pi].dir, root) != 0)
 				continue;
-			if (!load_hit[pi])
+			if (pkgs[pi].need_emit)
 				tc_files[ntc++] = files[fi];
 			break;
 		}
 		if (pi >= npkgs)
 			tc_files[ntc++] = files[fi];
 	}
-	free(load_hit);
+	free(load_exp);
 	*out_exps = exps;
 	*out_nexp = nexp;
 	*out_tc = tc_files;
 	*out_ntc = ntc;
 	return 0;
+}
+
+/* Drop symbols/types between cascade recompiles; keep link pragma lists. */
+static void
+reset_frontend_state(Compiler* c) {
+	c->lex.tokens = NULL;
+	c->lex.tokens_len = 0;
+	c->lex.tokens_cap = 0;
+	c->lex.pos = 0;
+	c->diag.error_count = 0;
+	c->diag.fatal = 0;
+	c->syms.symbols = NULL;
+	free(c->syms.symbol_tab);
+	c->syms.symbol_tab = NULL;
+	c->syms.symbol_tab_cap = 0;
+	c->syms.symbols_len = 0;
+	c->syms.block = 0;
+	c->unit.funcs = NULL;
+	c->unit.funcs_len = 0;
+	c->unit.funcs_cap = 0;
+	c->unit.globals = NULL;
+	c->unit.globals_len = 0;
+	c->unit.globals_cap = 0;
+	c->syms.current_fn = NULL;
+	c->types.type_list = NULL;
+	free(c->types.ranged_tab);
+	c->types.ranged_tab = NULL;
+	c->types.ranged_tab_cap = 0;
+	c->types.ranged_len = 0;
+	free(c->types.tuple_tab);
+	c->types.tuple_tab = NULL;
+	c->types.tuple_tab_cap = 0;
+	c->types.tuple_len = 0;
+	c->unit.unit_files = NULL;
+	c->unit.unit_files_len = 0;
 }
 
 /* Compile path → cached package objs → foreign objs → link into outpath.
@@ -1755,14 +1847,24 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	{
 		char** tc_files;
 		char** exps;
-		int ntc, nexp, pi, partial;
+		int ntc, nexp, pi, partial, demoted, pass;
+		uint64_t iface_at_start[MaxCachePkgs];
+		char expath[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
+		char curiface[HOST_PATH_MAX], ifacehex[24];
+		char needspath[HOST_PATH_MAX], needshex[24];
+		uint64_t needs;
+		PkgAsmJob miss[MaxCachePkgs];
+		int nmiss;
 
-		/* Hit packages are not re-preprocessed, so their link pragmas
+		for (pi = 0; pi < npkgs; pi++)
+			iface_at_start[pi] = pkgs[pi].iface;
+
+		/* Cached packages are not re-preprocessed, so their link pragmas
 		 * never reappear. Seed from the prior linkmeta, then let the
-		 * miss packages' PP add/override via pkg_add_*. */
+		 * need_emit packages' PP add/override via pkg_add_*. */
 		partial = 0;
 		for (pi = 0; pi < npkgs; pi++)
-			if (pkgs[pi].hit) {
+			if (!pkgs[pi].need_emit) {
 				partial = 1;
 				break;
 			}
@@ -1777,56 +1879,106 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			free(files);
 			return 1;
 		}
-		collect_export_tc(pkgs, npkgs, files, nfiles, crooot, &exps, &nexp, &tc_files,
-				  &ntc);
-		r = compile_graph(c, tc_files, ntc, exps, nexp);
-		for (pi = 0; pi < nexp; pi++)
-			free(exps[pi]);
-		free(exps);
-		free(tc_files);
-	}
-	if (r == 0) {
-		char expath[HOST_PATH_MAX];
-		int pi;
 
-		for (pi = 0; pi < npkgs; pi++) {
-			snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot,
-				 pkgs[pi].id, pkgs[pi].hex);
-			if (export_write_pkg(c, pkgs[pi].dir, expath) != 0) {
-				fprintf(stderr, "modc: failed to write export for %s\n",
-					pkgs[pi].id);
-				r = 1;
+		/* Cascade: recompile when a rebuilt package's export/API changes. */
+		r = 0;
+		for (pass = 0; pass < MaxCachePkgs; pass++) {
+			if (pass > 0)
+				reset_frontend_state(c);
+			collect_export_tc(pkgs, npkgs, files, nfiles, crooot, &exps, &nexp,
+					  &tc_files, &ntc);
+			if (ntc == 0) {
+				for (pi = 0; pi < nexp; pi++)
+					free(exps[pi]);
+				free(exps);
+				free(tc_files);
 				break;
 			}
-		}
-	}
-	for (i = 0; i < nfiles; i++)
-		free(files[i]);
-	free(files);
-	files = NULL;
-	if (r != 0)
-		return 1;
+			r = compile_graph(c, tc_files, ntc, exps, nexp);
+			for (pi = 0; pi < nexp; pi++)
+				free(exps[pi]);
+			free(exps);
+			free(tc_files);
+			if (r != 0)
+				break;
+			demoted = 0;
+			for (pi = 0; pi < npkgs; pi++) {
+				if (!pkgs[pi].need_emit)
+					continue;
+				snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot,
+					 pkgs[pi].id, pkgs[pi].hex);
+				if (export_write_pkg(c, pkgs[pi].dir, expath) != 0) {
+					fprintf(stderr,
+						"modc: failed to write export for %s\n",
+						pkgs[pi].id);
+					r = 1;
+					break;
+				}
+				pkgs[pi].iface = cache_hash_file(expath);
+				snprintf(depmeta, sizeof(depmeta), "%s.deps",
+					 pkgs[pi].objpath);
+				if (save_modc_deps(c, depmeta) != 0) {
+					r = 1;
+					break;
+				}
+			}
+			if (r != 0)
+				break;
+			for (pi = 0; pi < npkgs; pi++) {
+				int k;
 
-	/* Recompute hit flags for emit; needs use import closure. */
-	{
-		char ifacehex[MaxCachePkgs][24];
-		char curiface[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
-		char needspath[HOST_PATH_MAX], needshex[24];
-		uint64_t needs;
+				if (!pkgs[pi].need_emit)
+					continue;
+				if (pkgs[pi].iface == iface_at_start[pi])
+					continue;
+				for (k = 0; k < npkgs; k++) {
+					if (k == pi || !pkgs[k].reach[pi])
+						continue;
+					if (pkgs[k].need_emit)
+						continue;
+					pkgs[k].need_emit = 1;
+					pkgs[k].hit = 0;
+					demoted = 1;
+				}
+			}
+			if (!demoted)
+				break;
+		}
+		if (r != 0) {
+			for (i = 0; i < nfiles; i++)
+				free(files[i]);
+			free(files);
+			return 1;
+		}
+		if (pass >= MaxCachePkgs) {
+			fprintf(stderr, "modc: package API cascade did not converge\n");
+			for (i = 0; i < nfiles; i++)
+				free(files[i]);
+			free(files);
+			return 1;
+		}
 
 		for (i = 0; i < npkgs; i++) {
-			cache_hash_hex(pkgs[i].impl, ifacehex[i], sizeof(ifacehex[i]));
+			cache_hash_hex(pkgs[i].iface, ifacehex, sizeof(ifacehex));
 			snprintf(curiface, sizeof(curiface), "%s/pkg/%s/iface", crooot,
 				 pkgs[i].id);
-			if (cache_write_str(curiface, ifacehex[i]) != 0)
+			if (cache_write_str(curiface, ifacehex) != 0) {
+				for (j = 0; j < nfiles; j++)
+					free(files[j]);
+				free(files);
 				return 1;
-			if (cache_write_str(pkgs[i].ifacepath, ifacehex[i]) != 0)
+			}
+			if (cache_write_str(pkgs[i].ifacepath, ifacehex) != 0) {
+				for (j = 0; j < nfiles; j++)
+					free(files[j]);
+				free(files);
 				return 1;
+			}
 		}
-		pkg_refresh_hits(pkgs, npkgs, crooot);
+
 		for (i = 0; i < npkgs; i++) {
 			snprintf(what, sizeof(what), "pkg %s", pkgs[i].id);
-			if (pkgs[i].hit) {
+			if (!pkgs[i].need_emit) {
 				cache_log(o->verbose, "hit", what);
 				snprintf(objs[i], sizeof(objs[i]), "%s", pkgs[i].objpath);
 				continue;
@@ -1834,34 +1986,29 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			cache_log(o->verbose, "miss", what);
 			snprintf(objs[i], sizeof(objs[i]), "%s", pkgs[i].objpath);
 		}
-		{
-			PkgAsmJob miss[MaxCachePkgs];
-			int nmiss;
-
-			nmiss = 0;
-			for (i = 0; i < npkgs; i++) {
-				if (pkgs[i].hit)
-					continue;
-				miss[nmiss].pkg = &pkgs[i];
-				if (emit_pkg_qbe(c, &pkgs[i], i, dir, miss[nmiss].qbe,
-						 sizeof(miss[nmiss].qbe)) != 0)
-					return 1;
-				snprintf(miss[nmiss].asmpath, sizeof(miss[nmiss].asmpath),
-					 "%s/pkg%d.s", dir, i);
-				snprintf(miss[nmiss].obj, sizeof(miss[nmiss].obj),
-					 "%s/pkg%d.o", dir, i);
-				nmiss++;
-			}
-			if (assemble_pkg_jobs(c, o, miss, nmiss) != 0)
+		nmiss = 0;
+		for (i = 0; i < npkgs; i++) {
+			if (!pkgs[i].need_emit)
+				continue;
+			miss[nmiss].pkg = &pkgs[i];
+			if (emit_pkg_qbe(c, &pkgs[i], i, dir, miss[nmiss].qbe,
+					 sizeof(miss[nmiss].qbe)) != 0) {
+				for (j = 0; j < nfiles; j++)
+					free(files[j]);
+				free(files);
 				return 1;
-			/* Only rebuilt packages: overwriting hit packages' .deps
-			 * with this compile's include set drops their real inputs. */
-			for (i = 0; i < nmiss; i++) {
-				snprintf(depmeta, sizeof(depmeta), "%s.deps",
-					 miss[i].pkg->objpath);
-				if (save_modc_deps(c, depmeta) != 0)
-					return 1;
 			}
+			snprintf(miss[nmiss].asmpath, sizeof(miss[nmiss].asmpath),
+				 "%s/pkg%d.s", dir, i);
+			snprintf(miss[nmiss].obj, sizeof(miss[nmiss].obj), "%s/pkg%d.o", dir,
+				 i);
+			nmiss++;
+		}
+		if (assemble_pkg_jobs(c, o, miss, nmiss) != 0) {
+			for (i = 0; i < nfiles; i++)
+				free(files[i]);
+			free(files);
+			return 1;
 		}
 		/* Stamp needs beside every obj for the next run. */
 		for (i = 0; i < npkgs; i++) {
@@ -1872,6 +2019,10 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			(void)cache_write_str(needspath, needshex);
 		}
 	}
+	for (i = 0; i < nfiles; i++)
+		free(files[i]);
+	free(files);
+	files = NULL;
 	if (save_link_meta(c, o, meta) != 0)
 		return 1;
 	if (save_link_meta(c, o, meta_stable) != 0)

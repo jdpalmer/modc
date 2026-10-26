@@ -2,7 +2,7 @@
 //
 // Layout under .modc-cache/:
 //   foreign/<hex>.o
-//   pkg/<id>-<hex>/pkg.o + iface + needs
+//   pkg/<id>-<hex>/pkg.o + iface (API/export digest) + needs (dep API mix)
 //   prog/<hex>/linkmeta + stamp
 //   linkmeta (stable; seeds partial rebuilds when ghex changes)
 //

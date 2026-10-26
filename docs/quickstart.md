@@ -43,7 +43,7 @@ modc run hello.mc             # build temp, run, delete
 modc build hello.mc -o hello -- -lglfw   # extra linker flags after --
 ```
 
-`modc build` writes a content-addressed cache under `.modc-cache/` (package objects and link inputs keyed by sources, flags, and tool versions). Hits skip re-emit and reassemble. You can use `modc clean` to remove that cache for a project.
+`modc build` writes a content-addressed cache under `.modc-cache/` (package objects and link inputs keyed by sources, flags, and tool versions). Hits skip re-emit and reassemble; importers rebuild only when a dependency's public API changes. You can use `modc clean` to remove that cache for a project.
 
 ## %C for C programmers
 

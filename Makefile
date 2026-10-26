@@ -193,11 +193,43 @@ check-special: $(MODC)
 	@grep -q -- '-l m' $(BUILD)/cache_stale/link_partial.log
 	@grep -Fq 'L m' $(BUILD)/cache_stale/link_app/.modc-cache/linkmeta
 	$(BUILD)/cache_stale/link_out
+	# --- cache: body-only dep edit keeps importer hit; API change misses ---
+	@rm -rf $(BUILD)/cache_iface
+	@mkdir -p $(BUILD)/cache_iface/roots/lib $(BUILD)/cache_iface/app
+	@printf '%s\n' 'static int secret() { return 7; }' \
+		'int lib_val() { return secret(); }' \
+		> $(BUILD)/cache_iface/roots/lib/mod.mc
+	@printf '%s\n' 'import "lib";' \
+		'int main() { return lib_val() == 7 ? 0 : 1; }' \
+		> $(BUILD)/cache_iface/app/main.mc
+	./modc build -M $(BUILD)/cache_iface/roots $(BUILD)/cache_iface/app/main.mc \
+		-o $(BUILD)/cache_iface/out
+	$(BUILD)/cache_iface/out
+	@printf '%s\n' 'static int secret() { return 7; } /* body */' \
+		'int lib_val() { return secret(); }' \
+		> $(BUILD)/cache_iface/roots/lib/mod.mc
+	./modc build -M $(BUILD)/cache_iface/roots $(BUILD)/cache_iface/app/main.mc \
+		-o $(BUILD)/cache_iface/out -v 2>&1 | tee $(BUILD)/cache_iface/body.log
+	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/body.log
+	@grep -q 'cache hit pkg app' $(BUILD)/cache_iface/body.log
+	$(BUILD)/cache_iface/out
+	@printf '%s\n' 'static int secret() { return 7; }' \
+		'int lib_val() { return secret(); }' \
+		'int lib_extra() { return 1; }' \
+		> $(BUILD)/cache_iface/roots/lib/mod.mc
+	./modc build -M $(BUILD)/cache_iface/roots $(BUILD)/cache_iface/app/main.mc \
+		-o $(BUILD)/cache_iface/out -v 2>&1 | tee $(BUILD)/cache_iface/api.log
+	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/api.log
+	@grep -q 'cache miss pkg app' $(BUILD)/cache_iface/api.log
+	$(BUILD)/cache_iface/out
 	# --- cache: MODC_SYSINCLUDE / MODC_INCLUDE change must miss ---
 	@rm -rf $(BUILD)/cache_sysinc
 	@mkdir -p $(BUILD)/cache_sysinc/inc_a $(BUILD)/cache_sysinc/inc_b \
 		$(BUILD)/cache_sysinc/modc_a $(BUILD)/cache_sysinc/modc_b \
 		$(BUILD)/cache_sysinc/app
+	# MODC_INCLUDE replaces host stubs; seed both trees so crash can rebuild.
+	@cp -R src/host/include/. $(BUILD)/cache_sysinc/modc_a/
+	@cp -R src/host/include/. $(BUILD)/cache_sysinc/modc_b/
 	@printf '%s\n' 'enum { SYSINC_VAL = 1 };' > $(BUILD)/cache_sysinc/inc_a/sysval.h
 	@printf '%s\n' 'enum { SYSINC_VAL = 2 };' > $(BUILD)/cache_sysinc/inc_b/sysval.h
 	@printf '%s\n' 'enum { MODCINC_VAL = 10 };' > $(BUILD)/cache_sysinc/modc_a/modcval.h

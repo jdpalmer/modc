@@ -350,7 +350,10 @@ Build artifacts are content-addressed and cached under `.modc-cache/` (next to
 `modc.ini` when present, otherwise next to the build entry). Unchanged packages
 and `c_sources` objects are reused across builds; keys include target OS,
 architecture, project-relative paths, and the contents of transitively included
-project headers. Purge old caches with `modc clean` or `rm -rf .modc-cache`.
+project headers. A package's object is keyed by its own sources; **importers**
+invalidate only when a dependency's public API (the cached `export` digest)
+changes—not on every dependency body edit. Purge old caches with `modc clean`
+or `rm -rf .modc-cache`.
 
 Header inclusion priority follows [interop.md](interop.md) (`modc` stubs, then
 `-I` paths, then system headers). C header symbols remain strictly scoped to the
