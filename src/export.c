@@ -14,8 +14,7 @@
 #include "host_os.h"
 
 enum {
-	/* v3: path-stable — pkg line is "-", pkg_root is "-" (self) or "@id" (foreign). */
-	ExportVer = 3,
+	ExportVer = ModcCacheSchema,
 	ExportMaxTypeId = 100000,
 	ExportMaxFields = 4096
 };
@@ -1260,10 +1259,11 @@ export_load(Compiler* c, const char* path, const char* pkg_dir) {
 		} else if (strncmp(p, "pkg ", 4) == 0) {
 			p += 4;
 			tok = read_tok(&p);
-			/* v3: "pkg -" — real dir comes from pkg_dir argument.
-			 * Legacy absolute paths still accepted if pkg_dir was omitted. */
-			if (!tok_is_dash(tok) && tok && tok[0] && pkg[0] == 0)
-				snprintf(pkg, sizeof(pkg), "%s", tok);
+			/* "pkg -": real dir comes from pkg_dir argument. */
+			if (!tok_is_dash(tok)) {
+				free(text);
+				return 1;
+			}
 		} else if (p[0] == 'T' && isspace((unsigned char)p[1])) {
 			p += 1;
 			tok = read_tok(&p);

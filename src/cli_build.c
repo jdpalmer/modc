@@ -29,7 +29,6 @@ typedef struct {
 	uint64_t key;
 	char hex[24];
 	char objpath[HOST_PATH_MAX];
-	char ifacepath[HOST_PATH_MAX];
 	int hit;
 	/* Must parse/emit this package (not reuse cached .o). */
 	int need_emit;
@@ -726,11 +725,7 @@ hash_compile_knobs(Compiler* c, const char* projroot) {
 	int i;
 
 	h = cache_hash_str(MODC_VERSION);
-	/* Import-closure needs keyed by dep export/API digests + selective parse. */
-	h = cache_hash_mix(h, cache_hash_str("needs-iface-v1"));
-	h = cache_hash_mix(h, cache_hash_str("export-v3"));
-	h = cache_hash_mix(h, cache_hash_str("vendor-freeze-v1"));
-	h = cache_hash_mix(h, cache_hash_str("pkg-id-v2"));
+	h = cache_hash_mix(h, (uint64_t)ModcCacheSchema);
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
@@ -1118,7 +1113,7 @@ save_modc_deps(Compiler* c, const char* path) {
 
 /* Parse a 16-digit hex digest written by cache_hash_hex. 0 ok. */
 static int
-pkg_parse_iface_hex(const char* s, uint64_t* out) {
+pkg_parse_hex(const char* s, uint64_t* out) {
 	char* end;
 	unsigned long long v;
 
@@ -1131,8 +1126,83 @@ pkg_parse_iface_hex(const char* s, uint64_t* out) {
 	return 0;
 }
 
+/* Per-package durable slot: stamp + impl + last-known API digest. */
+typedef struct {
+	uint64_t stamp;
+	uint64_t impl;
+	uint64_t iface;
+	int have_stamp;
+	int have_impl;
+	int have_iface;
+} PkgMeta;
+
+static void
+pkg_meta_path(char* out, size_t out_len, const char* crooot, const char* id) {
+	snprintf(out, out_len, "%s/pkg/%s/meta", crooot, id);
+}
+
+static void
+pkg_key_deps_path(char* out, size_t out_len, const char* crooot, const char* id,
+		  const char* hex) {
+	snprintf(out, out_len, "%s/pkg/%s-%s/deps", crooot, id, hex);
+}
+
+static int
+pkg_meta_load(const char* path, PkgMeta* m) {
+	char* text;
+	char* line;
+	char* next;
+	size_t n;
+
+	memset(m, 0, sizeof(*m));
+	text = read_file(path, &n);
+	if (text == NULL)
+		return 1;
+	for (line = text; line && *line; line = next) {
+		char* sp;
+		uint64_t v;
+
+		next = strchr(line, '\n');
+		if (next)
+			*next++ = 0;
+		if (line[0] == 0)
+			continue;
+		sp = strchr(line, ' ');
+		if (sp == NULL)
+			continue;
+		*sp++ = 0;
+		while (*sp == ' ')
+			sp++;
+		if (pkg_parse_hex(sp, &v) != 0)
+			continue;
+		if (strcmp(line, "stamp") == 0) {
+			m->stamp = v;
+			m->have_stamp = 1;
+		} else if (strcmp(line, "impl") == 0) {
+			m->impl = v;
+			m->have_impl = 1;
+		} else if (strcmp(line, "iface") == 0) {
+			m->iface = v;
+			m->have_iface = 1;
+		}
+	}
+	free(text);
+	return 0;
+}
+
+static int
+pkg_meta_save(const char* path, const PkgMeta* m) {
+	char buf[128], shex[24], ihex[24], ahex[24];
+
+	cache_hash_hex(m->have_stamp ? m->stamp : 0, shex, sizeof(shex));
+	cache_hash_hex(m->have_impl ? m->impl : 0, ihex, sizeof(ihex));
+	cache_hash_hex(m->have_iface ? m->iface : 0, ahex, sizeof(ahex));
+	snprintf(buf, sizeof(buf), "stamp %s\nimpl %s\niface %s\n", shex, ihex, ahex);
+	return cache_write_str(path, buf);
+}
+
 /*
- * Prefer a cached impl hash when pkg/<id>/srcstamp still matches.
+ * Prefer a cached impl hash when pkg/<id>/meta stamp still matches.
  * Vendored packages with modc.lock stamp against the lock file only (skip
  * walking vendor sources until the lock changes).
  */
@@ -1140,8 +1210,8 @@ static uint64_t
 pkg_impl_hash_cached(BuildPkg* pkg, char** files, int nfiles, const char* projroot,
 		     const char* crooot) {
 	uint64_t stamp, impl;
-	char stamppath[HOST_PATH_MAX], implpath[HOST_PATH_MAX];
-	char stamphex[24], implhex[24], stored[64];
+	char metapath[HOST_PATH_MAX];
+	PkgMeta meta;
 	int frozen;
 
 	frozen = 0;
@@ -1153,21 +1223,17 @@ pkg_impl_hash_cached(BuildPkg* pkg, char** files, int nfiles, const char* projro
 	}
 	if (!frozen)
 		stamp = pkg_src_stamp(pkg, files, nfiles, projroot);
-	cache_hash_hex(stamp, stamphex, sizeof(stamphex));
-	snprintf(stamppath, sizeof(stamppath), "%s/pkg/%s/srcstamp", crooot, pkg->id);
-	snprintf(implpath, sizeof(implpath), "%s/pkg/%s/impl", crooot, pkg->id);
-	stored[0] = 0;
-	if (cache_read_str(stamppath, stored, sizeof(stored)) == 0 &&
-	    strcmp(stored, stamphex) == 0) {
-		stored[0] = 0;
-		if (cache_read_str(implpath, stored, sizeof(stored)) == 0 &&
-		    pkg_parse_iface_hex(stored, &impl) == 0)
-			return impl;
-	}
+	pkg_meta_path(metapath, sizeof(metapath), crooot, pkg->id);
+	(void)pkg_meta_load(metapath, &meta);
+	if (meta.have_stamp && meta.have_impl && meta.stamp == stamp)
+		return meta.impl;
 	impl = pkg_impl_hash(pkg, files, nfiles, projroot);
-	cache_hash_hex(impl, implhex, sizeof(implhex));
-	(void)cache_write_str(stamppath, stamphex);
-	(void)cache_write_str(implpath, implhex);
+	meta.stamp = stamp;
+	meta.impl = impl;
+	meta.have_stamp = 1;
+	meta.have_impl = 1;
+	/* Preserve last-known iface across stamp/impl refresh. */
+	(void)pkg_meta_save(metapath, &meta);
 	return impl;
 }
 
@@ -1200,29 +1266,29 @@ pkg_needs_hash(BuildPkg* pkgs, int npkgs, int i) {
 	return needsh;
 }
 
-/* Resolve iface: hash export at this key, else last-known stable pkg/<id>/iface. */
+/* Resolve iface: hash export at this key, else last-known iface in pkg/<id>/meta. */
 static void
 pkg_resolve_ifaces(BuildPkg* pkgs, int npkgs, const char* crooot) {
 	int i;
-	char expath[HOST_PATH_MAX], stable[HOST_PATH_MAX], stored[64];
+	char expath[HOST_PATH_MAX], metapath[HOST_PATH_MAX];
+	PkgMeta meta;
 
 	for (i = 0; i < npkgs; i++) {
 		pkgs[i].iface = 0;
 		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[i].id,
 			 pkgs[i].hex);
-		if (host_is_file(pkgs[i].objpath) && host_is_file(expath)) {
+		if (host_is_file(expath)) {
 			pkgs[i].iface = cache_hash_file(expath);
 			continue;
 		}
-		snprintf(stable, sizeof(stable), "%s/pkg/%s/iface", crooot, pkgs[i].id);
-		stored[0] = 0;
-		if (cache_read_str(stable, stored, sizeof(stored)) == 0)
-			(void)pkg_parse_iface_hex(stored, &pkgs[i].iface);
+		pkg_meta_path(metapath, sizeof(metapath), crooot, pkgs[i].id);
+		if (pkg_meta_load(metapath, &meta) == 0 && meta.have_iface && meta.iface != 0)
+			pkgs[i].iface = meta.iface;
 	}
 }
 
-/* Frontend hit: export + iface + deps + needs. require_obj also needs pkg.o (build).
- * Vendored packages skip .deps revalidation (frozen to modc.lock). */
+/* Frontend hit: export + deps + needs. require_obj also needs pkg.o (build).
+ * Vendored packages skip deps revalidation (frozen to modc.lock). */
 static void
 pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot, int require_obj) {
 	int i;
@@ -1234,8 +1300,8 @@ pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot, int require_obj)
 		pkgs[i].hit = 0;
 		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[i].id,
 			 pkgs[i].hex);
-		snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[i].objpath);
-		if (!host_is_file(expath) || !host_is_file(pkgs[i].ifacepath))
+		pkg_key_deps_path(depmeta, sizeof(depmeta), crooot, pkgs[i].id, pkgs[i].hex);
+		if (!host_is_file(expath))
 			continue;
 		if (!pkgs[i].vendored && !cache_deps_valid(depmeta))
 			continue;
@@ -1268,8 +1334,6 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot,
 		cache_hash_hex(h, pkgs[i].hex, sizeof(pkgs[i].hex));
 		snprintf(pkgs[i].objpath, sizeof(pkgs[i].objpath), "%s/pkg/%s-%s/pkg.o",
 			 crooot, pkgs[i].id, pkgs[i].hex);
-		snprintf(pkgs[i].ifacepath, sizeof(pkgs[i].ifacepath),
-			 "%s/pkg/%s-%s/iface", crooot, pkgs[i].id, pkgs[i].hex);
 	}
 	pkg_resolve_ifaces(pkgs, npkgs, crooot);
 	pkg_refresh_hits(pkgs, npkgs, crooot, require_obj);
@@ -1828,7 +1892,7 @@ reset_frontend_state(Compiler* c) {
 
 /*
  * Typecheck need_emit packages (load exports for the rest). Cascade when a
- * rebuilt package's export/API digest changes. Write export/iface/needs/deps.
+ * rebuilt package's export/API digest changes. Write export/meta/needs/deps.
  * Does not emit objects. Logs hit/miss per package. 0 ok.
  */
 static int
@@ -1840,7 +1904,7 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 	int ntc, nexp, pi, demoted, pass, i, r;
 	uint64_t iface_at_start[MaxCachePkgs];
 	char expath[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
-	char curiface[HOST_PATH_MAX], ifacehex[24];
+	char metapath[HOST_PATH_MAX];
 	char needspath[HOST_PATH_MAX], needshex[24], what[HOST_PATH_MAX];
 	uint64_t needs;
 
@@ -1885,7 +1949,8 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 				return 1;
 			}
 			pkgs[pi].iface = cache_hash_file(expath);
-			snprintf(depmeta, sizeof(depmeta), "%s.deps", pkgs[pi].objpath);
+			pkg_key_deps_path(depmeta, sizeof(depmeta), crooot, pkgs[pi].id,
+					  pkgs[pi].hex);
 			if (save_modc_deps(c, depmeta) != 0)
 				return 1;
 		}
@@ -1915,11 +1980,13 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 	}
 
 	for (i = 0; i < npkgs; i++) {
-		cache_hash_hex(pkgs[i].iface, ifacehex, sizeof(ifacehex));
-		snprintf(curiface, sizeof(curiface), "%s/pkg/%s/iface", crooot, pkgs[i].id);
-		if (cache_write_str(curiface, ifacehex) != 0)
-			return 1;
-		if (cache_write_str(pkgs[i].ifacepath, ifacehex) != 0)
+		PkgMeta meta;
+
+		pkg_meta_path(metapath, sizeof(metapath), crooot, pkgs[i].id);
+		(void)pkg_meta_load(metapath, &meta);
+		meta.iface = pkgs[i].iface;
+		meta.have_iface = pkgs[i].iface != 0;
+		if (pkg_meta_save(metapath, &meta) != 0)
 			return 1;
 	}
 	for (i = 0; i < npkgs; i++) {

@@ -184,7 +184,7 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
 		-o $(BUILD)/cache_stale/deps_out -v 2>&1 | tee $(BUILD)/cache_stale/deps_partial.log
 	@grep -q 'cache hit pkg pkg_a' $(BUILD)/cache_stale/deps_partial.log
-	@grep -q secret.h $(BUILD)/cache_stale/deps_app/.modc-cache/pkg/pkg_a-*/pkg.o.deps
+	@grep -q secret.h $(BUILD)/cache_stale/deps_app/.modc-cache/pkg/pkg_a-*/deps
 	@printf '%s\n' 'enum { SECRET = 99 };' > $(BUILD)/cache_stale/roots/pkg_a/secret.h
 	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
 		-o $(BUILD)/cache_stale/deps_out -v 2>&1 | tee $(BUILD)/cache_stale/deps_hdr.log
@@ -247,7 +247,7 @@ check-special: $(MODC)
 		-v 2>&1 | tee $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache miss pkg lib' $(BUILD)/cache_iface/check_body.log
 	@grep -q 'cache hit pkg app' $(BUILD)/cache_iface/check_body.log
-	# --- cache: same basename packages get distinct ids (no shared srcstamp) ---
+	# --- cache: same basename packages get distinct ids (no shared meta) ---
 	@rm -rf $(BUILD)/cache_pkgid
 	@mkdir -p $(BUILD)/cache_pkgid/left/util $(BUILD)/cache_pkgid/right/util \
 		$(BUILD)/cache_pkgid/app
@@ -261,7 +261,7 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_pkgid $(BUILD)/cache_pkgid/app/main.mc \
 		-o $(BUILD)/cache_pkgid/out
 	$(BUILD)/cache_pkgid/out
-	@test $$(ls -d $(BUILD)/cache_pkgid/app/.modc-cache/pkg/util-*/srcstamp | wc -l | tr -d ' ') -eq 2
+	@test $$(ls -d $(BUILD)/cache_pkgid/app/.modc-cache/pkg/util-*/meta | wc -l | tr -d ' ') -eq 2
 	@printf '%s\n' 'int left_util() { return 1; } /* touch */' \
 		> $(BUILD)/cache_pkgid/left/util/mod.mc
 	./modc build -M $(BUILD)/cache_pkgid $(BUILD)/cache_pkgid/app/main.mc \
@@ -279,7 +279,7 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_expstab $(BUILD)/cache_expstab/app/main.mc \
 		-o $(BUILD)/cache_expstab/out
 	@ex1=$$(ls $(BUILD)/cache_expstab/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 3$$' "$$ex1"; \
+		grep -q '^modc-export 1$$' "$$ex1"; \
 		grep -q '^pkg -$$' "$$ex1"; \
 		mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app; \
 		cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc; \

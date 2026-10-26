@@ -1,9 +1,9 @@
 // Durable build cache: content-addressed foreign .o and per-package objects.
 //
 // Layout under .modc-cache/:
-//   foreign/<hex>.o
-//   pkg/<id>-<hex>/pkg.o + export + iface + needs + pkg.o.deps
-//   pkg/<id>/srcstamp + impl + iface (id = basename + path-key hash)
+//   foreign/<hex>.o[+ .deps]
+//   pkg/<id>/meta          (stamp + impl + last iface; id = basename-pathhash)
+//   pkg/<id>-<hex>/pkg.o + export + needs + deps
 //   prog/<hex>/linkmeta + stamp
 //   linkmeta (stable; seeds partial rebuilds when ghex changes)
 //
