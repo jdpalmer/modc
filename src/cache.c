@@ -136,27 +136,6 @@ static int mkdir_parents(const char* path) {
 	return 0;
 }
 
-// Create dir and all missing parents (mkdir -p); 0 on success.
-static int cache_mkdir_p(const char* dir) {
-	char path[HOST_PATH_MAX];
-	if (dir == NULL || dir[0] == 0) {
-		return 1;
-	}
-	snprintf(path, sizeof(path), "%s", dir);
-	size_t n = strlen(path);
-	while (n > 1 && host_path_is_sep((unsigned char)path[n - 1])) {
-		path[n - 1] = 0;
-		n--;
-	}
-	if (mkdir_parents(path) != 0) {
-		return 1;
-	}
-	if (host_mkdir(path) != 0 && !host_is_dir(path)) {
-		return 1;
-	}
-	return 0;
-}
-
 // Resolve .modc-cache path: walk up for modc.ini, else beside entry.
 int cache_root_for(const char* entry, char* out, size_t out_len) {
 	char abs[HOST_PATH_MAX];

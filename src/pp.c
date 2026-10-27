@@ -357,14 +357,6 @@ pp_clear_macros(Compiler* c) {
 	memset(c->pp.macro_start, 0, sizeof(c->pp.macro_start));
 }
 
-// True when a name is currently #defined (used by #if defined()).
-static int
-pp_defined(Compiler* c, const char* name) {
-	if (name == NULL)
-		return 0;
-	return find_macro(c, str_intern(c, name)) != NULL;
-}
-
 // Append one token to the preprocessor output stream.
 static void
 emit_tok(Compiler* c, Tok t) {

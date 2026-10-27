@@ -836,28 +836,6 @@ int type_eq(Type* a, Type* b) {
 	}
 }
 
-// Loose assignment compatibility (ints, ptrs, arith, same aggregate identity).
-static int
-type_compat(Type* a, Type* b) {
-	if (type_eq(a, b))
-		return 1;
-	if (a == NULL || b == NULL)
-		return 0;
-	if (is_int(a) && is_int(b))
-		return 1;
-	if (is_ptr(a) && is_ptr(b))
-		return 1;
-	if (is_ptr(a) && is_int(b))
-		return 1;
-	if (is_int(a) && is_ptr(b))
-		return 1;
-	if (is_arith(a) && is_arith(b))
-		return 1;
-	if (is_aggr(a) && is_aggr(b) && a == b)
-		return 1;
-	return 0;
-}
-
 // True when sp is in user code (unit files or main input), not header-only.
 int user_source(Compiler* c, Span sp) {
 	int i;

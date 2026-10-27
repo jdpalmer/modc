@@ -4283,13 +4283,6 @@ prescan_unit_type_bodies(Compiler* c) {
 	}
 }
 
-// One-file type prescan: stubs then bodies.
-static void
-prescan_unit_types(Compiler* c) {
-	prescan_unit_type_names(c);
-	prescan_unit_type_bodies(c);
-}
-
 // Second pass: file-scope function / method signatures (bodies skipped).
 void
 prescan_unit_funcs(Compiler* c) {
@@ -4312,13 +4305,6 @@ prescan_unit_funcs(Compiler* c) {
 		if (c->diag.error_count && peek(c)->kind != TkEof)
 			skip_to_balance(c);
 	}
-}
-
-// Prescan: types, then file-scope function signatures (skip bodies).
-static void
-prescan_unit(Compiler* c) {
-	prescan_unit_types(c);
-	prescan_unit_funcs(c);
 }
 
 // True when a typedef declaration's name is already in the symbol table.
