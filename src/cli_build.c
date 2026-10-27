@@ -762,11 +762,6 @@ hash_compile_env(Compiler* c, const char* projroot) {
 	return h;
 }
 
-static uint64_t
-hash_compile_knobs(Compiler* c, const char* projroot) {
-	return hash_compile_env(c, projroot);
-}
-
 /* Foreign .o key: compile env + source identity + which driver builds this file. */
 static uint64_t
 foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* projroot) {
@@ -2056,7 +2051,7 @@ pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState
 		pkgs_free_files(st);
 		return 1;
 	}
-	st->knobs = hash_compile_knobs(c, st->projroot);
+	st->knobs = hash_compile_env(c, st->projroot);
 	for (i = 0; i < st->npkgs; i++) {
 		st->pkgs[i].vendored = pkg_is_vendored(st->pkgs[i].dir, st->projroot);
 		st->pkgs[i].impl = pkg_impl_hash_cached(&st->pkgs[i], st->files, st->nfiles,
