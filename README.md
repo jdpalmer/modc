@@ -2,8 +2,6 @@
   <img src="logo.svg" alt="%C" width="128" height="128">
 </p>
 
-# %C
-
 **%C** (pronounced "mod-C") is a **dialect of C** and an associated compiler that uses the C ecosystem (includes, libraries, linker, etc.) you already have with a tweaked syntax that doesn't completely change what you know about C. Sources use the `.mc` extension. No runtime, no borrow checker, no overhead, no new language + FFI. A beautifully simple language that fits in your head (or the context window of our agentic friends).
 
 ## Features
