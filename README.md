@@ -1,28 +1,30 @@
+<p align="center">
+  <img src="logo.svg" alt="%C" width="128" height="128">
+</p>
+
 # %C
 
-**%C** (pronounced "mod-C") is a **dialect of C** and an associated compiler that uses the C ecosystem (includes, libraries, linker, etc.) you already have with a tweaked syntax that doesn't completely change what you know about C. No runtime, no borrow checker, no overhead, no new language + FFI. A beautifully simple language that fits in your head (or the context window of our agentic friends).
+**%C** (pronounced "mod-C") is a **dialect of C** and an associated compiler that uses the C ecosystem (includes, libraries, linker, etc.) you already have with a tweaked syntax that doesn't completely change what you know about C. Sources use the `.mc` extension. No runtime, no borrow checker, no overhead, no new language + FFI. A beautifully simple language that fits in your head (or the context window of our agentic friends).
 
 ## Features
 
 * **Vanilla C** without the uncommon and crufty parts (K&R function definitions, digraphs, VLAs, optional annexes, nested ternaries, comma operators, etc.)
 
-* **No prototypes or parallel headers** in pure %C code; `import` exposes package APIs, functions can appear in any order, and mutual recursion just works.
+* **No prototypes or package headers** in pure %C code; `import` exposes package APIs, functions can appear in any order, and mutual recursion just works.
 
-* A **unified type name space**: `struct Point {…}; Point p;`
+* **Unified type name space** like C++: `struct Point {…}; Point p;`
 
-* clang-style C **function overloading** and plan9-style C **struct inheritance/composition**
+* **Function overloading** like clang's overloadable extension and **struct inheritance/composition** like Plan 9 C
 
-* Go-style **receiver syntax** — `(T *r).name(…)`
+* **Receiver syntax** like Go — `(T *r).name(…)`
 
-* An **auto-dot** dereference system (no more arrows!)
+* **Dot accessors** automatically dereference (no more arrows!)
 
-* C-style **`const`** / **`const?`** (including const string literals and `const char[..]`) on read-only and passthrough APIs
+* **`const` / `const?`** for read-only and passthrough APIs without poisoning callers
 
-* An **auto-inline** system that automatically inlines functions without `inline` annotations
+* **`auto`** type specifier provides type inference and multi-return tuple decoding
 
-* An **`auto`** type specifier that provides type inference and multi-return tuple decoding
-
-* A **`defer`** keyword that supports block-scoped LIFO cleanup
+* **`defer`** keyword that supports block-scoped LIFO cleanup
 
 * A **`for`** construct providing ranged iteration — `for (auto x : expr)` by
   value, or `for (auto *p : expr)` to bind a pointer into the range
@@ -35,29 +37,23 @@
 
 * **Multiple return values** for more consistent data/control flow
 
-* **Common C footguns are rejected in user code** including pointer-primitive unions, `void *` arithmetic, implicit narrowing, unrelated pointer conversions, unsequenced `i = i++`, assignments in conditionals, and other classic C traps
+* **Common C antipatterns are rejected in user code** including pointer-primitive unions, `void *` arithmetic, implicit narrowing, unrelated pointer conversions, unsequenced `i = i++`, assignments in conditionals, and other classic C traps
 
 * **Defined behavior** for things that are often undefined in standard C (including `char`'s definition as an unsigned value and widths for numeric types)
 
 * **Ranged arrays** that provide typed pointer/length views (subrange + ranged iteration)
 
-* **UTF8** by default (stdlib wchar support remains intact)
-
 * Strong tooling for source [packages](docs/packages.md), [documentation](docs/modc-doc.md), [source formatting](docs/modc-format.md), [tests](docs/modc-test.md), and more
-
-* A small readable compiler!
 
 ## Anti-Features
 
-* No memory management system
+* No memory management or concurrency system; host C plus `defer` instead
 
-* No concurrency system; host C plus `defer` instead
+* No object system; lightweight struct composition plus `overload` plus receiver syntax instead
 
-* No object system; lightweight struct composition plus `overload` and receiver syntax instead
+* No templates or `_Generic`; some generic programming is still possible with `overload`
 
-* No templates; No _Generic; but some generic programming possible with `overload`
-
-* Not a drop in replacement for C; uses a more forgiving dialect of C for header compatibility and a stricter dialect in user code
+* Not a drop-in replacement for C: stricter `.mc` dialect, more forgiving headers
 
 ## Hello, world
 
@@ -76,6 +72,8 @@ int main() {
 modc build && ./hello
 ```
 
+Install `modc` first: [Installation](docs/installation.md).
+
 But %C also supports some fancy dialect extras:
 
 ```c
@@ -88,23 +86,27 @@ struct Point {
 };
 
 struct Particle {
-    Point; // Plan 9 anonymous embed
+    Point; // struct composition
     double mass;
 };
 
-// Comments before functions are documentation.
-double dist2(Point * p) {
-    return p.x * p.x + p.y * p.y; // auto-dot through pointers
+// Comments before functions are `modc doc` documentation
+overload double dist2(double x, double y) {
+    return (x * x) + (y * y);
+}
+
+overload double dist2(Point* p) {
+    return dist2(p.x, p.y); // auto-dot through pointers
 }
 
 int main() {
-    Particle * particles = malloc(100 * sizeof(Particle));
+    Particle* particles = malloc(100 * sizeof(Particle));
     defer free(particles);
     double system_mass = 0;
     auto cloud = ranged(particles, 100);
-    for (auto *p: cloud) {
-        p.x =(double) rand() /(double) RAND_MAX;
-        p.y =(double) rand() /(double) RAND_MAX;
+    for (auto* p: cloud) {
+        p.x = rand() / (double)RAND_MAX;
+        p.y = rand() / (double)RAND_MAX;
         p.mass = dist2(p); // Particle upcasts to Point
         system_mass += p.mass;
     }
