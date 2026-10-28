@@ -2,7 +2,7 @@
   <img src="logo.svg" alt="%C" width="128" height="128">
 </p>
 
-**%C** (pronounced "mod-C") is a **dialect of C** and an associated compiler that uses the C ecosystem (includes, libraries, linker, etc.) you already have with a tweaked syntax that doesn't completely change what you know about C. Sources use the `.mc` extension. No runtime, no borrow checker, no overhead, no new language + FFI. A beautifully simple language that fits in your head (or the context window of our agentic friends).
+**%C** (pronounced "mod-C") is a **dialect of C** and an associated compiler that uses the C ecosystem (includes, libraries, linker, etc.) you already have with a tweaked syntax that doesn't completely change what you know about C. No runtime, no borrow checker, no overhead, no new language + FFI. A beautifully simple language that fits in your head (or the context window of our agentic friends).
 
 ## Features
 
@@ -55,7 +55,7 @@
 
 ## Hello, world
 
-At its core %C is just C.
+At its core %C is just C with source files that use the `.mc` extension. 
 
 ```c
 #include <stdio.h>
@@ -66,11 +66,11 @@ int main() {
 }
 ```
 
+And if you have [installed](docs/installation.md) `modc`, you can build it in one line:
+
 ```sh
 modc build && ./hello
 ```
-
-Install `modc` first: [Installation](docs/installation.md).
 
 But %C also supports some fancy dialect extras:
 
@@ -94,7 +94,7 @@ overload double dist2(double x, double y) {
 }
 
 overload double dist2(Point* p) {
-    return dist2(p.x, p.y); // auto-dot through pointers
+    return dist2(p.x, p.y); // Dot access through pointers
 }
 
 int main() {
