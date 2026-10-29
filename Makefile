@@ -3,7 +3,9 @@
 # stdio/stdlib only. No lib9, no yacc.
 
 CC ?= cc
-CFLAGS ?= -O2 -g -Wall -Wno-unused
+# -Wno-format-truncation: intentional snprintf into HOST_PATH_MAX path buffers
+# (GCC 7+ under -Wall; Clang/macOS does not warn).
+CFLAGS ?= -O2 -g -Wall -Wno-unused -Wno-format-truncation
 ROOT := $(abspath .)
 .PHONY: all clean check check-special install uninstall format format-check asan ubsan
 

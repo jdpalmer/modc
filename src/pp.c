@@ -14,6 +14,7 @@
 #include "host_os.h"
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -736,7 +737,7 @@ do_include(Compiler* c, Tok* at, const char* name, int angled, int skipping) {
 	Tok* itoks;
 	int tokens_len, cap, nsave, capsave;
 	Tok* saved;
-	double t0, t1;
+	double t0 = 0, t1;
 
 	if (skipping)
 		return;
@@ -2604,7 +2605,8 @@ void pp_run(Compiler* c) {
 	if (pp_prof)
 		fprintf(stderr,
 			"modc pp: open=%d once_skip=%d miss=%d tokens_len=%d macros_len=%d\n"
-			"         emit_toks=%llu expands=%llu dirs=%llu  expand=%.3fs emit=%.3fs find=%.3fs read=%.3fs lex=%.3fs\n",
+			"         emit_toks=%" PRIu64 " expands=%" PRIu64 " dirs=%" PRIu64
+			"  expand=%.3fs emit=%.3fs find=%.3fs read=%.3fs lex=%.3fs\n",
 			pp_ninc_open, pp_ninc_once, pp_ninc_miss, c->lex.tokens_len, c->pp.macros_len,
 			pp_n_emit, pp_n_expand, pp_n_dir, pp_t_expand, pp_t_emit, pp_t_find, pp_t_read, pp_t_lex);
 }

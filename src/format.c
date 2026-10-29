@@ -611,8 +611,9 @@ check_and_rewrite(Compiler* c, Node* call, Type* ft, const FmtEnt* ent, Node* fm
 					while (start < i && nf < (int)sizeof(newfmt) - 1)
 						newfmt[nf++] = s[start++];
 					if (!match_print_arg(c, sp, call->children[ai], conv,
-							     len_mod))
-						/* keep going to find more errors */;
+							     len_mod)) {
+						/* keep going to find more errors */
+					}
 					if (nnew >= MaxParams) {
 						error_at(c, sp, "too many format arguments");
 						return;
