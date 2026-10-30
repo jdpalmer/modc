@@ -18,13 +18,20 @@ typedef long long ssize_t;
 #elif defined(__linux__)
 typedef unsigned long long dev_t;
 typedef unsigned int mode_t;
+#ifdef __aarch64__
+/* aarch64 glibc: __NLINK_T_TYPE / __BLKSIZE_T_TYPE are 32-bit. */
+typedef unsigned int nlink_t;
+typedef int blksize_t;
+#else
+/* x86_64 glibc: unsigned long / long. */
 typedef unsigned long nlink_t;
+typedef long blksize_t;
+#endif
 typedef unsigned long long ino_t;
 typedef unsigned int uid_t;
 typedef unsigned int gid_t;
 typedef long long off_t;
 typedef long long blkcnt_t;
-typedef long blksize_t;
 typedef int pid_t;
 typedef long long ssize_t;
 #else

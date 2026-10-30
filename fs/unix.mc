@@ -22,19 +22,20 @@ int fs_sys_stat(char* path, int* kind, int64_t* size, int64_t* mtime) {
 	sec = st.st_mtimespec.tv_sec;
 	nsec = st.st_mtimespec.tv_nsec;
 #else
-	sec = (int64_t)st.st_mtim.tv_sec;
-	nsec = (int64_t)st.st_mtim.tv_nsec;
+	/* Linux/BSD: time_t / long are already int64-width on LP64. */
+	sec = st.st_mtim.tv_sec;
+	nsec = st.st_mtim.tv_nsec;
 #endif
 	if (nsec < 0) {
 		nsec = 0;
 	}
 	*mtime = sec * 1000000000L + nsec;
 	*size = 0;
-	kindbit = (unsigned)st.st_mode & (unsigned)S_IFMT;
-	if (kindbit == (unsigned)S_IFREG) {
+	kindbit = st.st_mode & S_IFMT;
+	if (kindbit == S_IFREG) {
 		*kind = 1;
 		*size = st.st_size;
-	} else if (kindbit == (unsigned)S_IFDIR) {
+	} else if (kindbit == S_IFDIR) {
 		*kind = 2;
 	} else {
 		*kind = 3;

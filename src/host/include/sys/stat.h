@@ -33,8 +33,29 @@ struct stat {
 	int st_lspare;
 	long long st_qspare[2];
 };
+#elif defined(__aarch64__)
+/* Linux aarch64 glibc: mode before nlink; 32-bit nlink/blksize; pads on rdev/blocks. */
+struct stat {
+	dev_t st_dev;
+	ino_t st_ino;
+	mode_t st_mode;
+	nlink_t st_nlink;
+	uid_t st_uid;
+	gid_t st_gid;
+	dev_t st_rdev;
+	dev_t __pad1;
+	off_t st_size;
+	blksize_t st_blksize;
+	int __pad2;
+	blkcnt_t st_blocks;
+	struct timespec st_atim;
+	struct timespec st_mtim;
+	struct timespec st_ctim;
+	int __glibc_reserved[2];
+};
+#define st_mtime st_mtim.tv_sec
 #else
-/* Linux x86_64 / aarch64 glibc-style. */
+/* Linux x86_64 glibc-style. */
 struct stat {
 	dev_t st_dev;
 	ino_t st_ino;

@@ -344,8 +344,19 @@ cmd_test(Compiler* c, CliOpts* o, int argc, char** argv) {
 	}
 	failed = 0;
 	for (i = 0; i < ntests; i++) {
-		if (i > 0)
+		if (i > 0) {
+			/* Match selftest_reset: abandoned types/symbols are not enough —
+			 * stale #pragma once / macros / strpool / static_seq from prior
+			 * roots can change later codegen under the same cache keys. */
 			reset_comp_state(c);
+			pp_clear_macros(c);
+			pp_clear_once(c);
+			pp_init(c);
+			c->unit.static_seq = 0;
+			c->unit.strpool_len = 0;
+			c->unit.src_files_len = 0;
+			c->paths.cli_defs_len = 0;
+		}
 		if (o->verbose)
 			fprintf(stderr, "testing %s\n", tests[i]);
 		st = build_and_run_root(c, o, tests[i]);

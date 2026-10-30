@@ -179,9 +179,11 @@ collect_type(Compiler* c, TypeTab* tab, SymTab* syms, Type* t, const char* pkg_d
 		return;
 	stub = 0;
 	/* Stub foreign aggregates (even by-value). Owner export has the layout;
-	 * load interns by tag. */
+	 * load interns by tag. Ranged/tuple shapes are structural (shared across
+	 * packages via type_eq / ranged_tab) and must stay complete — stubbing
+	 * them drops the element type and breaks importers. */
 	if ((t->kind == TyStruct || t->kind == TyUnion || t->kind == TyEnum) &&
-	    type_foreign(c, t, pkg_dir))
+	    !t->is_ranged && !t->is_tuple && type_foreign(c, t, pkg_dir))
 		stub = 1;
 	idx = tytab_find(tab, t);
 	if (idx >= 0) {
@@ -1399,6 +1401,20 @@ export_load(Compiler* c, const char* path, const char* pkg_dir) {
 				free(lsyms);
 				return 1;
 			}
+		}
+
+		/*
+		 * Export order often lists tuples before their element ranged
+		 * types. fill_tuple_inplace then lays out with incomplete
+		 * elements (size 1). Re-layout now that every payload is filled.
+		 */
+		for (i = 0; i < ntypes; i++) {
+			Type* t = ltypes[i].type;
+
+			if (t == NULL || !t->is_tuple)
+				continue;
+			t->laid_out = 0;
+			type_layout(c, t);
 		}
 
 		for (i = 0; i < ntypes; i++)
