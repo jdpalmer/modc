@@ -41,6 +41,190 @@ typedef struct {
 	unsigned char reach[MaxCachePkgs];
 } BuildPkg;
 
+/*
+ * TTY progress: hold a line while work runs, commit with a right-aligned
+ * wall-time delta. Silent for pipes/CI.
+ */
+enum { ProgressLabelW = 36, ProgressDeltaW = 7 };
+
+static int progress_held;
+static char progress_label[512];
+static long long progress_t0_ms;
+static int progress_build_on;
+static long long progress_build_t0_ms;
+
+static void
+progress_clear_held(void) {
+	if (!progress_held)
+		return;
+	fputs("\r\033[K", stderr);
+	progress_held = 0;
+}
+
+static void
+progress_fmt_delta(char* out, size_t n, long long ms) {
+	if (ms < 0)
+		ms = 0;
+	if (ms < 1)
+		snprintf(out, n, "<1ms");
+	else if (ms < 10000)
+		snprintf(out, n, "%lldms", ms);
+	else
+		snprintf(out, n, "%.1fs", (double)ms / 1000.0);
+}
+
+/* Commit "modc: <label…> <delta>" with aligned columns. */
+static void
+progress_commit(const char* label, long long ms) {
+	char delta[32];
+
+	if (!host_stderr_tty())
+		return;
+	progress_fmt_delta(delta, sizeof(delta), ms);
+	fprintf(stderr, "\r\033[Kmodc: %-*s %*s\n", ProgressLabelW, label ? label : "",
+		ProgressDeltaW, delta);
+}
+
+/* Instant line (no timing), e.g. "up to date". */
+static void
+progress_msg(const char* fmt, ...) {
+	va_list ap;
+
+	if (!host_stderr_tty())
+		return;
+	progress_clear_held();
+	fputs("modc: ", stderr);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fputc('\n', stderr);
+}
+
+/* Start a held progress line; call progress_end when the action finishes. */
+static void
+progress_begin(const char* fmt, ...) {
+	va_list ap;
+
+	if (!host_stderr_tty())
+		return;
+	progress_clear_held();
+	va_start(ap, fmt);
+	vsnprintf(progress_label, sizeof(progress_label), fmt, ap);
+	va_end(ap);
+	fprintf(stderr, "\r\033[Kmodc: %s", progress_label);
+	fflush(stderr);
+	progress_t0_ms = host_mono_ms();
+	progress_held = 1;
+}
+
+/* Commit the held line with elapsed wall time. */
+static void
+progress_end(void) {
+	long long ms;
+
+	if (!progress_held)
+		return;
+	ms = host_mono_ms() - progress_t0_ms;
+	progress_held = 0;
+	progress_commit(progress_label, ms);
+}
+
+/* Drop an in-flight build total (error paths); does not print. */
+static void
+progress_build_cancel(void) {
+	progress_build_on = 0;
+}
+
+static void
+progress_build_start(void) {
+	if (!host_stderr_tty())
+		return;
+	progress_build_t0_ms = host_mono_ms();
+	progress_build_on = 1;
+}
+
+static void
+progress_build_done(void) {
+	long long ms;
+
+	if (!progress_build_on)
+		return;
+	ms = host_mono_ms() - progress_build_t0_ms;
+	progress_build_cancel();
+	progress_commit("done", ms);
+}
+
+/* Prefer outpath/projroot basename over bare "." for the root package. */
+static void
+progress_root_name(const char* projroot, const char* outpath, char* out, size_t n) {
+	const char* b;
+
+	b = NULL;
+	if (outpath && outpath[0])
+		b = host_path_basename(outpath);
+	if ((b == NULL || b[0] == 0) && projroot && projroot[0])
+		b = host_path_basename(projroot);
+	snprintf(out, n, "%s", b && b[0] ? b : ".");
+}
+
+/* Project-relative path when under projroot; else parent/base (e.g. crash/mod.mc). */
+static void
+progress_path_name(const char* path, const char* projroot, char* out, size_t n) {
+	const char *base, *sep;
+	char parent[HOST_PATH_MAX];
+	const char* pbase;
+
+	if (out == NULL || n == 0)
+		return;
+	out[0] = 0;
+	if (path == NULL || path[0] == 0)
+		return;
+	if (projroot && projroot[0]) {
+		cache_path_key(path, projroot, out, n);
+		if (out[0] && !host_path_is_abs(out)) {
+			if (strcmp(out, ".") == 0)
+				progress_root_name(projroot, NULL, out, n);
+			return;
+		}
+	}
+	base = host_path_basename(path);
+	if (base == NULL || base[0] == 0) {
+		snprintf(out, n, "%s", path);
+		return;
+	}
+	host_dirname(path, parent, sizeof(parent));
+	sep = host_path_last_sep(parent);
+	pbase = sep ? sep + 1 : parent;
+	if (pbase[0] && strcmp(pbase, ".") != 0 && strcmp(pbase, "/") != 0)
+		snprintf(out, n, "%s/%s", pbase, base);
+	else
+		snprintf(out, n, "%s", base);
+}
+
+/* outpath: optional link output; used when the package is the project root ("."). */
+static void
+pkg_progress_name(const BuildPkg* pkg, const char* projroot, const char* outpath, char* out,
+		  size_t n) {
+	const char* base;
+
+	if (out == NULL || n == 0)
+		return;
+	out[0] = 0;
+	if (pkg == NULL)
+		return;
+	if (projroot && projroot[0]) {
+		cache_path_key(pkg->dir, projroot, out, n);
+		if (out[0] && !host_path_is_abs(out)) {
+			if (strcmp(out, ".") == 0)
+				progress_root_name(projroot, outpath, out, n);
+			return;
+		}
+	}
+	/* Outside the project (stdlib crash, etc.): directory basename only. */
+	base = host_path_basename(pkg->dir);
+	snprintf(out, n, "%s", base && base[0] ? base : pkg->id);
+}
+
 // Lex and preprocess one path into c->lex.tokens; apply -D from j onward.
 static int
 lex_pp_file(Compiler* c, const char* path, int j) {
@@ -76,11 +260,23 @@ now_sec(void) {
 	return (double)clock() / (double)CLOCKS_PER_SEC;
 }
 
+/* Hold "compiling|checking <file>" through lex/pp of one source. */
+static void
+progress_file_begin(const char* verb, const char* path, const char* projroot) {
+	char name[HOST_PATH_MAX];
+
+	if (verb == NULL)
+		return;
+	progress_path_name(path, projroot, name, sizeof(name));
+	progress_begin("%s %s", verb, name);
+}
+
 /* Lex/parse/typecheck an already-discovered file list. Does not emit or free files.
- * After type_init, loads each exports[i] with package dir export_dirs[i]. */
+ * After type_init, loads each exports[i] with package dir export_dirs[i].
+ * progress_verb/projroot: held+delta per file lex, then typechecking (NULL = silent). */
 static int
 compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** export_dirs,
-	      int nexports) {
+	      int nexports, const char* progress_verb, const char* projroot) {
 	int i, r;
 	TuCache* cache;
 	int profile;
@@ -109,9 +305,11 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 		c->unit.unit_files[c->unit.unit_files_len++] = xstrdup(files[i]);
 	}
 	for (i = 0; i < nfiles; i++) {
+		progress_file_begin(progress_verb, files[i], projroot);
 		if (profile)
 			t0 = now_sec();
 		if (lex_pp_file(c, files[i], 0)) {
+			progress_end();
 			r = 1;
 			break;
 		}
@@ -128,11 +326,18 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 		c->lex.tokens_len = 0;
 		c->lex.tokens_cap = 0;
 		c->paths.infile = NULL;
+		progress_end();
 		if (c->diag.error_count) {
 			r = 1;
 			break;
 		}
 	}
+	/*
+	 * Remaining frontend passes are package-wide (not per-file wall time).
+	 * Hold typechecking across prescan/parse/type_check.
+	 */
+	if (r == 0 && progress_verb)
+		progress_begin("typechecking");
 	/* Package-wide: type-name stubs, type bodies, layouts, then func/method
 	 * signatures — Go-style package scope so file basename order does not matter. */
 	for (i = 0; r == 0 && i < nfiles; i++) {
@@ -227,6 +432,7 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 	/* Tokens are unused after parse; free on every exit. infile stays live:
 	 * AST/Symbol spans alias those strings (arena-style for the process). */
 	if (r) {
+		progress_end();
 		if (profile)
 			fprintf(stderr,
 				"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs (failed)\n",
@@ -243,6 +449,7 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 		t1 = now_sec();
 		t_type = t1 - t0;
 	}
+	progress_end();
 	if (c->diag.error_count) {
 		if (profile)
 			fprintf(stderr,
@@ -281,7 +488,7 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 		free(files);
 		return 1;
 	}
-	r = compile_graph(c, files, nfiles, NULL, NULL, 0);
+	r = compile_graph(c, files, nfiles, NULL, NULL, 0, NULL, NULL);
 	for (i = 0; i < nfiles; i++)
 		free(files[i]);
 	free(files);
@@ -830,6 +1037,7 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 			continue;
 		}
 		cache_log(o->verbose, "miss", what);
+		progress_begin("compiling %s", host_path_basename(c->paths.csources[i]));
 		argc = 0;
 		if (add_arg(argv, &argc, comp) || add_arg(argv, &argc, "-c"))
 			goto toolong;
@@ -850,8 +1058,11 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 		if (add_arg(argv, &argc, c->paths.csources[i]) ||
 		    add_arg(argv, &argc, "-o") || add_arg(argv, &argc, objs[*nobj]))
 			goto toolong;
-		if (run_argv(o->verbose, argv) != 0)
+		if (run_argv(o->verbose, argv) != 0) {
+			progress_end();
 			return 1;
+		}
+		progress_end();
 		if (cache_copy_file(objs[*nobj], cached) == 0 &&
 		    cache_depfile_to_deps(depfile, depmeta) != 0)
 			(void)host_unlink(cached);
@@ -860,6 +1071,7 @@ compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* 
 	return 0;
 
 toolong:
+	progress_end();
 	fprintf(stderr, "modc: too many compile arguments\n");
 	return 1;
 }
@@ -875,6 +1087,7 @@ link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], i
 	linker = needs_cxx_link(c) ? tool_cxx() : tool_cc(c);
 	if (linker == NULL)
 		return 1;
+	progress_begin("linking %s", host_path_basename(outpath));
 	argc = 0;
 	if (add_arg(argv, &argc, linker))
 		goto toolong;
@@ -902,9 +1115,12 @@ link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], i
 	for (i = 0; i < o->linkargv_len; i++)
 		if (add_arg(argv, &argc, o->linkargv[i]))
 			goto toolong;
-	return run_argv(o->verbose, argv);
+	n = run_argv(o->verbose, argv);
+	progress_end();
+	return n;
 
 toolong:
+	progress_end();
 	fprintf(stderr, "modc: too many linker arguments\n");
 	return 1;
 }
@@ -1619,6 +1835,7 @@ emit_pkg_qbe(Compiler* c, BuildPkg* pkg, int pkg_index, const char* dir, char* q
 
 typedef struct {
 	BuildPkg* pkg;
+	int pkg_index;
 	char qbe[512];
 	char asmpath[512];
 	char obj[512];
@@ -1704,6 +1921,7 @@ job_parallelism(int nwork) {
 }
 
 // Assemble+compile jobs in parallel: barrier per stage (all qbe, then all cc).
+// Caller prints per-package "assembling" progress before emit.
 static int
 assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 	const char* qbe_tool;
@@ -1876,7 +2094,8 @@ reset_frontend_state(Compiler* c) {
  */
 static int
 pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
-		      char** files, int nfiles, const char* crooot) {
+		      char** files, int nfiles, const char* crooot,
+		      const char* projroot) {
 	char** tc_files;
 	char** exps;
 	char** exp_dirs;
@@ -1885,8 +2104,10 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 	char expath[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
 	char metapath[HOST_PATH_MAX];
 	char needspath[HOST_PATH_MAX], needshex[24], what[HOST_PATH_MAX];
+	const char* verb;
 	uint64_t needs;
 
+	verb = o->check_only ? "checking" : "compiling";
 	for (pi = 0; pi < npkgs; pi++)
 		iface_at_start[pi] = pkgs[pi].iface;
 
@@ -1906,7 +2127,7 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 			free(tc_files);
 			break;
 		}
-		r = compile_graph(c, tc_files, ntc, exps, exp_dirs, nexp);
+		r = compile_graph(c, tc_files, ntc, exps, exp_dirs, nexp, verb, projroot);
 		for (pi = 0; pi < nexp; pi++) {
 			free(exps[pi]);
 			free(exp_dirs[pi]);
@@ -2088,12 +2309,14 @@ compile_check(Compiler* c, CliOpts* o, const char* path) {
 	if (pkgs_all_cache_hit(st.pkgs, st.npkgs)) {
 		pkgs_log_each(o, st.pkgs, st.npkgs, "hit");
 		cache_log(o->verbose, "hit", "graph");
+		progress_msg("up to date");
 		pkgs_free_files(&st);
 		c->opt.parse_only = prev_parse_only;
 		return 0;
 	}
 	cache_log(o->verbose, "miss", "graph");
-	r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles, st.crooot);
+	r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles, st.crooot,
+				  st.projroot);
 	pkgs_free_files(&st);
 	c->opt.parse_only = prev_parse_only;
 	return r;
@@ -2171,21 +2394,29 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		if (foreign_ready && host_is_file(outpath) &&
 		    cache_read_str(stamp, stored, sizeof(stored)) == 0 &&
 		    strcmp(stored, stamphex) == 0) {
+			progress_msg("up to date");
 			pkgs_free_files(&st);
 			return 0;
 		}
+		progress_build_start();
 		if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0) {
+			progress_build_cancel();
 			pkgs_free_files(&st);
 			return 1;
 		}
 		r = link_modc_objs(c, o, outpath, objs, st.npkgs, foreign, nforeign);
-		if (r == 0)
+		if (r == 0) {
 			(void)cache_write_str(stamp, stamphex);
+			progress_build_done();
+		} else {
+			progress_build_cancel();
+		}
 		pkgs_free_files(&st);
 		return r;
 	}
 
 	cache_log(o->verbose, "miss", "graph");
+	progress_build_start();
 	{
 		int pi, partial;
 		PkgAsmJob miss[MaxCachePkgs];
@@ -2206,13 +2437,15 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		if (partial && host_is_file(meta_stable) &&
 		    merge_link_meta(c, meta_stable) != 0) {
 			fprintf(stderr, "modc: cannot read linkmeta %s\n", meta_stable);
+			progress_build_cancel();
 			pkgs_free_files(&st);
 			return 1;
 		}
 
 		r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles,
-					  st.crooot);
+					  st.crooot, st.projroot);
 		if (r != 0) {
+			progress_build_cancel();
 			pkgs_free_files(&st);
 			return 1;
 		}
@@ -2224,35 +2457,77 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 			if (!st.pkgs[i].need_emit)
 				continue;
 			miss[nmiss].pkg = &st.pkgs[i];
-			if (emit_pkg_qbe(c, &st.pkgs[i], i, dir, miss[nmiss].qbe,
-					 sizeof(miss[nmiss].qbe)) != 0) {
-				pkgs_free_files(&st);
-				return 1;
-			}
+			miss[nmiss].pkg_index = i;
 			snprintf(miss[nmiss].asmpath, sizeof(miss[nmiss].asmpath),
 				 "%s/pkg%d.s", dir, i);
 			snprintf(miss[nmiss].obj, sizeof(miss[nmiss].obj), "%s/pkg%d.o", dir,
 				 i);
 			nmiss++;
 		}
-		if (assemble_pkg_jobs(c, o, miss, nmiss) != 0) {
-			pkgs_free_files(&st);
-			return 1;
+		/*
+		 * TTY: assemble one package at a time so held lines + deltas are
+		 * attributable. Non-TTY: emit all, then parallel qbe/cc.
+		 */
+		if (host_stderr_tty()) {
+			for (i = 0; i < nmiss; i++) {
+				char pname[HOST_PATH_MAX];
+
+				pkg_progress_name(miss[i].pkg, st.projroot, outpath, pname,
+						  sizeof(pname));
+				progress_begin("assembling %s", pname);
+				if (emit_pkg_qbe(c, miss[i].pkg, miss[i].pkg_index, dir,
+						 miss[i].qbe, sizeof(miss[i].qbe)) != 0) {
+					progress_end();
+					progress_build_cancel();
+					pkgs_free_files(&st);
+					return 1;
+				}
+				if (assemble_pkg_jobs(c, o, &miss[i], 1) != 0) {
+					progress_end();
+					progress_build_cancel();
+					pkgs_free_files(&st);
+					return 1;
+				}
+				progress_end();
+			}
+		} else {
+			for (i = 0; i < nmiss; i++) {
+				if (emit_pkg_qbe(c, miss[i].pkg, miss[i].pkg_index, dir,
+						 miss[i].qbe, sizeof(miss[i].qbe)) != 0) {
+					progress_build_cancel();
+					pkgs_free_files(&st);
+					return 1;
+				}
+			}
+			if (assemble_pkg_jobs(c, o, miss, nmiss) != 0) {
+				progress_build_cancel();
+				pkgs_free_files(&st);
+				return 1;
+			}
 		}
 	}
 	pkgs_free_files(&st);
-	if (save_link_meta(c, o, meta) != 0)
+	if (save_link_meta(c, o, meta) != 0) {
+		progress_build_cancel();
 		return 1;
-	if (save_link_meta(c, o, meta_stable) != 0)
+	}
+	if (save_link_meta(c, o, meta_stable) != 0) {
+		progress_build_cancel();
 		return 1;
+	}
 
-	if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0)
+	if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0) {
+		progress_build_cancel();
 		return 1;
+	}
 	r = link_modc_objs(c, o, outpath, objs, st.npkgs, foreign, nforeign);
 	if (r == 0) {
 		linkh = link_stamp_hash(c, o, st.pkgs, st.npkgs, outpath, st.projroot);
 		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
 		(void)cache_write_str(stamp, stamphex);
+		progress_build_done();
+	} else {
+		progress_build_cancel();
 	}
 	return r;
 }

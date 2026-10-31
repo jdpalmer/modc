@@ -23,6 +23,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <dirent.h>
+#include <time.h>
 #include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -782,6 +783,18 @@ host_ncpu(void) {
 	return n > 0 ? n : 1;
 }
 
+// True when stderr is a TTY (user-facing progress).
+int
+host_stderr_tty(void) {
+	return _isatty(_fileno(stderr));
+}
+
+// Monotonic milliseconds for progress durations.
+long long
+host_mono_ms(void) {
+	return (long long)GetTickCount64();
+}
+
 #else /* POSIX */
 
 int
@@ -1291,6 +1304,22 @@ host_ncpu(void) {
 	if (n < 1)
 		n = 1;
 	return (int)n;
+}
+
+// True when stderr is a TTY (user-facing progress).
+int
+host_stderr_tty(void) {
+	return isatty(fileno(stderr));
+}
+
+// Monotonic milliseconds for progress durations.
+long long
+host_mono_ms(void) {
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		return 0;
+	return (long long)ts.tv_sec * 1000 + (long long)ts.tv_nsec / 1000000;
 }
 
 #endif

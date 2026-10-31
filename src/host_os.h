@@ -66,5 +66,9 @@ HostPid host_spawn_async(const char* const argv[]);
 int host_wait_pid(HostPid pid);
 /* Logical CPU count for job pools; always >= 1. */
 int host_ncpu(void);
+/* True when stderr is an interactive terminal (progress UX). */
+int host_stderr_tty(void);
+/* Monotonic milliseconds for progress durations. */
+long long host_mono_ms(void);
 
 #endif
