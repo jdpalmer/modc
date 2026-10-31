@@ -399,13 +399,15 @@ install: $(MODC)
 	cp -R $(HOST)/. $(DESTDIR)$(MODCLIB)/include/
 	rm -rf $(DESTDIR)$(MODCLIB)/pkg/str $(DESTDIR)$(MODCLIB)/pkg/arena \
 		$(DESTDIR)$(MODCLIB)/pkg/path $(DESTDIR)$(MODCLIB)/pkg/fs \
-		$(DESTDIR)$(MODCLIB)/pkg/os $(DESTDIR)$(MODCLIB)/pkg/tty
+		$(DESTDIR)$(MODCLIB)/pkg/os $(DESTDIR)$(MODCLIB)/pkg/tty \
+		$(DESTDIR)$(MODCLIB)/pkg/crash
 	cp -R $(ROOT)/str $(DESTDIR)$(MODCLIB)/pkg/str
 	cp -R $(ROOT)/arena $(DESTDIR)$(MODCLIB)/pkg/arena
 	cp -R $(ROOT)/path $(DESTDIR)$(MODCLIB)/pkg/path
 	cp -R $(ROOT)/fs $(DESTDIR)$(MODCLIB)/pkg/fs
 	cp -R $(ROOT)/os $(DESTDIR)$(MODCLIB)/pkg/os
 	cp -R $(ROOT)/tty $(DESTDIR)$(MODCLIB)/pkg/tty
+	cp -R $(ROOT)/crash $(DESTDIR)$(MODCLIB)/pkg/crash
 	# cp -R keeps the source tree's modes (often 600/700 under Dropbox); normalize.
 	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type d -exec chmod 755 {} +
 	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type f -exec chmod 644 {} +
