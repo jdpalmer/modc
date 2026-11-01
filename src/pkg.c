@@ -42,9 +42,9 @@ valid_link_lib(const char* s) {
 	return 1;
 }
 
-/* Relative c_sources path: no absolute, no empty/'.'/'..' components. */
+/* Relative path under a package/repo: no absolute, no empty/'.'/'..' components. */
 static int
-valid_csource_relpath(const char* s) {
+valid_relpath_components(const char* s) {
 	const char *p, *start;
 	size_t n;
 
@@ -65,6 +65,194 @@ valid_csource_relpath(const char* s) {
 		start = p + 1;
 	}
 	return 1;
+}
+
+/* Relative c_sources path: no absolute, no empty/'.'/'..' components. */
+static int
+valid_csource_relpath(const char* s) {
+	return valid_relpath_components(s);
+}
+
+/* True when path resolves under root (after realpath). */
+static int path_under_root(const char* root, const char* path);
+
+/* Trim leading/trailing ASCII space in place; returns pointer into s. */
+static char*
+pkg_trim(char* s) {
+	char* e;
+
+	if (s == NULL)
+		return s;
+	while (*s == ' ' || *s == '\t' || *s == '\r')
+		s++;
+	e = s + strlen(s);
+	while (e > s && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r'))
+		*--e = 0;
+	return s;
+}
+
+/*
+ * Read optional [package] keys from dir/modc.ini.
+ * root_out/name_out may be NULL; empty string means unset.
+ * Returns 1 if modc.ini exists and a [package] section was seen.
+ */
+static int
+pkg_ini_package_fields(const char* dir, char* root_out, size_t root_n, char* name_out,
+		       size_t name_n) {
+	char path[HOST_PATH_MAX];
+	char *text, *p, *line, *eq, *sect, *key, *val;
+	int in_package, seen;
+
+	if (root_out && root_n)
+		root_out[0] = 0;
+	if (name_out && name_n)
+		name_out[0] = 0;
+	snprintf(path, sizeof(path), "%s/modc.ini", dir);
+	text = read_file(path, NULL);
+	if (text == NULL)
+		return 0;
+	in_package = 0;
+	seen = 0;
+	for (p = text; *p;) {
+		line = p;
+		p = strchr(p, '\n');
+		if (p) {
+			*p = 0;
+			p++;
+		}
+		line = pkg_trim(line);
+		if (line[0] == 0 || line[0] == '#' || line[0] == ';')
+			continue;
+		if (line[0] == '[') {
+			eq = strchr(line, ']');
+			if (eq == NULL)
+				break;
+			*eq = 0;
+			sect = pkg_trim(line + 1);
+			in_package = strcmp(sect, "package") == 0;
+			if (in_package)
+				seen = 1;
+			continue;
+		}
+		if (!in_package)
+			continue;
+		eq = strchr(line, '=');
+		if (eq == NULL)
+			continue;
+		*eq = 0;
+		key = pkg_trim(line);
+		val = pkg_trim(eq + 1);
+		if (strcmp(key, "root") == 0 && root_out && root_n)
+			snprintf(root_out, root_n, "%s", val);
+		else if (strcmp(key, "name") == 0 && name_out && name_n)
+			snprintf(name_out, name_n, "%s", val);
+	}
+	free(text);
+	return seen;
+}
+
+/* Read optional [package] root=; returns 1 if the key was present. */
+static int
+pkg_ini_package_root(const char* dir, char* root_out, size_t root_n) {
+	char root[HOST_PATH_MAX];
+
+	if (root_out == NULL || root_n == 0)
+		return 0;
+	root_out[0] = 0;
+	if (!pkg_ini_package_fields(dir, root, sizeof(root), NULL, 0) || root[0] == 0)
+		return 0;
+	snprintf(root_out, root_n, "%s", root);
+	return 1;
+}
+
+/*
+ * If srcdir is a [package] root under an identity directory, write that
+ * identity path to out. Prefer [package] name into name_out when set.
+ * Returns 1 when an identity mapping was found.
+ */
+static int
+pkg_identity_for_srcdir(const char* srcdir, char* out, size_t out_len, char* name_out,
+			size_t name_n) {
+	char cur[HOST_PATH_MAX], parent[HOST_PATH_MAX], root[HOST_PATH_MAX];
+	char name[HOST_PATH_MAX], eff[HOST_PATH_MAX], abs_src[HOST_PATH_MAX];
+	char abs_eff[HOST_PATH_MAX];
+
+	if (out && out_len)
+		out[0] = 0;
+	if (name_out && name_n)
+		name_out[0] = 0;
+	if (srcdir == NULL || srcdir[0] == 0 || !host_is_dir(srcdir))
+		return 0;
+	if (host_realpath(srcdir, abs_src, sizeof(abs_src)) != 0)
+		snprintf(abs_src, sizeof(abs_src), "%s", srcdir);
+	snprintf(cur, sizeof(cur), "%s", abs_src);
+	for (;;) {
+		host_dirname(cur, parent, sizeof(parent));
+		if (strcmp(parent, cur) == 0)
+			break;
+		root[0] = 0;
+		name[0] = 0;
+		if (pkg_ini_package_fields(parent, root, sizeof(root), name, sizeof(name)) &&
+		    root[0]) {
+			if (pkg_effective_dir(parent, eff, sizeof(eff)) == 0) {
+				if (host_realpath(eff, abs_eff, sizeof(abs_eff)) != 0)
+					snprintf(abs_eff, sizeof(abs_eff), "%s", eff);
+				if (strcmp(abs_eff, abs_src) == 0) {
+					if (out && out_len)
+						snprintf(out, out_len, "%s", parent);
+					if (name_out && name_n && name[0])
+						snprintf(name_out, name_n, "%s", name);
+					return 1;
+				}
+			}
+		}
+		snprintf(cur, sizeof(cur), "%s", parent);
+	}
+	return 0;
+}
+
+/*
+ * Map package identity directory → .mc directory via optional [package] root.
+ * 0 ok (out written); 1 config error (message on stderr).
+ */
+int
+pkg_effective_dir(const char* dir, char* out, size_t out_len) {
+	char root[HOST_PATH_MAX], path[HOST_PATH_MAX], abs[HOST_PATH_MAX];
+
+	if (out == NULL || out_len == 0)
+		return 1;
+	out[0] = 0;
+	if (dir == NULL || dir[0] == 0 || !host_is_dir(dir))
+		return 1;
+	if (!pkg_ini_package_root(dir, root, sizeof(root)) || root[0] == 0) {
+		snprintf(out, out_len, "%s", dir);
+		return 0;
+	}
+	if (!valid_relpath_components(root)) {
+		fprintf(stderr,
+			"modc: [package] root in %s/modc.ini must be a relative path without '.' or '..'\n",
+			dir);
+		return 1;
+	}
+	snprintf(path, sizeof(path), "%s/%s", dir, root);
+	host_path_slashify(path);
+	if (!host_is_dir(path)) {
+		fprintf(stderr, "modc: [package] root \"%s\" not found under %s\n", root, dir);
+		return 1;
+	}
+	if (host_realpath(dir, abs, sizeof(abs)) == 0) {
+		char rpath[HOST_PATH_MAX];
+
+		if (host_realpath(path, rpath, sizeof(rpath)) != 0 ||
+		    !path_under_root(abs, rpath)) {
+			fprintf(stderr, "modc: [package] root \"%s\" escapes %s\n", root, dir);
+			return 1;
+		}
+		snprintf(out, out_len, "%s", rpath);
+		return 0;
+	}
+	snprintf(out, out_len, "%s", path);
+	return 0;
 }
 
 /* True when path resolves under root (after realpath). */
@@ -322,8 +510,9 @@ void pkg_file_root(const char* mcfile, char* out, size_t out_len) {
 }
 
 // Package prefix for method linker names (basename of pkg dir, lowercased).
+// Prefer [package] name, then identity dir when [package] root remaps sources.
 void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
-	char root[1024];
+	char root[HOST_PATH_MAX], id[HOST_PATH_MAX], pkgname[HOST_PATH_MAX];
 	const char *base, *dot;
 	size_t i, n;
 
@@ -331,7 +520,16 @@ void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
 	if (mcfile == NULL || out_len == 0)
 		return;
 	pkg_file_root(mcfile, root, sizeof(root));
-	base = host_path_basename(root);
+	pkgname[0] = 0;
+	id[0] = 0;
+	if (pkg_identity_for_srcdir(root, id, sizeof(id), pkgname, sizeof(pkgname)) &&
+	    pkgname[0]) {
+		base = pkgname;
+	} else if (id[0]) {
+		base = host_path_basename(id);
+	} else {
+		base = host_path_basename(root);
+	}
 	if (base[0] == 0 || strcmp(base, ".") == 0)
 		base = host_path_basename(mcfile);
 	dot = strrchr(base, '.');
@@ -346,14 +544,19 @@ void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
 	out[i] = 0;
 }
 
-// Try spec as a package dir or as spec.mc under base.
+/*
+ * Try spec as a package dir or as spec.mc under base.
+ * Returns 1 found, 0 miss, -1 [package] root config error.
+ */
 static int
 try_pkg_at(const char* base, const char* spec, char* out, size_t out_len) {
-	char path[1024];
+	char path[1024], eff[HOST_PATH_MAX];
 
 	snprintf(path, sizeof(path), "%s/%s", base, spec);
 	if (is_dir(path)) {
-		snprintf(out, out_len, "%s", path);
+		if (pkg_effective_dir(path, eff, sizeof(eff)))
+			return -1;
+		snprintf(out, out_len, "%s", eff);
 		return 1;
 	}
 	snprintf(path, sizeof(path), "%s/%s.mc", base, spec);
@@ -364,17 +567,33 @@ try_pkg_at(const char* base, const char* spec, char* out, size_t out_len) {
 	return 0;
 }
 
+/* Apply try_pkg_at; 0 found, 1 miss, -1 config error. */
+static int
+try_pkg_hit(const char* base, const char* spec, char* out, size_t out_len) {
+	int r;
+
+	r = try_pkg_at(base, spec, out, out_len);
+	if (r < 0)
+		return -1;
+	return r ? 0 : 1;
+}
+
 // Search -M paths, MODC_PATH, then modc_pkg for spec.
+// Returns 1 found, 0 miss, -1 config error.
 static int
 try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 	const char *env, *p, *q;
 	char* pathdup;
 	char sep;
-	int i;
+	int i, r;
 
-	for (i = 0; i < c->paths.pkgpaths_len; i++)
-		if (try_pkg_at(c->paths.pkgpaths[i], spec, out, out_len))
+	for (i = 0; i < c->paths.pkgpaths_len; i++) {
+		r = try_pkg_at(c->paths.pkgpaths[i], spec, out, out_len);
+		if (r < 0)
+			return -1;
+		if (r)
 			return 1;
+	}
 	env = getenv("MODC_PATH");
 	if (env && env[0]) {
 		sep = host_path_list_sep();
@@ -383,9 +602,16 @@ try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 			q = strchr(p, sep);
 			if (q)
 				*(char*)q = 0;
-			if (p[0] && try_pkg_at(p, spec, out, out_len)) {
-				free(pathdup);
-				return 1;
+			if (p[0]) {
+				r = try_pkg_at(p, spec, out, out_len);
+				if (r < 0) {
+					free(pathdup);
+					return -1;
+				}
+				if (r) {
+					free(pathdup);
+					return 1;
+				}
 			}
 			if (q == NULL)
 				break;
@@ -393,8 +619,13 @@ try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 		}
 		free(pathdup);
 	}
-	if (c->paths.modc_pkg && try_pkg_at(c->paths.modc_pkg, spec, out, out_len))
-		return 1;
+	if (c->paths.modc_pkg) {
+		r = try_pkg_at(c->paths.modc_pkg, spec, out, out_len);
+		if (r < 0)
+			return -1;
+		if (r)
+			return 1;
+	}
 	return 0;
 }
 
@@ -403,18 +634,26 @@ try_pkg_search(Compiler* c, const char* spec, char* out, size_t out_len) {
 static int
 resolve_import(Compiler* c, const char* spec, const char* from_file, char* out, size_t out_len) {
 	char basedir[1024], cur[1024], vendor[1024];
+	int r;
 
 	dirname_copy(from_file, basedir, sizeof(basedir));
-	if (try_pkg_at(basedir, spec, out, out_len))
-		return 0;
-	if (c->paths.project_root[0] && try_pkg_at(c->paths.project_root, spec, out, out_len))
-		return 0;
+	r = try_pkg_hit(basedir, spec, out, out_len);
+	if (r <= 0)
+		return r;
+	if (c->paths.project_root[0]) {
+		r = try_pkg_hit(c->paths.project_root, spec, out, out_len);
+		if (r <= 0)
+			return r;
+	}
 
 	snprintf(cur, sizeof(cur), "%s", basedir);
 	for (;;) {
 		snprintf(vendor, sizeof(vendor), "%s/vendor", cur);
-		if (is_dir(vendor) && try_pkg_at(vendor, spec, out, out_len))
-			return 0;
+		if (is_dir(vendor)) {
+			r = try_pkg_hit(vendor, spec, out, out_len);
+			if (r <= 0)
+				return r;
+		}
 		if (strcmp(cur, "/") == 0 || strcmp(cur, ".") == 0)
 			break;
 		dirname_copy(cur, vendor, sizeof(vendor));
@@ -423,7 +662,10 @@ resolve_import(Compiler* c, const char* spec, const char* from_file, char* out, 
 		snprintf(cur, sizeof(cur), "%s", vendor);
 	}
 
-	if (try_pkg_search(c, spec, out, out_len))
+	r = try_pkg_search(c, spec, out, out_len);
+	if (r < 0)
+		return 1;
+	if (r)
 		return 0;
 
 	error_at(c, (Span){from_file, 1, 1, 1},
@@ -743,11 +985,19 @@ visit_file(Compiler* c, Disc* d, const char* path) {
 
 // Resolve a package spec from cwd, -M, MODC_PATH, then modc_pkg (no importer context).
 int pkg_resolve_spec(Compiler* c, const char* spec, char* out, size_t out_len) {
+	int r;
+
 	if (spec == NULL || spec[0] == 0)
 		return 1;
-	if (try_pkg_at(".", spec, out, out_len))
+	r = try_pkg_at(".", spec, out, out_len);
+	if (r < 0)
+		return 1;
+	if (r)
 		return 0;
-	return try_pkg_search(c, spec, out, out_len) ? 0 : 1;
+	r = try_pkg_search(c, spec, out, out_len);
+	if (r < 0)
+		return 1;
+	return r ? 0 : 1;
 }
 
 // Append sources for a stdlib package spec when not already in the graph.
@@ -798,14 +1048,22 @@ int pkg_ensure(Compiler* c, const char* spec, char*** files, int* nfiles) {
 int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n) {
 	Disc d;
 	char** srcs;
+	char pkgdir[HOST_PATH_MAX];
+	const char* srcroot;
 	int nsrcs, i;
 
 	memset(&d, 0, sizeof(d));
 	c->paths.project_root[0] = 0;
 	cache_project_root(root, c->paths.project_root, sizeof(c->paths.project_root));
+	srcroot = root;
+	if (is_dir(root)) {
+		if (pkg_effective_dir(root, pkgdir, sizeof(pkgdir)))
+			return 1;
+		srcroot = pkgdir;
+	}
 	srcs = NULL;
 	nsrcs = 0;
-	if (list_sources(root, &srcs, &nsrcs)) {
+	if (list_sources(srcroot, &srcs, &nsrcs)) {
 		error_at(c, (Span){root, 1, 1, 1},
 			 "no .mc sources at \"%s\"", root);
 		return 1;
@@ -833,5 +1091,14 @@ int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n) {
 
 // List *_test.mc files in a package directory for test driver use.
 int pkg_list_tests(const char* root, char*** out, int* out_len) {
-	return list_mc_files(root, pkg_is_test_src, 1, out, out_len);
+	char pkgdir[HOST_PATH_MAX];
+	const char* srcroot;
+
+	srcroot = root;
+	if (root != NULL && is_dir(root)) {
+		if (pkg_effective_dir(root, pkgdir, sizeof(pkgdir)))
+			return 1;
+		srcroot = pkgdir;
+	}
+	return list_mc_files(srcroot, pkg_is_test_src, 1, out, out_len);
 }

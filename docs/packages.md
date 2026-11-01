@@ -79,7 +79,7 @@ package identity when they sit beside other packages in a mixed directory, so
 
 Methods attach to a struct type within the same package, declared as `void (Window *w).show()` and called using dot-syntax (`w.show()`).
 
-Linker symbols are mangled as `{package}_{type}_{method}`. The type tag is converted to lowercase, and any slashes (`/`) in the import path become underscores (`_`). For example, in package `ui`, the method `(Window *w).show` resolves to `ui_window_show`. Standard free functions retain their source name unless explicitly marked with `overload`. See [methods.md](methods.md) for complete rules.
+Linker symbols are mangled as `{package}_{type}_{method}`. The type tag is converted to lowercase, and any slashes (`/`) in the import path become underscores (`_`). For example, in package `modui`, the method `(Window *w).show` resolves to `modui_window_show`. Standard free functions retain their source name unless explicitly marked with `overload`. See [methods.md](methods.md) for complete rules.
 
 ## Package-private fields
 
@@ -106,7 +106,7 @@ window_get_id(Window *w)
 
 ```c
 /* main.mc: imports portable facade only */
-import "ui";
+import "modui";
 
 int
 main()
@@ -255,7 +255,7 @@ git = https://github.com/you/modc-log.git
 rev = abc123def4567890
 ```
 
-Each dependency entry must specify a `git` URL (`https://` or `file://`) and exactly one version pin (`tag`, `rev`, or `branch`). Dependency names are single portable path components. Set `subdir = path` if a package resides within a subfolder of a monorepo; it must be relative and cannot contain `.` or `..` path components.
+Each dependency entry must specify a `git` URL (`https://` or `file://`) and exactly one version pin (`tag`, `rev`, or `branch`). Dependency names are single portable path components. Set `subdir = path` if a package resides within a subfolder of a monorepo; it must be relative and cannot contain `.` or `..` path components. Prefer library-authored `[package] root` for ordinary layout nesting; reserve consumer `subdir` for monorepos.
 
 Library packages publish their own `modc.ini` at their repository root or subdirectory declaring their dependencies. Libraries define a `[package]` section matching their import name and do not commit a `vendor/` folder.
 
@@ -272,6 +272,23 @@ tag = v0.3
 
 The `[package] name` should match the import name consumers use in
 `[deps.log]`.
+
+When the repository root holds README, examples, and other chrome, put `.mc`
+sources in a subdirectory and declare it with `root`:
+
+```ini
+# modui/modc.ini
+[package]
+name = modui
+root = src
+```
+
+`root` is a relative path without `.` or `..` components. Import resolution and
+`modc test` open `dir/root` as the package source directory; `modc vendor`
+materializes `vendor/<name>/` from that tree (after any consumer `subdir`).
+Consumers still pin with a bare `[deps.modui]` — no `subdir` unless the package
+lives inside a monorepo. Method linker prefixes use `[package] name` (or the
+identity directory) so a `root = src` layout does not mangle as `src_`.
 
 ### Running `modc vendor`
 

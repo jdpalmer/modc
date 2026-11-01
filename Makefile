@@ -103,23 +103,36 @@ check: $(MODC)
 check-special: $(MODC)
 	@mkdir -p $(BUILD)
 	# --- vendor: happy path, version conflict, symlink refuse, shell inject ---
-	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic $(BUILD)/vendor_app-bin $(BUILD)/vendor_inject $(BUILD)/vendor-pwned
-	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vrepos/linkdep $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic/vendor/old $(BUILD)/vendor_inject
+	@rm -rf $(BUILD)/vrepos $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic $(BUILD)/vendor_app-bin $(BUILD)/vendor_inject $(BUILD)/vendor-pwned $(BUILD)/vendor_rooted $(BUILD)/vendor_rooted-bin
+	@mkdir -p $(BUILD)/vrepos/log $(BUILD)/vrepos/engine $(BUILD)/vrepos/ui $(BUILD)/vrepos/linkdep $(BUILD)/vrepos/rooted/src $(BUILD)/vendor_app $(BUILD)/vendor_conflict $(BUILD)/vendor_atomic/vendor/old $(BUILD)/vendor_inject $(BUILD)/vendor_rooted
 	@cp test/vendor_fix/log/mod.mc test/vendor_fix/log/modc.ini $(BUILD)/vrepos/log/
 	@cp test/vendor_fix/engine/mod.mc $(BUILD)/vrepos/engine/
 	@cp test/vendor_fix/ui/mod.mc $(BUILD)/vrepos/ui/
+	@cp test/vendor_fix/rooted/modc.ini test/vendor_fix/rooted/README.md $(BUILD)/vrepos/rooted/
+	@cp test/vendor_fix/rooted/src/mod.mc $(BUILD)/vrepos/rooted/src/
 	@cp test/vendor_fix/app/main.mc $(BUILD)/vendor_app/
 	@cd $(BUILD)/vrepos/log && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
 	@printf '[package]\nname = engine\n\n[deps.log]\ngit = file://$(BUILD)/vrepos/log\ntag = v1\n' > $(BUILD)/vrepos/engine/modc.ini
 	@printf '[package]\nname = ui\n\n[deps.log]\ngit = file://$(BUILD)/vrepos/log\ntag = v1\n' > $(BUILD)/vrepos/ui/modc.ini
 	@cd $(BUILD)/vrepos/engine && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
 	@cd $(BUILD)/vrepos/ui && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
+	@cd $(BUILD)/vrepos/rooted && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
 	@cp test/vendor_fix/log/mod.mc $(BUILD)/vrepos/linkdep/
 	@cd $(BUILD)/vrepos/linkdep && ln -s . loop && git init -q && git add . && git -c user.email=t@test.com -c user.name=t commit -q -m init && git tag v1
 	@printf '[deps.engine]\ngit = file://$(BUILD)/vrepos/engine\ntag = v1\n\n[deps.ui]\ngit = file://$(BUILD)/vrepos/ui\ntag = v1\n' > $(BUILD)/vendor_app/modc.ini
 	./modc vendor -C $(BUILD)/vendor_app
 	./modc build $(BUILD)/vendor_app/main.mc -o $(BUILD)/vendor_app-bin
 	$(BUILD)/vendor_app-bin
+	# [package] root=: materialize .mc tree only; import works without consumer subdir.
+	@printf '[deps.rooted]\ngit = file://$(BUILD)/vrepos/rooted\ntag = v1\n' > $(BUILD)/vendor_rooted/modc.ini
+	@printf '%s\n' 'import "rooted";' 'int main() { return rooted_val() == 3 ? 0 : 1; }' \
+		> $(BUILD)/vendor_rooted/main.mc
+	./modc vendor -C $(BUILD)/vendor_rooted
+	@test -f $(BUILD)/vendor_rooted/vendor/rooted/mod.mc
+	@test ! -e $(BUILD)/vendor_rooted/vendor/rooted/src
+	@test ! -e $(BUILD)/vendor_rooted/vendor/rooted/README.md
+	./modc build $(BUILD)/vendor_rooted/main.mc -o $(BUILD)/vendor_rooted-bin
+	$(BUILD)/vendor_rooted-bin
 	# Vendored freeze (lock+rev): touching vendor sources must not miss.
 	@printf '%s\n' 'import "log";' 'int engine_val() { log_ping(); return 7; } /* touch */' \
 		> $(BUILD)/vendor_app/vendor/engine/mod.mc

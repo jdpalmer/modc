@@ -869,6 +869,11 @@ void pkg_file_root(const char* mcfile, char* out, size_t out_len);
 void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len);
 int pkg_list_tests(const char* root, char*** out, int* out_len);
 int pkg_resolve_spec(Compiler* c, const char* spec, char* out, size_t out_len);
+/*
+ * Map a package identity directory to its .mc directory using optional
+ * [package] root= in dir/modc.ini. 0 ok (out written); 1 config error.
+ */
+int pkg_effective_dir(const char* dir, char* out, size_t out_len);
 /* Resolve top-level import "spec" strings in path to absolute package roots. */
 int pkg_import_roots(Compiler* c, const char* path, char*** out_roots, int* out_n);
 int vendor_cmd(int argc, char** argv);

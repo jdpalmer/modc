@@ -681,7 +681,7 @@ resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* o
 	LockedPkg pkgs[MaxLocked];
 	int npkgs;
 	char rev[128], tmpdir[HOST_PATH_MAX];
-	char srcdir[1024], matdir[1024];
+	char srcdir[HOST_PATH_MAX], effdir[HOST_PATH_MAX];
 	DepSpec* trans;
 	int ntrans;
 
@@ -741,15 +741,26 @@ resolve_graph(VendorCtx* ctx, DepSpec* roots, int nroots, LockedPkg* out, int* o
 		/*
 		 * Copy first: copy_tree rejects every symlink before we inspect a
 		 * dependency-owned modc.ini, so manifest reads cannot escape the clone.
+		 * [package] root selects the .mc tree to materialize; transitive deps
+		 * still come from the manifest directory (srcdir), not the copy.
 		 */
-		if (materialize_cloned(ctx, &pkgs[npkgs - 1], srcdir)) {
+		if (pkg_effective_dir(srcdir, effdir, sizeof(effdir))) {
 			rm_rf(tmpdir);
 			dep_free(&cur);
 			goto qfail;
 		}
-		if (snprintf(matdir, sizeof(matdir), "%s/%s", ctx->vendor,
-			     pkgs[npkgs - 1].name) >= (int)sizeof(matdir) ||
-		    read_transitive(matdir, &trans, &ntrans)) {
+		if (!path_within(srcdir, effdir)) {
+			fprintf(stderr, "modc vendor: [package] root escapes %s\n", srcdir);
+			rm_rf(tmpdir);
+			dep_free(&cur);
+			goto qfail;
+		}
+		if (materialize_cloned(ctx, &pkgs[npkgs - 1], effdir)) {
+			rm_rf(tmpdir);
+			dep_free(&cur);
+			goto qfail;
+		}
+		if (read_transitive(srcdir, &trans, &ntrans)) {
 			rm_rf(tmpdir);
 			dep_free(&cur);
 			goto qfail;
