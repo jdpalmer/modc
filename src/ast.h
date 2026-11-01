@@ -755,6 +755,8 @@ char* str_intern_n(Compiler* c, const char* s, size_t n);
 void error_at(Compiler* c, Span sp, const char* fmt, ...);
 void error_tok(Compiler* c, Tok* t, const char* fmt, ...);
 void die(const char* fmt, ...);
+/* Clear a held TTY progress line before diagnostics (cli_build.c). */
+void progress_interrupt(void);
 Node* node(int kind, Span sp);
 Node* node1(int kind, Span sp, Node* a);
 Node* node2(int kind, Span sp, Node* a, Node* b);

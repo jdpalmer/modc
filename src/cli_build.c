@@ -58,7 +58,14 @@ progress_clear_held(void) {
 	if (!progress_held)
 		return;
 	fputs("\r\033[K", stderr);
+	fflush(stderr);
 	progress_held = 0;
+}
+
+/* Called from diag before printing so errors do not append to a held line. */
+void
+progress_interrupt(void) {
+	progress_clear_held();
 }
 
 static void

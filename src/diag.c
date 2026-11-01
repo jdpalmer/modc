@@ -170,6 +170,7 @@ char* xstrndup(const char* s, size_t n) {
 void die(const char* fmt, ...) {
 	va_list ap;
 
+	progress_interrupt();
 	fprintf(stderr, "modc: ");
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
@@ -200,6 +201,7 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	else
 		snprintf(head, sizeof(head), "error: ");
 	if (!c->diag.quiet_diag) {
+		progress_interrupt();
 		fputs(head, stderr);
 		fputs(msg, stderr);
 		fputc('\n', stderr);
