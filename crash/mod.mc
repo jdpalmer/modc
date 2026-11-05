@@ -45,8 +45,8 @@ static void crash_write(const char* p, size_t n) {
 }
 
 static void crash_run_cleanups() {
-	int i = 0;
-	for (i = crash_ncleanups - 1; i >= 0; i--) {
+	int i = crash_ncleanups - 1;
+	for (; i >= 0; i--) {
 		if (crash_cleanups[i] != NULL) {
 			crash_cleanups[i]();
 		}
@@ -115,16 +115,14 @@ void crash_init(CrashCleanup fn) {
 }
 
 void __modc_fatal(const char* file, int line, const char* msg) {
-	char buf[CrashMsgCap] = { 0 };
-	int n = 0;
 	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "panic: %s\n",
+				 msg != NULL ? msg : "fatal");
 		crash_reporting = 1;
 		crash_run_cleanups();
 		if (file != NULL && file[0] != 0 && line > 0) {
 			n = snprintf(buf, CrashMsgCap, "%s:%d: %s\n", file, line,
-				     msg != NULL ? msg : "fatal");
-		} else {
-			n = snprintf(buf, CrashMsgCap, "panic: %s\n",
 				     msg != NULL ? msg : "fatal");
 		}
 		if (n > 0) {
@@ -138,18 +136,16 @@ void __modc_fatal(const char* file, int line, const char* msg) {
 }
 
 void __modc_bounds_fail(const char* file, int line, uint64_t index, uint64_t len) {
-	char buf[CrashMsgCap] = { 0 };
-	int n = 0;
 	size_t ix = index;
 	size_t ln = len;
 	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "bounds: index %zu >= len %zu\n", ix, ln);
 		crash_reporting = 1;
 		crash_run_cleanups();
 		if (file != NULL && file[0] != 0 && line > 0) {
 			n = snprintf(buf, CrashMsgCap,
 				     "%s:%d: bounds: index %zu >= len %zu\n", file, line, ix, ln);
-		} else {
-			n = snprintf(buf, CrashMsgCap, "bounds: index %zu >= len %zu\n", ix, ln);
 		}
 		if (n > 0) {
 			if (n >= CrashMsgCap) {
@@ -162,14 +158,13 @@ void __modc_bounds_fail(const char* file, int line, uint64_t index, uint64_t len
 }
 
 void __modc_assert_fail(const char* file, int line, const char* expr) {
-	char buf[CrashMsgCap] = { 0 };
-	int n = 0;
 	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "%s:%d: assert failed: %s\n",
+				 file != NULL ? file : "?", line,
+				 expr != NULL ? expr : "?");
 		crash_reporting = 1;
 		crash_run_cleanups();
-		n = snprintf(buf, CrashMsgCap, "%s:%d: assert failed: %s\n",
-			     file != NULL ? file : "?", line,
-			     expr != NULL ? expr : "?");
 		if (n > 0) {
 			if (n >= CrashMsgCap) {
 				n = CrashMsgCap - 1;

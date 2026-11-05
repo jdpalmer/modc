@@ -19,10 +19,10 @@ int both_branches(int c) {
 }
 
 int do_assigns() {
-	int x = 3;
+	int x = 0;
 	int n = 3;
 	do {
-		x = n;
+		x = x + 1;
 		n--;
 	}
 	while (n > 0);
@@ -40,7 +40,7 @@ int main() {
 	assert_eq(init_decl(), 3);
 	assert_eq(init_assign(), 4);
 	assert_eq(both_branches(1), 1 || both_branches(0) != 2);
-	assert_eq(do_assigns(), 1);
+	assert_eq(do_assigns(), 3);
 	assert_eq(addr_escape(), 9);
 	return 0;
 }

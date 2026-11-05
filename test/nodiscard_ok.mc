@@ -9,8 +9,7 @@ int plain() {
 }
 
 int ok() {
-	int x = { 0 };
-	x = must_use();
+	int x = must_use();
 	(void)must_use();
 	plain();
 	return x;

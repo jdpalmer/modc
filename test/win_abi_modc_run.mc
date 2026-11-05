@@ -36,13 +36,11 @@ Quad modc_quad_id(Quad q) {
 
 int modc_vsum(int n, ...) {
 	va_list ap = { 0 };
-	int i = { 0 };
-	int s = { 0 };
-	int v = { 0 };
+	int i = 0;
+	int s = 0;
 	va_start(ap, n);
-	s = 0;
-	for (i = 0; i < n; i++) {
-		v = va_arg(ap, int);
+	for (; i < n; i++) {
+		int v = va_arg(ap, int);
 		s = s + v;
 	}
 	va_end(ap);

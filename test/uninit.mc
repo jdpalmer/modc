@@ -16,10 +16,10 @@ int both_branches(int c) {
 }
 
 int do_assigns() {
-	int x = 3;
+	int x = 0;
 	int n = 3;
 	do {
-		x = n;
+		x = x + 1;
 		n--;
 	}
 	while (n > 0);

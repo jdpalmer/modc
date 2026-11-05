@@ -4,8 +4,7 @@ static int add(int a, int b) {
 }
 
 int autoinline_run() {
-	int x = { 0 };
-	x = add(2, 3);
+	int x = add(2, 3);
 	if (x != 5) {
 		return 1;
 	}
