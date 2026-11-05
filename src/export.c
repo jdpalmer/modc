@@ -508,6 +508,9 @@ write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id, const char* self_pkg) {
 		for (i = 0; i < t->params_len; i++)
 			fprintf(f, " %d",
 				t->param_consumes ? (unsigned char)t->param_consumes[i] : 0);
+		for (i = 0; i < t->params_len; i++)
+			fprintf(f, " %d",
+				t->param_region ? (unsigned char)t->param_region[i] : 0);
 		fputc('\n', f);
 		break;
 	case TyStruct:
@@ -997,6 +1000,7 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* p
 			t->param_retains = xmalloc((size_t)nparams);
 			t->param_returned = xmalloc((size_t)nparams);
 			t->param_consumes = xmalloc((size_t)nparams);
+			t->param_region = xmalloc((size_t)nparams);
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
 				t->params[i] = map_ty(map, max_id, tok ? atoi(tok) : 0);
@@ -1023,6 +1027,10 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* p
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
 				t->param_consumes[i] = (char)(tok ? atoi(tok) : 0);
+			}
+			for (i = 0; i < nparams; i++) {
+				tok = read_tok(&p);
+				t->param_region[i] = (char)(tok ? atoi(tok) : 0);
 			}
 		}
 		return 0;

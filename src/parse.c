@@ -270,7 +270,8 @@ enum {
 	AtMaybeUnused = 1u << 1,
 	AtNodiscard = 1u << 2,
 	AtRetains = 1u << 3,
-	AtConsumes = 1u << 4
+	AtConsumes = 1u << 4,
+	AtRegion = 1u << 5
 };
 static Initializer* parse_init(Compiler* c);
 static void parse_decl_or_def(Compiler* c, int in_func);
@@ -673,6 +674,8 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 					*flags |= AtRetains;
 				else if (strcmp(a, "consumes") == 0)
 					*flags |= AtConsumes;
+				else if (strcmp(a, "region") == 0)
+					*flags |= AtRegion;
 				/* unsequenced / reproducible / unknown: ignore */
 			}
 			continue;
@@ -947,6 +950,7 @@ parse_param_list(Compiler* c, Type* ret) {
 	char maybe_unused[MaxParams];
 	char retains[MaxParams];
 	char consumes[MaxParams];
+	char region[MaxParams];
 	int64_t fixed_len[MaxParams];
 	int n, va, storage, saw, i, too_many;
 	unsigned pattrs;
@@ -992,6 +996,7 @@ parse_param_list(Compiler* c, Type* ret) {
 			maybe_unused[n] = (char)!!(pattrs & AtMaybeUnused);
 			retains[n] = (char)!!(pattrs & AtRetains);
 			consumes[n] = (char)!!(pattrs & AtConsumes);
+			region[n] = (char)!!(pattrs & AtRegion);
 			if (is_ranged(ty)) {
 				/* ranged array parameter: pass by value */
 			} else if (is_array(ty)) {
@@ -1037,6 +1042,8 @@ parse_param_list(Compiler* c, Type* ret) {
 			ty->param_retains[i] = retains[i];
 		if (ty->param_consumes)
 			ty->param_consumes[i] = consumes[i];
+		if (ty->param_region)
+			ty->param_region[i] = region[i];
 	}
 	return ty;
 }
@@ -1466,6 +1473,8 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 			fn->param_retains[0] = (char)!!(recv_attrs & AtRetains);
 		if (fn->param_consumes)
 			fn->param_consumes[0] = (char)!!(recv_attrs & AtConsumes);
+		if (fn->param_region)
+			fn->param_region[0] = (char)!!(recv_attrs & AtRegion);
 		for (i = 0; i < ft->params_len; i++) {
 			if (ft->param_array)
 				fn->param_array[i + 1] = ft->param_array[i];
@@ -1479,6 +1488,8 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 				fn->param_returned[i + 1] = ft->param_returned[i];
 			if (ft->param_consumes && fn->param_consumes)
 				fn->param_consumes[i + 1] = ft->param_consumes[i];
+			if (ft->param_region && fn->param_region)
+				fn->param_region[i + 1] = ft->param_region[i];
 		}
 		free(params);
 		free(param_names);

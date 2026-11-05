@@ -28,7 +28,7 @@ Classification is purely mechanical: if a file is a root compile translation uni
 | Switch Statements         | requires `break` or `[[fallthrough]];`               | Implicit fallthrough allowed          |
 | Function Declarations     | Function prototypes rejected                         | Standard C prototypes allowed         |
 | Vendor attributes         | Rejected                                             | Ignored (`__attribute__`, `__declspec`, `__asm` / Darwin aliases, calling conventions, …) |
-| C23 attributes            | `[[fallthrough]]` / `[[maybe_unused]]` / `[[nodiscard]]` / `[[retains]]` / `[[consumes]]` honored; `[[unsequenced]]` / `[[reproducible]]` ignored | Parsed; same semantics when present; unknown ignored |
+| C23 attributes            | `[[fallthrough]]` / `[[maybe_unused]]` / `[[nodiscard]]` / `[[retains]]` / `[[consumes]]` / `[[region]]` honored; `[[unsequenced]]` / `[[reproducible]]` ignored | Parsed; same semantics when present; unknown ignored |
 | Tag / ordinary names      | Unified: no tag↔func/var clash                       | Homonyms allowed (POSIX `if_nameindex`, …); bare name prefers the function/var |
 
 ## Build System & Driver Integration

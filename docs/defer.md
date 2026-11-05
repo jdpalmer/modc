@@ -50,8 +50,10 @@ void write_log(char *path) {
 Returning a pointer freed by a deferred cleanup is a compile-time error when the
 cleanup is recognized as consuming: `free` / `fclose`, or a `%C` parameter marked
 `[[consumes]]` (including method receivers such as `([[consumes]] Arena *a).free()`).
-The `defer` keyword still only schedules cleanup order; `[[consumes]]` is what
-makes the lifetime contract checkable.
+Views returned from a `[[region]]` parameter (Arena `copy` / `append` / `z`, …) are
+tied to that region and cannot escape past a consuming `free` / `reset` either.
+The `defer` keyword still only schedules cleanup order; `[[consumes]]` / `[[region]]`
+are what make the lifetime contract checkable.
 
 ## Practical application patterns
 

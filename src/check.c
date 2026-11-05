@@ -1309,13 +1309,17 @@ check_method_receiver_func(Compiler* c, Node* fn) {
 	check_method_recv_expr(c, fn->a, recv);
 }
 
-/* ---- stack escape + [[retains]] (asymmetric: prove .mc, ignore C bodies) ---- */
+/* ---- stack escape + [[retains]] / [[region]] (asymmetric: prove .mc) ---- */
+
+enum { MaxRegionDeps = 4 };
 
 typedef struct EscapeState EscapeState;
 struct EscapeState {
 	Symbol** syms;
 	unsigned char* stack_taint;
 	unsigned char* dead_taint; /* may hold a value a defer will consume */
+	Symbol** region_deps; /* n * MaxRegionDeps: views into [[region]] objects */
+	unsigned char* region_dep_n;
 	uint64_t* param_bits;
 	int n;
 	int cap;
@@ -1441,10 +1445,14 @@ esc_release(EscapeState* st) {
 	free(st->syms);
 	free(st->stack_taint);
 	free(st->dead_taint);
+	free(st->region_deps);
+	free(st->region_dep_n);
 	free(st->param_bits);
 	st->syms = NULL;
 	st->stack_taint = NULL;
 	st->dead_taint = NULL;
+	st->region_deps = NULL;
+	st->region_dep_n = NULL;
 	st->param_bits = NULL;
 	st->n = 0;
 	st->cap = 0;
@@ -1452,7 +1460,7 @@ esc_release(EscapeState* st) {
 
 static void
 esc_grow(EscapeState* st, int need) {
-	int ncap, i;
+	int ncap, i, j;
 
 	if (need <= st->cap)
 		return;
@@ -1462,9 +1470,16 @@ esc_grow(EscapeState* st, int need) {
 	st->syms = xrealloc(st->syms, (size_t)ncap * sizeof(Symbol*));
 	st->stack_taint = xrealloc(st->stack_taint, (size_t)ncap);
 	st->dead_taint = xrealloc(st->dead_taint, (size_t)ncap);
+	st->region_deps =
+		xrealloc(st->region_deps, (size_t)ncap * MaxRegionDeps * sizeof(Symbol*));
+	st->region_dep_n = xrealloc(st->region_dep_n, (size_t)ncap);
 	st->param_bits = xrealloc(st->param_bits, (size_t)ncap * sizeof(uint64_t));
-	for (i = st->cap; i < ncap; i++)
+	for (i = st->cap; i < ncap; i++) {
 		st->dead_taint[i] = 0;
+		st->region_dep_n[i] = 0;
+		for (j = 0; j < MaxRegionDeps; j++)
+			st->region_deps[i * MaxRegionDeps + j] = NULL;
+	}
 	st->cap = ncap;
 }
 
@@ -1495,8 +1510,68 @@ esc_index(EscapeState* st, Symbol* s) {
 	st->syms[i] = s;
 	st->stack_taint[i] = 0;
 	st->dead_taint[i] = 0;
+	st->region_dep_n[i] = 0;
 	st->param_bits[i] = 0;
 	return i;
+}
+
+static void
+esc_clear_region_deps(EscapeState* st, int i) {
+	int j;
+
+	if (i < 0)
+		return;
+	st->region_dep_n[i] = 0;
+	for (j = 0; j < MaxRegionDeps; j++)
+		st->region_deps[i * MaxRegionDeps + j] = NULL;
+}
+
+static void
+esc_add_region_dep(EscapeState* st, Symbol* dst, Symbol* region) {
+	int i, j, n;
+
+	if (dst == NULL || region == NULL)
+		return;
+	i = esc_index(st, dst);
+	if (i < 0)
+		return;
+	n = st->region_dep_n[i];
+	for (j = 0; j < n; j++) {
+		if (st->region_deps[i * MaxRegionDeps + j] == region)
+			return;
+	}
+	if (n >= MaxRegionDeps)
+		return;
+	st->region_deps[i * MaxRegionDeps + n] = region;
+	st->region_dep_n[i] = (unsigned char)(n + 1);
+}
+
+static void
+esc_mark_dead(EscapeState* st, Symbol* s) {
+	int i;
+
+	i = esc_index(st, s);
+	if (i >= 0)
+		st->dead_taint[i] = 1;
+}
+
+/* After consuming region R, views minted from R are dead. */
+static void
+esc_invalidate_region(EscapeState* st, Symbol* region) {
+	int i, j, n;
+
+	if (region == NULL)
+		return;
+	esc_mark_dead(st, region);
+	for (i = 0; i < st->n; i++) {
+		n = st->region_dep_n[i];
+		for (j = 0; j < n; j++) {
+			if (st->region_deps[i * MaxRegionDeps + j] == region) {
+				st->dead_taint[i] = 1;
+				break;
+			}
+		}
+	}
 }
 
 static void
@@ -1566,13 +1641,38 @@ esc_add_kill(EscapeState* st, Symbol* s) {
 	st->kill[d][st->kill_n[d]++] = s;
 }
 
+static int
+sym_region_killed(EscapeState* st, Symbol* s) {
+	int i, j, n;
+	Symbol* r;
+
+	i = esc_find(st, s);
+	if (i < 0)
+		return 0;
+	n = st->region_dep_n[i];
+	for (j = 0; j < n; j++) {
+		r = st->region_deps[i * MaxRegionDeps + j];
+		if (r && (sym_in_defer_kill(st, r) || esc_dead_tainted(st, r)))
+			return 1;
+	}
+	return 0;
+}
+
 static Type* call_func_type(Node* call);
+static int param_is_region(Type* ft, int i);
 
 static int
 param_is_consumes(Type* ft, int i) {
 	if (ft == NULL || ft->param_consumes == NULL || i < 0 || i >= ft->params_len)
 		return 0;
 	return ft->param_consumes[i] != 0;
+}
+
+static int
+param_is_region(Type* ft, int i) {
+	if (ft == NULL || ft->param_region == NULL || i < 0 || i >= ft->params_len)
+		return 0;
+	return ft->param_region[i] != 0;
 }
 
 /* libc-shaped consumptions when the callee is not a %C [[consumes]] API. */
@@ -1655,7 +1755,7 @@ expr_param_bits(EscapeState* st, Node* n);
 static int
 expr_may_dead(EscapeState* st, Node* n) {
 	Symbol* s;
-	int i;
+	int i, j, lim;
 	Type* ft;
 
 	if (n == NULL)
@@ -1672,30 +1772,38 @@ expr_may_dead(EscapeState* st, Node* n) {
 	if (n->kind == NdCond)
 		return expr_may_dead(st, n->b) || expr_may_dead(st, n->c);
 	if (n->kind == NdName && n->symbol) {
-		if (sym_in_defer_kill(st, n->symbol) || esc_dead_tainted(st, n->symbol))
+		if (sym_in_defer_kill(st, n->symbol) || esc_dead_tainted(st, n->symbol) ||
+		    sym_region_killed(st, n->symbol))
 			return 1;
 	}
 	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
 		if (!type_may_carry_ptr(n->type) && !is_array(n->type))
 			return 0;
 		s = lvalue_stack_object(n->a);
-		if (s && (sym_in_defer_kill(st, s) || esc_dead_tainted(st, s)))
+		if (s && (sym_in_defer_kill(st, s) || esc_dead_tainted(st, s) ||
+			  sym_region_killed(st, s)))
 			return 1;
 		if (n->a->kind == NdName && n->a->symbol &&
 		    (sym_in_defer_kill(st, n->a->symbol) ||
-		     esc_dead_tainted(st, n->a->symbol)))
+		     esc_dead_tainted(st, n->a->symbol) ||
+		     sym_region_killed(st, n->a->symbol)))
 			return 1;
 	}
 	if (n->kind == NdCall) {
 		ft = call_func_type(n);
-		if (ft && ft->param_returned) {
-			int j, lim;
-
+		if (ft) {
 			lim = n->children_len;
 			if (lim > ft->params_len)
 				lim = ft->params_len;
 			for (j = 0; j < lim; j++) {
-				if (ft->param_returned[j] && expr_may_dead(st, n->children[j]))
+				if (param_is_region(ft, j)) {
+					s = consume_target_sym(n->children[j]);
+					if (s && (sym_in_defer_kill(st, s) ||
+						  esc_dead_tainted(st, s)))
+						return 1;
+				}
+				if (ft->param_returned && ft->param_returned[j] &&
+				    expr_may_dead(st, n->children[j]))
 					return 1;
 			}
 		}
@@ -1999,6 +2107,77 @@ is_mc_retains_callee(Symbol* s) {
 }
 
 static void
+esc_add_region_deps_from_expr(EscapeState* st, Symbol* dst, Node* src) {
+	int i, j, lim, si, n;
+	Type* ft;
+	Symbol* r;
+
+	if (dst == NULL || src == NULL)
+		return;
+	if (src->kind == NdCast || src->kind == NdComma) {
+		esc_add_region_deps_from_expr(st, dst,
+					      src->kind == NdComma ? src->b : src->a);
+		return;
+	}
+	if (src->kind == NdCond) {
+		esc_add_region_deps_from_expr(st, dst, src->b);
+		esc_add_region_deps_from_expr(st, dst, src->c);
+		return;
+	}
+	if (src->kind == NdTupleLit) {
+		for (i = 0; i < src->children_len; i++)
+			esc_add_region_deps_from_expr(st, dst, src->children[i]);
+		return;
+	}
+	if (src->kind == NdName && src->symbol) {
+		si = esc_find(st, src->symbol);
+		if (si < 0)
+			return;
+		n = st->region_dep_n[si];
+		for (j = 0; j < n; j++)
+			esc_add_region_dep(st, dst, st->region_deps[si * MaxRegionDeps + j]);
+		return;
+	}
+	if ((src->kind == NdDot || src->kind == NdArrow || src->kind == NdIndex) &&
+	    src->a) {
+		if (!type_may_carry_ptr(src->type) && !is_array(src->type))
+			return;
+		esc_add_region_deps_from_expr(st, dst, src->a);
+		return;
+	}
+	if (src->kind == NdDot && src->is_synth && src->s && strcmp(src->s, "ptr") == 0) {
+		esc_add_region_deps_from_expr(st, dst, src->a);
+		return;
+	}
+	if (src->kind == NdSubrange) {
+		esc_add_region_deps_from_expr(st, dst, src->a);
+		return;
+	}
+	if (src->kind == NdCall) {
+		if (src->a && src->a->kind == NdName && src->a->s && !src->a->symbol &&
+		    src->children_len >= 1 &&
+		    (strcmp(src->a->s, "ptr") == 0 || strcmp(src->a->s, "ranged") == 0)) {
+			esc_add_region_deps_from_expr(st, dst, src->children[0]);
+			return;
+		}
+		ft = call_func_type(src);
+		if (ft == NULL)
+			return;
+		lim = src->children_len;
+		if (lim > ft->params_len)
+			lim = ft->params_len;
+		for (j = 0; j < lim; j++) {
+			if (param_is_region(ft, j)) {
+				r = consume_target_sym(src->children[j]);
+				esc_add_region_dep(st, dst, r);
+			}
+			if (ft->param_returned && ft->param_returned[j])
+				esc_add_region_deps_from_expr(st, dst, src->children[j]);
+		}
+	}
+}
+
+static void
 esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 	int i;
 
@@ -2017,7 +2196,22 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 		st->dead_taint[i] = 1;
 	else
 		st->dead_taint[i] = 0;
+	esc_clear_region_deps(st, i);
+	esc_add_region_deps_from_expr(st, dst, src);
 	esc_add_param_bits(st, dst, expr_param_bits(st, src));
+}
+
+static void
+esc_apply_consumes(EscapeState* st, Node* call) {
+	int i;
+
+	if (call == NULL || call->kind != NdCall)
+		return;
+	for (i = 0; i < call->children_len; i++) {
+		if (!call_arg_consumes(call, i))
+			continue;
+		esc_invalidate_region(st, consume_target_sym(call->children[i]));
+	}
 }
 
 static void
@@ -2138,6 +2332,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		esc_walk_stmt(c, st, n->a);
 		for (i = 0; i < n->children_len; i++)
 			esc_walk_stmt(c, st, n->children[i]);
+		esc_apply_consumes(st, n);
 		return;
 	}
 	switch (n->kind) {

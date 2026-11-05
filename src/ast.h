@@ -255,6 +255,8 @@ struct Type {
 	char* param_returned;
 	// Per-param: [[consumes]] — callee ends the lifetime of this pointer/view.
 	char* param_consumes;
+	// Per-param: [[region]] — pointer/view results are allocated from this arg.
+	char* param_region;
 	// Tag name for struct/union/enum.
 	char* tag;
 	// Struct/union fields (or enum members as fields in some paths).
@@ -886,7 +888,7 @@ int vendor_cmd(int argc, char** argv);
 /* 0 if vendor/NAME/.modc-vendor-rev matches that package's modc.lock rev. */
 int vendor_pkg_rev_matches(const char* projroot, const char* pkg_dir);
 /* Single on-disk cache/export schema; bump when layout or export format changes. */
-enum { ModcCacheSchema = 3 };
+enum { ModcCacheSchema = 4 };
 
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);

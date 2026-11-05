@@ -3,11 +3,11 @@
 // Arena: one defer a.free() per scope; no per-string free. Reset with a.reset()
 // to reuse the same arena without freeing backing storage.
 //
-// Methods copy/append/join/replace into the region; returned char[..] stay valid
-// until a.free() or a.reset(). Byte semantics (same as str); not UTF-8
-// validation. Grow with s = a.append(s, …) — assign a new header, do not mutate
-// T[..] fields. Ownership of the bytes is the arena's (convention, like free(3)
-// on a malloc'd char*).
+// Methods copy/append/join/replace into the region (`[[region]]` receiver);
+// returned char[..] / char* stay valid until a.free() or a.reset()
+// (`[[consumes]]`). The compiler rejects escaping those views past the kill.
+// Byte semantics (same as str); not UTF-8 validation. Grow with
+// s = a.append(s, …) — assign a new header, do not mutate T[..] fields.
 //
 // Receivers are live handles (see docs/methods.md). Do not null-check the
 // receiver; callers must not call methods on a null Arena*.
@@ -81,7 +81,7 @@ void ([[consumes]] Arena* a).reset() {
 }
 
 // Copy a view into the arena.
-(bool, char[..]) (Arena* a).copy(const char[..] s) {
+(bool, char[..]) ([[region]] Arena* a).copy(const char[..] s) {
 	size_t n = { 0 };
 	char* p = { 0 };
 	n = len(s);
@@ -97,7 +97,7 @@ void ([[consumes]] Arena* a).reset() {
 }
 
 // Append s onto cur; copies into the arena. Returns a new view (assign it).
-(bool, char[..]) (Arena* a).append(char[..] cur, const char[..] s) {
+(bool, char[..]) ([[region]] Arena* a).append(char[..] cur, const char[..] s) {
 	size_t cn = { 0 };
 	size_t n = { 0 };
 	size_t newlen = { 0 };
@@ -126,14 +126,14 @@ void ([[consumes]] Arena* a).reset() {
 }
 
 // Append one byte onto cur.
-(bool, char[..]) (Arena* a).append_byte(char[..] cur, char c) {
+(bool, char[..]) ([[region]] Arena* a).append_byte(char[..] cur, char c) {
 	char one[1] = { 0 };
 	one[0] = c;
 	return a.append(cur, ranged(one, 1));
 }
 
 // Join parts with sep into the arena.
-(bool, char[..]) (Arena* a).join(const char[..] sep, const char[..]* parts, size_t nparts) {
+(bool, char[..]) ([[region]] Arena* a).join(const char[..] sep, const char[..]* parts, size_t nparts) {
 	char[..] out = { 0 };
 	size_t i = { 0 };
 	out = str_empty();
@@ -157,7 +157,7 @@ void ([[consumes]] Arena* a).reset() {
 }
 
 // Replace every occurrence of old with new.
-(bool, char[..]) (Arena* a).replace(const char[..] s, const char[..] old, const char[..] new) {
+(bool, char[..]) ([[region]] Arena* a).replace(const char[..] s, const char[..] old, const char[..] new) {
 	char[..] out = { 0 };
 	size_t i = { 0 };
 	if (len(old) == 0) {
@@ -197,7 +197,7 @@ void ([[consumes]] Arena* a).reset() {
 }
 
 // NUL-terminated copy of s in the arena (C boundary).
-char* (Arena* a).z(const char[..] s) {
+char* ([[region]] Arena* a).z(const char[..] s) {
 	size_t n = { 0 };
 	char* p = { 0 };
 	n = len(s);

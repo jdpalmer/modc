@@ -313,7 +313,7 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_expstab $(BUILD)/cache_expstab/app/main.mc \
 		-o $(BUILD)/cache_expstab/out
 	@ex1=$$(ls $(BUILD)/cache_expstab/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 3$$' "$$ex1"; \
+		grep -q '^modc-export 4$$' "$$ex1"; \
 		grep -q '^pkg -$$' "$$ex1"; \
 		mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app; \
 		cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc; \
@@ -336,9 +336,9 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_retains $(BUILD)/cache_retains/app/main.mc \
 		-o $(BUILD)/cache_retains/out
 	@ex=$$(ls $(BUILD)/cache_retains/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 3$$' "$$ex"; \
-		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 1 0 [01]$$' "$$ex"; \
-		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 0 1 [01]$$' "$$ex"
+		grep -q '^modc-export 4$$' "$$ex"; \
+		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 1 0 [01] [01]$$' "$$ex"; \
+		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 0 1 [01] [01]$$' "$$ex"
 	@printf '%s\n' 'import "lib";' \
 		'int bad() { int x = 0; keep(&x); return 0; }' \
 		> $(BUILD)/cache_retains/app/main.mc
