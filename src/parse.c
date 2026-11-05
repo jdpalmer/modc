@@ -268,7 +268,8 @@ static int eat_pragma_op(Compiler* c);
 enum {
 	AtFallthrough = 1u << 0,
 	AtMaybeUnused = 1u << 1,
-	AtNodiscard = 1u << 2
+	AtNodiscard = 1u << 2,
+	AtRetained = 1u << 3
 };
 static Initializer* parse_init(Compiler* c);
 static void parse_decl_or_def(Compiler* c, int in_func);
@@ -667,6 +668,8 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 					*flags |= AtMaybeUnused;
 				else if (strcmp(a, "nodiscard") == 0)
 					*flags |= AtNodiscard;
+				else if (strcmp(a, "retained") == 0)
+					*flags |= AtRetained;
 				/* unsequenced / reproducible / unknown: ignore */
 			}
 			continue;
@@ -939,6 +942,7 @@ parse_param_list(Compiler* c, Type* ret) {
 	char *names[MaxParams], *nm;
 	char was_arr[MaxParams];
 	char maybe_unused[MaxParams];
+	char retained[MaxParams];
 	int64_t fixed_len[MaxParams];
 	int n, va, storage, saw, i, too_many;
 	unsigned pattrs;
@@ -982,6 +986,7 @@ parse_param_list(Compiler* c, Type* ret) {
 			was_arr[n] = 0;
 			fixed_len[n] = -1;
 			maybe_unused[n] = (char)!!(pattrs & AtMaybeUnused);
+			retained[n] = (char)!!(pattrs & AtRetained);
 			if (is_ranged(ty)) {
 				/* ranged array parameter: pass by value */
 			} else if (is_array(ty)) {
@@ -1023,6 +1028,8 @@ parse_param_list(Compiler* c, Type* ret) {
 			ty->param_fixed_len[i] = fixed_len[i];
 		if (ty->param_maybe_unused)
 			ty->param_maybe_unused[i] = maybe_unused[i];
+		if (ty->param_retained)
+			ty->param_retained[i] = retained[i];
 	}
 	return ty;
 }
@@ -1446,6 +1453,10 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 			fn->param_fixed_len[i + 1] = ft->param_fixed_len[i];
 		if (ft->param_maybe_unused && fn->param_maybe_unused)
 			fn->param_maybe_unused[i + 1] = ft->param_maybe_unused[i];
+		if (ft->param_retained && fn->param_retained)
+			fn->param_retained[i + 1] = ft->param_retained[i];
+		if (ft->param_returned && fn->param_returned)
+			fn->param_returned[i + 1] = ft->param_returned[i];
 	}
 	free(params);
 	free(param_names);

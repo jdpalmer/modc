@@ -249,6 +249,10 @@ struct Type {
 	int64_t* param_fixed_len;
 	// Per-param: [[maybe_unused]] on the parameter.
 	char* param_maybe_unused;
+	// Per-param: [[retained]] — callee may keep the pointer/view past the call.
+	char* param_retained;
+	// Per-param: value may be returned (stack args OK; caller tracks result).
+	char* param_returned;
 	// Tag name for struct/union/enum.
 	char* tag;
 	// Struct/union fields (or enum members as fields in some paths).
@@ -880,7 +884,7 @@ int vendor_cmd(int argc, char** argv);
 /* 0 if vendor/NAME/.modc-vendor-rev matches that package's modc.lock rev. */
 int vendor_pkg_rev_matches(const char* projroot, const char* pkg_dir);
 /* Single on-disk cache/export schema; bump when layout or export format changes. */
-enum { ModcCacheSchema = 1 };
+enum { ModcCacheSchema = 2 };
 
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);

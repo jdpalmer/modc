@@ -317,12 +317,16 @@ Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va) {
 		t->param_array = xmalloc(n);
 		t->param_fixed_len = xmalloc(n * sizeof(int64_t));
 		t->param_maybe_unused = xmalloc(n);
+		t->param_retained = xmalloc(n);
+		t->param_returned = xmalloc(n);
 		for (i = 0; i < n; i++) {
 			t->params[i] = params[i];
 			t->param_names[i] = NULL;
 			t->param_array[i] = 0;
 			t->param_fixed_len[i] = -1;
 			t->param_maybe_unused[i] = 0;
+			t->param_retained[i] = 0;
+			t->param_returned[i] = 0;
 		}
 	}
 	return t;

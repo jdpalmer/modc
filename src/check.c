@@ -1309,6 +1309,709 @@ check_method_receiver_func(Compiler* c, Node* fn) {
 	check_method_recv_expr(c, fn->a, recv);
 }
 
+/* ---- stack escape + [[retained]] (asymmetric: prove .mc, ignore C bodies) ---- */
+
+typedef struct EscapeState EscapeState;
+struct EscapeState {
+	Symbol** syms;
+	unsigned char* stack_taint;
+	uint64_t* param_bits;
+	int n;
+	int cap;
+	Symbol* params[MaxParams];
+	int nparams;
+	Type* fnty;
+	int infer;
+	int diag;
+	int changed;
+};
+
+static int
+sym_is_stack_object(Symbol* s) {
+	if (s == NULL || s->kind != SkVar)
+		return 0;
+	return s->storage == StLocal || s->storage == StParam;
+}
+
+static int
+type_may_carry_ptr(Type* t) {
+	Field* f;
+
+	if (t == NULL)
+		return 0;
+	if (is_ptr(t) || is_ranged(t))
+		return 1;
+	if (is_array(t))
+		return type_may_carry_ptr(t->base);
+	if (is_aggr(t) || is_tuple(t)) {
+		for (f = t->fields; f; f = f->next) {
+			if (type_may_carry_ptr(f->type))
+				return 1;
+		}
+	}
+	return 0;
+}
+
+static Symbol*
+lvalue_stack_object(Node* n) {
+	Type* bt;
+
+	if (n == NULL)
+		return NULL;
+	if (n->kind == NdName && sym_is_stack_object(n->symbol))
+		return n->symbol;
+	if (n->kind == NdDot || n->kind == NdArrow) {
+		bt = n->a ? n->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return NULL;
+		return lvalue_stack_object(n->a);
+	}
+	if (n->kind == NdIndex) {
+		bt = n->a ? n->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return NULL;
+		return lvalue_stack_object(n->a);
+	}
+	return NULL;
+}
+
+/* Syntactic stack root in this frame (no taint). */
+static Symbol*
+expr_stack_addr_root(Node* n) {
+	Symbol* s;
+	Node* arg;
+	const char* bn;
+
+	if (n == NULL)
+		return NULL;
+	if (n->kind == NdAddr)
+		return lvalue_stack_object(n->a);
+	if (n->kind == NdCast)
+		return expr_stack_addr_root(n->a);
+	if (n->kind == NdComma)
+		return expr_stack_addr_root(n->b);
+	if (n->kind == NdCond) {
+		s = expr_stack_addr_root(n->b);
+		if (s)
+			return s;
+		return expr_stack_addr_root(n->c);
+	}
+	if (n->kind == NdName && sym_is_stack_object(n->symbol) && is_array(n->type))
+		return n->symbol;
+	if (n->kind == NdSubrange) {
+		if (n->a && is_array(n->a->type))
+			return lvalue_stack_object(n->a);
+		return NULL;
+	}
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && !n->a->symbol) {
+		bn = n->a->s;
+		if ((strcmp(bn, "ranged") == 0 || strcmp(bn, "ptr") == 0) &&
+		    n->children_len >= 1) {
+			arg = n->children[0];
+			if (arg && arg->kind == NdName && sym_is_stack_object(arg->symbol) &&
+			    is_array(arg->type))
+				return arg->symbol;
+			if (arg && is_array(arg->type)) {
+				s = lvalue_stack_object(arg);
+				if (s)
+					return s;
+			}
+			return expr_stack_addr_root(arg);
+		}
+	}
+	if (n->kind == NdDot && n->is_synth && n->s && strcmp(n->s, "ptr") == 0)
+		return expr_stack_addr_root(n->a);
+	if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus)) {
+		s = expr_stack_addr_root(n->a);
+		if (s)
+			return s;
+		if (n->op == PnPlus)
+			return expr_stack_addr_root(n->b);
+	}
+	return NULL;
+}
+
+static void
+esc_release(EscapeState* st) {
+	free(st->syms);
+	free(st->stack_taint);
+	free(st->param_bits);
+	st->syms = NULL;
+	st->stack_taint = NULL;
+	st->param_bits = NULL;
+	st->n = 0;
+	st->cap = 0;
+}
+
+static void
+esc_grow(EscapeState* st, int need) {
+	int ncap;
+
+	if (need <= st->cap)
+		return;
+	ncap = st->cap ? st->cap * 2 : 32;
+	while (ncap < need)
+		ncap *= 2;
+	st->syms = xrealloc(st->syms, (size_t)ncap * sizeof(Symbol*));
+	st->stack_taint = xrealloc(st->stack_taint, (size_t)ncap);
+	st->param_bits = xrealloc(st->param_bits, (size_t)ncap * sizeof(uint64_t));
+	st->cap = ncap;
+}
+
+static int
+esc_find(EscapeState* st, Symbol* s) {
+	int i;
+
+	for (i = 0; i < st->n; i++) {
+		if (st->syms[i] == s)
+			return i;
+	}
+	return -1;
+}
+
+static int
+esc_index(EscapeState* st, Symbol* s) {
+	int i;
+
+	if (s == NULL || s->kind != SkVar)
+		return -1;
+	if (s->storage != StLocal && s->storage != StParam)
+		return -1;
+	i = esc_find(st, s);
+	if (i >= 0)
+		return i;
+	esc_grow(st, st->n + 1);
+	i = st->n++;
+	st->syms[i] = s;
+	st->stack_taint[i] = 0;
+	st->param_bits[i] = 0;
+	return i;
+}
+
+static void
+esc_add_param_bits(EscapeState* st, Symbol* s, uint64_t bits) {
+	int i;
+
+	if (bits == 0)
+		return;
+	i = esc_index(st, s);
+	if (i < 0)
+		return;
+	st->param_bits[i] |= bits;
+}
+
+static int
+esc_stack_tainted(EscapeState* st, Symbol* s) {
+	int i;
+
+	i = esc_find(st, s);
+	return i >= 0 && st->stack_taint[i];
+}
+
+static uint64_t
+esc_param_bits(EscapeState* st, Symbol* s) {
+	int i;
+
+	i = esc_find(st, s);
+	return i >= 0 ? st->param_bits[i] : 0;
+}
+
+static uint64_t
+expr_param_bits(EscapeState* st, Node* n);
+static Type* call_func_type(Node* call);
+
+static int
+expr_may_stack(EscapeState* st, Node* n) {
+	Symbol* s;
+	int i;
+
+	if (n == NULL)
+		return 0;
+	if (expr_stack_addr_root(n))
+		return 1;
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++) {
+			if (expr_may_stack(st, n->children[i]))
+				return 1;
+		}
+		return 0;
+	}
+	if (n->kind == NdCast || n->kind == NdComma)
+		return expr_may_stack(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdCond)
+		return expr_may_stack(st, n->b) || expr_may_stack(st, n->c);
+	if (n->kind == NdName && n->symbol && esc_stack_tainted(st, n->symbol))
+		return 1;
+	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
+		/* Only pointer-carrying field/element reads propagate stack taint. */
+		if (!type_may_carry_ptr(n->type) && !is_array(n->type))
+			return 0;
+		s = lvalue_stack_object(n->a);
+		if (s && esc_stack_tainted(st, s))
+			return 1;
+		if (n->a->kind == NdName && esc_stack_tainted(st, n->a->symbol))
+			return 1;
+	}
+	if (n->kind == NdCall) {
+		Type* ft;
+		int j, lim;
+
+		ft = call_func_type(n);
+		if (ft && ft->param_returned) {
+			lim = n->children_len;
+			if (lim > ft->params_len)
+				lim = ft->params_len;
+			for (j = 0; j < lim; j++) {
+				if (ft->param_returned[j] &&
+				    expr_may_stack(st, n->children[j]))
+					return 1;
+			}
+		}
+	}
+	if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus))
+		return expr_may_stack(st, n->a) ||
+		       (n->op == PnPlus && expr_may_stack(st, n->b));
+	if (n->kind == NdDot && n->is_synth && n->s && strcmp(n->s, "ptr") == 0)
+		return expr_may_stack(st, n->a);
+	return 0;
+}
+
+static uint64_t
+expr_param_bits(EscapeState* st, Node* n) {
+	uint64_t bits;
+	int i;
+	Symbol* s;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdName && n->symbol)
+		return esc_param_bits(st, n->symbol);
+	if (n->kind == NdCast)
+		return expr_param_bits(st, n->a);
+	if (n->kind == NdComma)
+		return expr_param_bits(st, n->b);
+	if (n->kind == NdCond)
+		return expr_param_bits(st, n->b) | expr_param_bits(st, n->c);
+	if (n->kind == NdTupleLit) {
+		bits = 0;
+		for (i = 0; i < n->children_len; i++)
+			bits |= expr_param_bits(st, n->children[i]);
+		return bits;
+	}
+	if (n->kind == NdAddr) {
+		s = lvalue_stack_object(n->a);
+		if (s && s->storage == StParam) {
+			for (i = 0; i < st->nparams; i++) {
+				if (st->params[i] == s)
+					return (uint64_t)1 << i;
+			}
+		}
+		return expr_param_bits(st, n->a);
+	}
+	if (n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) {
+		if (!type_may_carry_ptr(n->type) && !is_array(n->type))
+			return 0;
+		return expr_param_bits(st, n->a);
+	}
+	if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus)) {
+		bits = expr_param_bits(st, n->a);
+		if (n->op == PnPlus)
+			bits |= expr_param_bits(st, n->b);
+		return bits;
+	}
+	if (n->kind == NdDot && n->is_synth && n->s && strcmp(n->s, "ptr") == 0)
+		return expr_param_bits(st, n->a);
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && !n->a->symbol &&
+	    n->children_len >= 1 &&
+	    (strcmp(n->a->s, "ranged") == 0 || strcmp(n->a->s, "ptr") == 0))
+		return expr_param_bits(st, n->children[0]);
+	if (n->kind == NdSubrange)
+		return expr_param_bits(st, n->a);
+	return 0;
+}
+
+static void
+report_stack_escape(Compiler* c, Span sp, Symbol* s) {
+	if (s == NULL) {
+		error_at(c, sp, "stack address escapes this function");
+		return;
+	}
+	if (s->storage == StParam)
+		error_at(c, sp, "address of parameter '%s' escapes this function",
+			 s->name ? s->name : "");
+	else if (s->type && is_array(s->type))
+		error_at(c, sp, "address of local array '%s' escapes this function",
+			 s->name ? s->name : "");
+	else
+		error_at(c, sp, "address of local '%s' escapes this function",
+			 s->name ? s->name : "");
+}
+
+static void
+report_may_stack_escape(Compiler* c, EscapeState* st, Node* n) {
+	Symbol* s;
+
+	if (n == NULL || !expr_may_stack(st, n))
+		return;
+	s = expr_stack_addr_root(n);
+	if (s) {
+		report_stack_escape(c, n->span, s);
+		return;
+	}
+	if (n->kind == NdName && n->symbol)
+		error_at(c, n->span,
+			 "stack address held in '%s' escapes this function",
+			 n->symbol->name ? n->symbol->name : "");
+	else
+		error_at(c, n->span, "stack address escapes this function");
+}
+
+static int
+lhs_is_escape_dest(Node* lhs) {
+	Type* bt;
+
+	if (lhs == NULL)
+		return 0;
+	if (lhs->kind == NdName && lhs->symbol && lhs->symbol->kind == SkVar) {
+		if (lhs->symbol->storage == StLocal || lhs->symbol->storage == StParam)
+			return 0;
+		return 1;
+	}
+	if (lhs->kind == NdDeref)
+		return 1;
+	if (lhs->kind == NdIndex) {
+		bt = lhs->a ? lhs->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return 1;
+		return lhs_is_escape_dest(lhs->a);
+	}
+	if (lhs->kind == NdDot || lhs->kind == NdArrow) {
+		bt = lhs->a ? lhs->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return 1;
+		return lhs_is_escape_dest(lhs->a);
+	}
+	return 0;
+}
+
+/* Local/param aggregate or scalar that can be stack-tainted by an assignment. */
+static Symbol*
+lhs_taint_target(Node* lhs) {
+	Type* bt;
+
+	if (lhs == NULL)
+		return NULL;
+	if (lhs->kind == NdName && lhs->symbol &&
+	    (lhs->symbol->storage == StLocal || lhs->symbol->storage == StParam))
+		return lhs->symbol;
+	if (lhs->kind == NdDot || lhs->kind == NdArrow) {
+		bt = lhs->a ? lhs->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return NULL;
+		return lhs_taint_target(lhs->a);
+	}
+	if (lhs->kind == NdIndex) {
+		bt = lhs->a ? lhs->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return NULL;
+		return lhs_taint_target(lhs->a);
+	}
+	return NULL;
+}
+
+static void
+mark_param_flag(EscapeState* st, char* flags, int i) {
+	if (st->fnty == NULL || flags == NULL)
+		return;
+	if (i < 0 || i >= st->fnty->params_len)
+		return;
+	if (flags[i])
+		return;
+	flags[i] = 1;
+	st->changed = 1;
+}
+
+/* Stash past the call (global / *out / [[retained]] callee) — not mere return. */
+static void
+note_retained_param_bits(EscapeState* st, uint64_t bits) {
+	int i;
+
+	if (!st->infer || bits == 0 || st->fnty == NULL)
+		return;
+	for (i = 0; i < st->nparams && i < MaxParams; i++) {
+		if (bits & ((uint64_t)1 << i))
+			mark_param_flag(st, st->fnty->param_retained, i);
+	}
+}
+
+static void
+note_returned_param_bits(EscapeState* st, uint64_t bits) {
+	int i;
+
+	if (!st->infer || bits == 0 || st->fnty == NULL)
+		return;
+	for (i = 0; i < st->nparams && i < MaxParams; i++) {
+		if (bits & ((uint64_t)1 << i))
+			mark_param_flag(st, st->fnty->param_returned, i);
+	}
+}
+
+static int
+param_is_retained(Type* ft, int i) {
+	if (ft == NULL || ft->param_retained == NULL || i < 0 || i >= ft->params_len)
+		return 0;
+	return ft->param_retained[i] != 0;
+}
+
+static Type*
+call_func_type(Node* call) {
+	Type* t;
+
+	if (call == NULL || call->kind != NdCall || call->a == NULL)
+		return NULL;
+	if (call->a->kind == NdName && call->a->symbol && call->a->symbol->type &&
+	    is_func(call->a->symbol->type))
+		return call->a->symbol->type;
+	t = call->a->type;
+	if (t && is_ptr(t))
+		t = t->base;
+	if (t && is_func(t))
+		return t;
+	return NULL;
+}
+
+/*
+ * %C function that may carry [[retained]] / return-flow (local body or
+ * imported export stub). C headers and fn-ptrs are excluded.
+ */
+static int
+is_mc_retained_callee(Symbol* s) {
+	if (s == NULL || s->kind != SkFunc || s->type == NULL || !is_func(s->type))
+		return 0;
+	if (s->header)
+		return 0;
+	return 1;
+}
+
+static void
+esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
+	int i;
+
+	if (dst == NULL || src == NULL)
+		return;
+	if (!type_may_carry_ptr(dst->type) && !is_array(dst->type))
+		return;
+	i = esc_index(st, dst);
+	if (i < 0)
+		return;
+	if (expr_may_stack(st, src))
+		st->stack_taint[i] = 1;
+	else if (src->kind == NdName || expr_stack_addr_root(src) == NULL)
+		st->stack_taint[i] = 0; /* strong update on clear */
+	esc_add_param_bits(st, dst, expr_param_bits(st, src));
+}
+
+static void
+esc_check_call(Compiler* c, EscapeState* st, Node* call) {
+	Type* ft;
+	Symbol* callee;
+	Node* arg;
+	int i, n;
+	const char* pname;
+	const char* fname;
+
+	ft = call_func_type(call);
+	if (ft == NULL)
+		return;
+	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
+	/* C / headers / fn-ptrs: do not assume retain. Import stubs OK. */
+	if (callee == NULL || !is_mc_retained_callee(callee))
+		return;
+	n = call->children_len;
+	if (n > ft->params_len)
+		n = ft->params_len;
+	for (i = 0; i < n; i++) {
+		arg = call->children[i];
+		if (!param_is_retained(ft, i))
+			continue;
+		note_retained_param_bits(st, expr_param_bits(st, arg));
+		if (st->diag && expr_may_stack(st, arg)) {
+			pname = (ft->param_names && ft->param_names[i]) ? ft->param_names[i]
+								       : "";
+			fname = callee->name ? callee->name : "";
+			if (pname[0])
+				error_at(c, arg->span,
+					 "passing stack address to [[retained]] parameter '%s' of '%s'",
+					 pname, fname);
+			else
+				error_at(c, arg->span,
+					 "passing stack address to [[retained]] parameter of '%s'",
+					 fname);
+		}
+	}
+}
+
+static void esc_walk_stmt(Compiler* c, EscapeState* st, Node* n);
+
+static void
+esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
+	int i;
+
+	if (n == NULL)
+		return;
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++)
+			esc_on_escape_value(c, st, n->children[i], via_return);
+		return;
+	}
+	if (via_return)
+		note_returned_param_bits(st, expr_param_bits(st, n));
+	else
+		note_retained_param_bits(st, expr_param_bits(st, n));
+	if (st->diag)
+		report_may_stack_escape(c, st, n);
+}
+
+static void
+esc_walk_init(Compiler* c, EscapeState* st, Initializer* in, Symbol* dest) {
+	int i;
+
+	if (in == NULL)
+		return;
+	if (in->expr) {
+		if (dest && (dest->storage == StLocal || dest->storage == StParam))
+			esc_propagate_to(st, dest, in->expr);
+		else if (dest && dest->storage != StLocal && dest->storage != StParam)
+			esc_on_escape_value(c, st, in->expr, 0);
+	}
+	for (i = 0; i < in->items_len; i++)
+		esc_walk_init(c, st, &in->items[i], dest);
+}
+
+static void
+esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
+	Symbol* dst;
+	int i;
+
+	if (n == NULL)
+		return;
+	if (n->kind == NdReturn) {
+		esc_on_escape_value(c, st, n->a, 1);
+		return;
+	}
+	if (n->kind == NdAssign) {
+		if (lhs_is_escape_dest(n->a))
+			esc_on_escape_value(c, st, n->b, 0);
+		dst = lhs_taint_target(n->a);
+		if (dst)
+			esc_propagate_to(st, dst, n->b);
+		esc_walk_stmt(c, st, n->a);
+		esc_walk_stmt(c, st, n->b);
+		return;
+	}
+	if (n->kind == NdDecl) {
+		if (n->init && n->init->expr && n->symbol)
+			esc_propagate_to(st, n->symbol, n->init->expr);
+		else if (n->init)
+			esc_walk_init(c, st, n->init, n->symbol);
+		esc_walk_stmt(c, st, n->a);
+		return;
+	}
+	if (n->kind == NdCall) {
+		esc_check_call(c, st, n);
+		esc_walk_stmt(c, st, n->a);
+		for (i = 0; i < n->children_len; i++)
+			esc_walk_stmt(c, st, n->children[i]);
+		return;
+	}
+	switch (n->kind) {
+	case NdBlock:
+		for (i = 0; i < n->children_len; i++)
+			esc_walk_stmt(c, st, n->children[i]);
+		break;
+	case NdIf:
+	case NdWhile:
+	case NdDo:
+	case NdFor:
+	case NdSwitch:
+	case NdCase:
+	case NdDefault:
+	case NdLabel:
+	case NdDefer:
+		esc_walk_stmt(c, st, n->a);
+		esc_walk_stmt(c, st, n->b);
+		esc_walk_stmt(c, st, n->c);
+		for (i = 0; i < n->children_len; i++)
+			esc_walk_stmt(c, st, n->children[i]);
+		break;
+	default:
+		esc_walk_stmt(c, st, n->a);
+		esc_walk_stmt(c, st, n->b);
+		esc_walk_stmt(c, st, n->c);
+		for (i = 0; i < n->children_len; i++)
+			esc_walk_stmt(c, st, n->children[i]);
+		if (n->init)
+			esc_walk_init(c, st, n->init, NULL);
+		break;
+	}
+}
+
+static int
+escape_analyze_func(Compiler* c, Node* fn, int infer, int diag) {
+	EscapeState st = { 0 };
+	Symbol *owner, *s;
+	Type* ty;
+	int i;
+
+	if (fn == NULL || fn->kind != NdFunc || fn->a == NULL || fn->symbol == NULL)
+		return 0;
+	if (!user_source(c, fn->span))
+		return 0;
+	owner = fn->symbol;
+	ty = owner->type;
+	st.fnty = ty;
+	st.infer = infer;
+	st.diag = diag;
+	st.nparams = 0;
+	if (ty && is_func(ty)) {
+		for (s = c->syms.symbols; s; s = s->next) {
+			if (s->owner != owner || s->kind != SkVar || s->storage != StParam)
+				continue;
+			for (i = 0; i < ty->params_len && i < MaxParams; i++) {
+				if (ty->param_names && ty->param_names[i] && s->name &&
+				    strcmp(ty->param_names[i], s->name) == 0) {
+					st.params[i] = s;
+					if (i + 1 > st.nparams)
+						st.nparams = i + 1;
+					if (type_may_carry_ptr(s->type))
+						esc_add_param_bits(&st, s, (uint64_t)1 << i);
+					break;
+				}
+			}
+		}
+	}
+	esc_walk_stmt(c, &st, fn->a);
+	i = st.changed;
+	esc_release(&st);
+	return i;
+}
+
+static void
+check_stack_escape_unit(Compiler* c) {
+	int i, iter, changed;
+
+	/* Fixpoint: infer [[retained]] from .mc bodies / calls. */
+	for (iter = 0; iter < 64; iter++) {
+		changed = 0;
+		for (i = 0; i < c->unit.funcs_len; i++)
+			changed |= escape_analyze_func(c, c->unit.funcs[i], 1, 0);
+		if (!changed)
+			break;
+	}
+	for (i = 0; i < c->unit.funcs_len; i++)
+		escape_analyze_func(c, c->unit.funcs[i], 0, 1);
+}
+
 static int global_pointer_constant(Compiler* c, Node* n);
 
 // Recognize the lvalue portion of an address constant.
@@ -1565,4 +2268,5 @@ void type_check_unit(Compiler* c) {
 		check_method_receiver_func(c, c->unit.funcs[i]);
 		check_unused_func(c, c->unit.funcs[i]);
 	}
+	check_stack_escape_unit(c);
 }

@@ -304,9 +304,11 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Explicit Switch Execution**: Implicit fallthrough across `switch` cases results in a compile-time error. Cases must terminate with `break` or explicitly declare `[[fallthrough]];`.
 
-- **C23 Attributes**: `[[fallthrough]]` marks intentional switch fallthrough (required, not a warning). `[[maybe_unused]]` suppresses unused local/parameter errors (alongside `(void)x;`). `[[nodiscard]]` makes discarding a non-void call result a compile-time error. `[[unsequenced]]` and `[[reproducible]]` are accepted and ignored.
+- **C23 Attributes**: `[[fallthrough]]` marks intentional switch fallthrough (required, not a warning). `[[maybe_unused]]` suppresses unused local/parameter errors (alongside `(void)x;`). `[[nodiscard]]` makes discarding a non-void call result a compile-time error. `[[retained]]` on a parameter means the callee may keep that pointer or `T[..]` past the call (see stack escapes). `[[unsequenced]]` and `[[reproducible]]` are accepted and ignored.
 
 - **Defensive Local Initialization**: All local variables must be initialized at their point of declaration (`int x = 0;`). The compiler actively diagnoses uninitialized reads, `goto` jumps that bypass local declarations, control flow falling off non-`void` functions, signed/unsigned comparisons (except non-negative integer literals that fit the unsigned side), and unsequenced modifications (`i = i++`).
+
+- **No Stack Escapes**: A pointer or `T[..]` view rooted in a local (or by-value parameter) must not leave the function via `return`, stores into globals/statics, or stores through other pointers — including after assignment through locals (`int *p = &x; return p;`). Passing `&local` into ordinary callees remains allowed. Mark `%C` parameters `[[retained]]` when they may be stashed; the compiler also infers retain from `.mc` bodies that store a parameter into escaping storage. Explicit and inferred `[[retained]]` (and return-flow) are recorded in package exports so importers see them. C headers are not analyzed: libc-style borrow-for-call APIs need no annotation.
 
 - **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts.
 
