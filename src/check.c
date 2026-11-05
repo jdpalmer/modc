@@ -2078,6 +2078,30 @@ lhs_is_escape_dest(Node* lhs) {
 	return 0;
 }
 
+/* Pointer expression a store writes through (*p, p.field, p[i]), or NULL. */
+static Node*
+lhs_store_through(Node* lhs) {
+	Type* bt;
+
+	if (lhs == NULL)
+		return NULL;
+	if (lhs->kind == NdDeref)
+		return lhs->a;
+	if (lhs->kind == NdIndex) {
+		bt = lhs->a ? lhs->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return lhs->a;
+		return lhs_store_through(lhs->a);
+	}
+	if (lhs->kind == NdDot || lhs->kind == NdArrow) {
+		bt = lhs->a ? lhs->a->type : NULL;
+		if (bt && is_ptr(bt))
+			return lhs->a;
+		return lhs_store_through(lhs->a);
+	}
+	return NULL;
+}
+
 /* Local/param aggregate or scalar that can be stack-tainted by an assignment. */
 static Symbol*
 lhs_taint_target(Node* lhs) {
@@ -2437,8 +2461,20 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		return;
 	}
 	if (n->kind == NdAssign) {
-		if (lhs_is_escape_dest(n->a))
-			esc_on_escape_value(c, st, n->b, 0);
+		if (lhs_is_escape_dest(n->a)) {
+			/* Write-back into the object reached through param P is not
+			 * retaining P; only bits that escape into foreign storage count. */
+			uint64_t rhs_bits, through_bits;
+
+			rhs_bits = expr_param_bits(st, n->b);
+			through_bits = expr_param_bits(st, lhs_store_through(n->a));
+			note_retains_param_bits(st, rhs_bits & ~through_bits);
+			if (st->diag) {
+				report_may_stack_escape(c, st, n->b);
+				if (expr_may_dead(st, n->b))
+					report_defer_escape(c, n->b);
+			}
+		}
 		dst = lhs_taint_target(n->a);
 		if (dst)
 			esc_propagate_to(st, dst, n->b);
