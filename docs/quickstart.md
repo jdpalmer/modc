@@ -304,11 +304,13 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Explicit Switch Execution**: Implicit fallthrough across `switch` cases results in a compile-time error. Cases must terminate with `break` or explicitly declare `[[fallthrough]];`.
 
-- **C23 Attributes**: `[[fallthrough]]` marks intentional switch fallthrough (required, not a warning). `[[maybe_unused]]` suppresses unused local/parameter errors (alongside `(void)x;`). `[[nodiscard]]` makes discarding a non-void call result a compile-time error. `[[retained]]` on a parameter means the callee may keep that pointer or `T[..]` past the call (see stack escapes). `[[unsequenced]]` and `[[reproducible]]` are accepted and ignored.
+- **C23 Attributes**: `[[fallthrough]]` marks intentional switch fallthrough (required, not a warning). `[[maybe_unused]]` suppresses unused local/parameter errors (alongside `(void)x;`). `[[nodiscard]]` makes discarding a non-void call result a compile-time error. `[[retains]]` on a parameter means the callee may keep that pointer or `T[..]` past the call (see stack escapes). `[[consumes]]` means the callee ends that value’s lifetime (`defer free(p)` / `defer a.free()` cannot escape `p`/`a`). `[[unsequenced]]` and `[[reproducible]]` are accepted and ignored.
 
 - **Defensive Local Initialization**: All local variables must be initialized at their point of declaration (`int x = 0;`). The compiler actively diagnoses uninitialized reads, `goto` jumps that bypass local declarations, control flow falling off non-`void` functions, signed/unsigned comparisons (except non-negative integer literals that fit the unsigned side), and unsequenced modifications (`i = i++`).
 
-- **No Stack Escapes**: A pointer or `T[..]` view rooted in a local (or by-value parameter) must not leave the function via `return`, stores into globals/statics, or stores through other pointers — including after assignment through locals (`int *p = &x; return p;`). Passing `&local` into ordinary callees remains allowed. Mark `%C` parameters `[[retained]]` when they may be stashed; the compiler also infers retain from `.mc` bodies that store a parameter into escaping storage. Explicit and inferred `[[retained]]` (and return-flow) are recorded in package exports so importers see them. C headers are not analyzed: libc-style borrow-for-call APIs need no annotation.
+- **No Stack Escapes**: A pointer or `T[..]` view rooted in a local (or by-value parameter) must not leave the function via `return`, stores into globals/statics, or stores through other pointers — including after assignment through locals (`int *p = &x; return p;`). Passing `&local` into ordinary callees remains allowed. Mark `%C` parameters `[[retains]]` when they may be stashed; the compiler also infers retain from `.mc` bodies that store a parameter into escaping storage. Explicit and inferred `[[retains]]` (and return-flow) are recorded in package exports so importers see them. C headers are not analyzed: libc-style borrow-for-call APIs need no annotation.
+
+- **Defer Invalidation**: After `defer free(p)` / `defer fclose(f)` / `defer` of a `[[consumes]]` call, that pointer must not escape the block (`return p` is an error; aliases are tracked). Method receivers use `([[consumes]] T *r).free()`.
 
 - **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts.
 
@@ -326,7 +328,7 @@ When writing or generating %C code, adhere to the following dialect conventions 
 
 - **Return Values over Out-Parameters**: Return multi-value tuples such as `(T, bool)` alongside `auto` destructuring instead of passing mutable pointer out-parameters.
 
-- **Manual Lifetime Discipline**: Deferred statements execute prior to block exit, so never return interior pointers referencing storage that a `defer` releases.
+- **Manual Lifetime Discipline**: Prefer `[[consumes]]` on cleanup APIs; the compiler rejects escaping values a `defer` will invalidate. Opaque `defer { … }` bodies without a consuming call are not checked.
 
 ### Formatting and Declaration Structure
 

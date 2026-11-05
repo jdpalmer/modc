@@ -86,7 +86,7 @@ Returning a stack-backed `T[..]` (for example `return a[i..j]` or
 `return ranged(a, n)` when `a` is a local array) is rejected: the view would
 dangle when the frame unwinds. The same check follows the view through local
 variables. Passing such a view into a callee for the duration of the call is
-fine unless that parameter is `[[retained]]` (or inferred retained) on a `%C`
+fine unless that parameter is `[[retains]]` (or inferred) on a `%C`
 function.
 
 Do not invent a parallel `{ char *p; size_t len; size_t cap }` struct to “own”

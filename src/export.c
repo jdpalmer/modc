@@ -501,10 +501,13 @@ write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id, const char* self_pkg) {
 				t->param_fixed_len ? t->param_fixed_len[i] : (int64_t)-1);
 		for (i = 0; i < t->params_len; i++)
 			fprintf(f, " %d",
-				t->param_retained ? (unsigned char)t->param_retained[i] : 0);
+				t->param_retains ? (unsigned char)t->param_retains[i] : 0);
 		for (i = 0; i < t->params_len; i++)
 			fprintf(f, " %d",
 				t->param_returned ? (unsigned char)t->param_returned[i] : 0);
+		for (i = 0; i < t->params_len; i++)
+			fprintf(f, " %d",
+				t->param_consumes ? (unsigned char)t->param_consumes[i] : 0);
 		fputc('\n', f);
 		break;
 	case TyStruct:
@@ -991,8 +994,9 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* p
 			t->param_array = xmalloc((size_t)nparams);
 			t->param_fixed_len = xmalloc((size_t)nparams * sizeof(int64_t));
 			t->param_maybe_unused = xmalloc((size_t)nparams);
-			t->param_retained = xmalloc((size_t)nparams);
+			t->param_retains = xmalloc((size_t)nparams);
 			t->param_returned = xmalloc((size_t)nparams);
+			t->param_consumes = xmalloc((size_t)nparams);
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
 				t->params[i] = map_ty(map, max_id, tok ? atoi(tok) : 0);
@@ -1010,11 +1014,15 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* p
 			}
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
-				t->param_retained[i] = (char)(tok ? atoi(tok) : 0);
+				t->param_retains[i] = (char)(tok ? atoi(tok) : 0);
 			}
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
 				t->param_returned[i] = (char)(tok ? atoi(tok) : 0);
+			}
+			for (i = 0; i < nparams; i++) {
+				tok = read_tok(&p);
+				t->param_consumes[i] = (char)(tok ? atoi(tok) : 0);
 			}
 		}
 		return 0;

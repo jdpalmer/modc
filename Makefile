@@ -313,7 +313,7 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_expstab $(BUILD)/cache_expstab/app/main.mc \
 		-o $(BUILD)/cache_expstab/out
 	@ex1=$$(ls $(BUILD)/cache_expstab/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 2$$' "$$ex1"; \
+		grep -q '^modc-export 3$$' "$$ex1"; \
 		grep -q '^pkg -$$' "$$ex1"; \
 		mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app; \
 		cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc; \
@@ -322,31 +322,31 @@ check-special: $(MODC)
 			-o $(BUILD)/cache_expstab2/out; \
 		ex2=$$(ls $(BUILD)/cache_expstab2/app/.modc-cache/pkg/lib-*/export | head -1); \
 		cmp -s "$$ex1" "$$ex2"
-	# --- cache: [[retained]] / return-flow bits survive export ---
-	@rm -rf $(BUILD)/cache_retained
-	@mkdir -p $(BUILD)/cache_retained/lib $(BUILD)/cache_retained/app
+	# --- cache: [[retains]] / return-flow bits survive export ---
+	@rm -rf $(BUILD)/cache_retains
+	@mkdir -p $(BUILD)/cache_retains/lib $(BUILD)/cache_retains/app
 	@printf '%s\n' 'int *slot;' \
-		'void keep([[retained]] int *p) { slot = p; }' \
+		'void keep([[retains]] int *p) { slot = p; }' \
 		'int *id(int *p) { return p; }' \
-		> $(BUILD)/cache_retained/lib/mod.mc
+		> $(BUILD)/cache_retains/lib/mod.mc
 	@printf '%s\n' 'import "lib";' \
 		'int g_x;' \
 		'int main() { keep(&g_x); return id(&g_x) == &g_x ? 0 : 1; }' \
-		> $(BUILD)/cache_retained/app/main.mc
-	./modc build -M $(BUILD)/cache_retained $(BUILD)/cache_retained/app/main.mc \
-		-o $(BUILD)/cache_retained/out
-	@ex=$$(ls $(BUILD)/cache_retained/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 2$$' "$$ex"; \
-		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 1 0$$' "$$ex"; \
-		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 0 1$$' "$$ex"
+		> $(BUILD)/cache_retains/app/main.mc
+	./modc build -M $(BUILD)/cache_retains $(BUILD)/cache_retains/app/main.mc \
+		-o $(BUILD)/cache_retains/out
+	@ex=$$(ls $(BUILD)/cache_retains/app/.modc-cache/pkg/lib-*/export | head -1); \
+		grep -q '^modc-export 3$$' "$$ex"; \
+		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 1 0 [01]$$' "$$ex"; \
+		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 0 1 [01]$$' "$$ex"
 	@printf '%s\n' 'import "lib";' \
 		'int bad() { int x = 0; keep(&x); return 0; }' \
-		> $(BUILD)/cache_retained/app/main.mc
-	@./modc build -M $(BUILD)/cache_retained $(BUILD)/cache_retained/app/main.mc \
-		-o $(BUILD)/cache_retained/bad 2>$(BUILD)/cache_retained/bad.err; \
+		> $(BUILD)/cache_retains/app/main.mc
+	@./modc build -M $(BUILD)/cache_retains $(BUILD)/cache_retains/app/main.mc \
+		-o $(BUILD)/cache_retains/bad 2>$(BUILD)/cache_retains/bad.err; \
 		test $$? -ne 0; \
-		grep -q "\[\[retained\]\] parameter" $(BUILD)/cache_retained/bad.err
-	$(BUILD)/cache_retained/out
+		grep -q "\[\[retains\]\] parameter" $(BUILD)/cache_retains/bad.err
+	$(BUILD)/cache_retains/out
 	# --- cache: MODC_SYSINCLUDE / MODC_INCLUDE change must miss ---
 	@rm -rf $(BUILD)/cache_sysinc
 	@mkdir -p $(BUILD)/cache_sysinc/inc_a $(BUILD)/cache_sysinc/inc_b \

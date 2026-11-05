@@ -1,8 +1,8 @@
-/* Cross-package [[retained]] / return-flow (also exercised via cache export). */
+/* Cross-package [[retains]] / return-flow (also exercised via cache export). */
 
 int* pkg_retain_slot;
 
-void pkg_retain_keep([[retained]] int* p) {
+void pkg_retain_keep([[retains]] int* p) {
 	pkg_retain_slot = p;
 }
 

@@ -68,7 +68,7 @@ void (Arena* a).init() {
 }
 
 // Free backing storage. Receiver must be live (see docs/methods.md).
-void (Arena* a).free() {
+void ([[consumes]] Arena* a).free() {
 	free(a.base);
 	a.base = NULL;
 	a.cap = 0;
@@ -76,7 +76,7 @@ void (Arena* a).free() {
 }
 
 // Keep backing storage; next allocations reuse from offset 0.
-void (Arena* a).reset() {
+void ([[consumes]] Arena* a).reset() {
 	a.off = 0;
 }
 

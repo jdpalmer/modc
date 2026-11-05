@@ -36,18 +36,22 @@ handles the statement in three distinct steps:
 3. Returns the saved temporary values to the caller.
 
 ```c
-(FILE *, bool) open_log(char *path) {
+void write_log(char *path) {
     FILE *f = fopen(path, "w");
     if (f == NULL) {
-        return (NULL, false);
+        return;
     }
     defer fclose(f);
     /* … write … */
-    return (f, true);  /* fclose still runs; caller must not use f after */
+    /* f is not returned; fclose runs on every exit */
 }
 ```
 
-Returning a pointer to memory freed by a deferred statement remains a lifetime bug. The `defer` keyword controls execution order, not object lifetimes.
+Returning a pointer freed by a deferred cleanup is a compile-time error when the
+cleanup is recognized as consuming: `free` / `fclose`, or a `%C` parameter marked
+`[[consumes]]` (including method receivers such as `([[consumes]] Arena *a).free()`).
+The `defer` keyword still only schedules cleanup order; `[[consumes]]` is what
+makes the lifetime contract checkable.
 
 ## Practical application patterns
 

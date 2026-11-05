@@ -1309,12 +1309,13 @@ check_method_receiver_func(Compiler* c, Node* fn) {
 	check_method_recv_expr(c, fn->a, recv);
 }
 
-/* ---- stack escape + [[retained]] (asymmetric: prove .mc, ignore C bodies) ---- */
+/* ---- stack escape + [[retains]] (asymmetric: prove .mc, ignore C bodies) ---- */
 
 typedef struct EscapeState EscapeState;
 struct EscapeState {
 	Symbol** syms;
 	unsigned char* stack_taint;
+	unsigned char* dead_taint; /* may hold a value a defer will consume */
 	uint64_t* param_bits;
 	int n;
 	int cap;
@@ -1324,6 +1325,10 @@ struct EscapeState {
 	int infer;
 	int diag;
 	int changed;
+	/* Defers in nested blocks: kill[i] invalidated at exit of scope i. */
+	Symbol* kill[MaxDeferDepth][32];
+	int kill_n[MaxDeferDepth];
+	int scope_depth;
 };
 
 static int
@@ -1435,9 +1440,11 @@ static void
 esc_release(EscapeState* st) {
 	free(st->syms);
 	free(st->stack_taint);
+	free(st->dead_taint);
 	free(st->param_bits);
 	st->syms = NULL;
 	st->stack_taint = NULL;
+	st->dead_taint = NULL;
 	st->param_bits = NULL;
 	st->n = 0;
 	st->cap = 0;
@@ -1445,7 +1452,7 @@ esc_release(EscapeState* st) {
 
 static void
 esc_grow(EscapeState* st, int need) {
-	int ncap;
+	int ncap, i;
 
 	if (need <= st->cap)
 		return;
@@ -1454,7 +1461,10 @@ esc_grow(EscapeState* st, int need) {
 		ncap *= 2;
 	st->syms = xrealloc(st->syms, (size_t)ncap * sizeof(Symbol*));
 	st->stack_taint = xrealloc(st->stack_taint, (size_t)ncap);
+	st->dead_taint = xrealloc(st->dead_taint, (size_t)ncap);
 	st->param_bits = xrealloc(st->param_bits, (size_t)ncap * sizeof(uint64_t));
+	for (i = st->cap; i < ncap; i++)
+		st->dead_taint[i] = 0;
 	st->cap = ncap;
 }
 
@@ -1484,6 +1494,7 @@ esc_index(EscapeState* st, Symbol* s) {
 	i = st->n++;
 	st->syms[i] = s;
 	st->stack_taint[i] = 0;
+	st->dead_taint[i] = 0;
 	st->param_bits[i] = 0;
 	return i;
 }
@@ -1508,6 +1519,14 @@ esc_stack_tainted(EscapeState* st, Symbol* s) {
 	return i >= 0 && st->stack_taint[i];
 }
 
+static int
+esc_dead_tainted(EscapeState* st, Symbol* s) {
+	int i;
+
+	i = esc_find(st, s);
+	return i >= 0 && st->dead_taint[i];
+}
+
 static uint64_t
 esc_param_bits(EscapeState* st, Symbol* s) {
 	int i;
@@ -1516,9 +1535,195 @@ esc_param_bits(EscapeState* st, Symbol* s) {
 	return i >= 0 ? st->param_bits[i] : 0;
 }
 
+static int
+sym_in_defer_kill(EscapeState* st, Symbol* s) {
+	int d, j;
+
+	if (s == NULL)
+		return 0;
+	for (d = 0; d < st->scope_depth; d++) {
+		for (j = 0; j < st->kill_n[d]; j++) {
+			if (st->kill[d][j] == s)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+static void
+esc_add_kill(EscapeState* st, Symbol* s) {
+	int d, j;
+
+	if (s == NULL || st->scope_depth <= 0)
+		return;
+	d = st->scope_depth - 1;
+	if (st->kill_n[d] >= 32)
+		return;
+	for (j = 0; j < st->kill_n[d]; j++) {
+		if (st->kill[d][j] == s)
+			return;
+	}
+	st->kill[d][st->kill_n[d]++] = s;
+}
+
+static Type* call_func_type(Node* call);
+
+static int
+param_is_consumes(Type* ft, int i) {
+	if (ft == NULL || ft->param_consumes == NULL || i < 0 || i >= ft->params_len)
+		return 0;
+	return ft->param_consumes[i] != 0;
+}
+
+/* libc-shaped consumptions when the callee is not a %C [[consumes]] API. */
+static int
+builtin_arg_consumes(Symbol* callee, int i) {
+	const char* n;
+
+	if (callee == NULL || callee->name == NULL || i != 0)
+		return 0;
+	n = callee->name;
+	return strcmp(n, "free") == 0 || strcmp(n, "fclose") == 0;
+}
+
+/* Local/param object whose lifetime a consuming call ends. */
+static Symbol*
+consume_target_sym(Node* arg) {
+	Symbol* s;
+	const char* bn;
+
+	if (arg == NULL)
+		return NULL;
+	if (arg->kind == NdCast)
+		return consume_target_sym(arg->a);
+	if (arg->kind == NdAddr)
+		return lvalue_stack_object(arg->a);
+	if (arg->kind == NdCall && arg->a && arg->a->kind == NdName && arg->a->s &&
+	    !arg->a->symbol && arg->children_len >= 1) {
+		bn = arg->a->s;
+		if (strcmp(bn, "ptr") == 0 || strcmp(bn, "ranged") == 0)
+			return consume_target_sym(arg->children[0]);
+	}
+	if (arg->kind == NdName && arg->symbol &&
+	    (arg->symbol->storage == StLocal || arg->symbol->storage == StParam))
+		return arg->symbol;
+	s = lvalue_stack_object(arg);
+	return s;
+}
+
+static int
+call_arg_consumes(Node* call, int i) {
+	Type* ft;
+	Symbol* callee;
+
+	ft = call_func_type(call);
+	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
+	if (ft && param_is_consumes(ft, i))
+		return 1;
+	if (builtin_arg_consumes(callee, i))
+		return 1;
+	return 0;
+}
+
+static void
+defer_register_consumes(EscapeState* st, Node* n) {
+	int i;
+
+	if (n == NULL)
+		return;
+	if (n->kind == NdBlock) {
+		for (i = 0; i < n->children_len; i++)
+			defer_register_consumes(st, n->children[i]);
+		return;
+	}
+	if (n->kind == NdCall) {
+		for (i = 0; i < n->children_len; i++) {
+			if (!call_arg_consumes(n, i))
+				continue;
+			esc_add_kill(st, consume_target_sym(n->children[i]));
+		}
+		return;
+	}
+	/* Comma / cast wrappers around a call. */
+	if (n->kind == NdCast || n->kind == NdComma)
+		defer_register_consumes(st, n->kind == NdComma ? n->b : n->a);
+}
+
 static uint64_t
 expr_param_bits(EscapeState* st, Node* n);
-static Type* call_func_type(Node* call);
+
+static int
+expr_may_dead(EscapeState* st, Node* n) {
+	Symbol* s;
+	int i;
+	Type* ft;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++) {
+			if (expr_may_dead(st, n->children[i]))
+				return 1;
+		}
+		return 0;
+	}
+	if (n->kind == NdCast || n->kind == NdComma)
+		return expr_may_dead(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdCond)
+		return expr_may_dead(st, n->b) || expr_may_dead(st, n->c);
+	if (n->kind == NdName && n->symbol) {
+		if (sym_in_defer_kill(st, n->symbol) || esc_dead_tainted(st, n->symbol))
+			return 1;
+	}
+	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
+		if (!type_may_carry_ptr(n->type) && !is_array(n->type))
+			return 0;
+		s = lvalue_stack_object(n->a);
+		if (s && (sym_in_defer_kill(st, s) || esc_dead_tainted(st, s)))
+			return 1;
+		if (n->a->kind == NdName && n->a->symbol &&
+		    (sym_in_defer_kill(st, n->a->symbol) ||
+		     esc_dead_tainted(st, n->a->symbol)))
+			return 1;
+	}
+	if (n->kind == NdCall) {
+		ft = call_func_type(n);
+		if (ft && ft->param_returned) {
+			int j, lim;
+
+			lim = n->children_len;
+			if (lim > ft->params_len)
+				lim = ft->params_len;
+			for (j = 0; j < lim; j++) {
+				if (ft->param_returned[j] && expr_may_dead(st, n->children[j]))
+					return 1;
+			}
+		}
+	}
+	if (n->kind == NdDot && n->is_synth && n->s && strcmp(n->s, "ptr") == 0)
+		return expr_may_dead(st, n->a);
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && !n->a->symbol &&
+	    n->children_len >= 1 &&
+	    (strcmp(n->a->s, "ptr") == 0 || strcmp(n->a->s, "ranged") == 0))
+		return expr_may_dead(st, n->children[0]);
+	return 0;
+}
+
+static void
+report_defer_escape(Compiler* c, Node* n) {
+	Symbol* s;
+
+	if (n == NULL)
+		return;
+	s = (n->kind == NdName) ? n->symbol : NULL;
+	if (s && s->name)
+		error_at(c, n->span,
+			 "'%s' is invalidated by a defer in this block and cannot escape",
+			 s->name);
+	else
+		error_at(c, n->span,
+			 "value invalidated by a defer in this block cannot escape");
+}
 
 static int
 expr_may_stack(EscapeState* st, Node* n) {
@@ -1731,16 +1936,16 @@ mark_param_flag(EscapeState* st, char* flags, int i) {
 	st->changed = 1;
 }
 
-/* Stash past the call (global / *out / [[retained]] callee) — not mere return. */
+/* Stash past the call (global / *out / [[retains]] callee) — not mere return. */
 static void
-note_retained_param_bits(EscapeState* st, uint64_t bits) {
+note_retains_param_bits(EscapeState* st, uint64_t bits) {
 	int i;
 
 	if (!st->infer || bits == 0 || st->fnty == NULL)
 		return;
 	for (i = 0; i < st->nparams && i < MaxParams; i++) {
 		if (bits & ((uint64_t)1 << i))
-			mark_param_flag(st, st->fnty->param_retained, i);
+			mark_param_flag(st, st->fnty->param_retains, i);
 	}
 }
 
@@ -1757,10 +1962,10 @@ note_returned_param_bits(EscapeState* st, uint64_t bits) {
 }
 
 static int
-param_is_retained(Type* ft, int i) {
-	if (ft == NULL || ft->param_retained == NULL || i < 0 || i >= ft->params_len)
+param_is_retains(Type* ft, int i) {
+	if (ft == NULL || ft->param_retains == NULL || i < 0 || i >= ft->params_len)
 		return 0;
-	return ft->param_retained[i] != 0;
+	return ft->param_retains[i] != 0;
 }
 
 static Type*
@@ -1781,11 +1986,11 @@ call_func_type(Node* call) {
 }
 
 /*
- * %C function that may carry [[retained]] / return-flow (local body or
+ * %C function that may carry [[retains]] / return-flow (local body or
  * imported export stub). C headers and fn-ptrs are excluded.
  */
 static int
-is_mc_retained_callee(Symbol* s) {
+is_mc_retains_callee(Symbol* s) {
 	if (s == NULL || s->kind != SkFunc || s->type == NULL || !is_func(s->type))
 		return 0;
 	if (s->header)
@@ -1808,6 +2013,10 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 		st->stack_taint[i] = 1;
 	else if (src->kind == NdName || expr_stack_addr_root(src) == NULL)
 		st->stack_taint[i] = 0; /* strong update on clear */
+	if (expr_may_dead(st, src))
+		st->dead_taint[i] = 1;
+	else
+		st->dead_taint[i] = 0;
 	esc_add_param_bits(st, dst, expr_param_bits(st, src));
 }
 
@@ -1825,27 +2034,27 @@ esc_check_call(Compiler* c, EscapeState* st, Node* call) {
 		return;
 	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
 	/* C / headers / fn-ptrs: do not assume retain. Import stubs OK. */
-	if (callee == NULL || !is_mc_retained_callee(callee))
+	if (callee == NULL || !is_mc_retains_callee(callee))
 		return;
 	n = call->children_len;
 	if (n > ft->params_len)
 		n = ft->params_len;
 	for (i = 0; i < n; i++) {
 		arg = call->children[i];
-		if (!param_is_retained(ft, i))
+		if (!param_is_retains(ft, i))
 			continue;
-		note_retained_param_bits(st, expr_param_bits(st, arg));
+		note_retains_param_bits(st, expr_param_bits(st, arg));
 		if (st->diag && expr_may_stack(st, arg)) {
 			pname = (ft->param_names && ft->param_names[i]) ? ft->param_names[i]
 								       : "";
 			fname = callee->name ? callee->name : "";
 			if (pname[0])
 				error_at(c, arg->span,
-					 "passing stack address to [[retained]] parameter '%s' of '%s'",
+					 "passing stack address to [[retains]] parameter '%s' of '%s'",
 					 pname, fname);
 			else
 				error_at(c, arg->span,
-					 "passing stack address to [[retained]] parameter of '%s'",
+					 "passing stack address to [[retains]] parameter of '%s'",
 					 fname);
 		}
 	}
@@ -1867,9 +2076,12 @@ esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
 	if (via_return)
 		note_returned_param_bits(st, expr_param_bits(st, n));
 	else
-		note_retained_param_bits(st, expr_param_bits(st, n));
-	if (st->diag)
+		note_retains_param_bits(st, expr_param_bits(st, n));
+	if (st->diag) {
 		report_may_stack_escape(c, st, n);
+		if (expr_may_dead(st, n))
+			report_defer_escape(c, n);
+	}
 }
 
 static void
@@ -1917,6 +2129,10 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		esc_walk_stmt(c, st, n->a);
 		return;
 	}
+	if (n->kind == NdDefer) {
+		defer_register_consumes(st, n->a);
+		return;
+	}
 	if (n->kind == NdCall) {
 		esc_check_call(c, st, n);
 		esc_walk_stmt(c, st, n->a);
@@ -1926,8 +2142,17 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 	}
 	switch (n->kind) {
 	case NdBlock:
-		for (i = 0; i < n->children_len; i++)
-			esc_walk_stmt(c, st, n->children[i]);
+		if (st->scope_depth < MaxDeferDepth) {
+			st->kill_n[st->scope_depth] = 0;
+			st->scope_depth++;
+			for (i = 0; i < n->children_len; i++)
+				esc_walk_stmt(c, st, n->children[i]);
+			st->scope_depth--;
+			st->kill_n[st->scope_depth] = 0;
+		} else {
+			for (i = 0; i < n->children_len; i++)
+				esc_walk_stmt(c, st, n->children[i]);
+		}
 		break;
 	case NdIf:
 	case NdWhile:
@@ -1937,7 +2162,6 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 	case NdCase:
 	case NdDefault:
 	case NdLabel:
-	case NdDefer:
 		esc_walk_stmt(c, st, n->a);
 		esc_walk_stmt(c, st, n->b);
 		esc_walk_stmt(c, st, n->c);
@@ -2000,7 +2224,7 @@ static void
 check_stack_escape_unit(Compiler* c) {
 	int i, iter, changed;
 
-	/* Fixpoint: infer [[retained]] from .mc bodies / calls. */
+	/* Fixpoint: infer [[retains]] from .mc bodies / calls. */
 	for (iter = 0; iter < 64; iter++) {
 		changed = 0;
 		for (i = 0; i < c->unit.funcs_len; i++)

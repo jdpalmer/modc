@@ -269,7 +269,8 @@ enum {
 	AtFallthrough = 1u << 0,
 	AtMaybeUnused = 1u << 1,
 	AtNodiscard = 1u << 2,
-	AtRetained = 1u << 3
+	AtRetains = 1u << 3,
+	AtConsumes = 1u << 4
 };
 static Initializer* parse_init(Compiler* c);
 static void parse_decl_or_def(Compiler* c, int in_func);
@@ -668,8 +669,10 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 					*flags |= AtMaybeUnused;
 				else if (strcmp(a, "nodiscard") == 0)
 					*flags |= AtNodiscard;
-				else if (strcmp(a, "retained") == 0)
-					*flags |= AtRetained;
+				else if (strcmp(a, "retains") == 0)
+					*flags |= AtRetains;
+				else if (strcmp(a, "consumes") == 0)
+					*flags |= AtConsumes;
 				/* unsequenced / reproducible / unknown: ignore */
 			}
 			continue;
@@ -942,7 +945,8 @@ parse_param_list(Compiler* c, Type* ret) {
 	char *names[MaxParams], *nm;
 	char was_arr[MaxParams];
 	char maybe_unused[MaxParams];
-	char retained[MaxParams];
+	char retains[MaxParams];
+	char consumes[MaxParams];
 	int64_t fixed_len[MaxParams];
 	int n, va, storage, saw, i, too_many;
 	unsigned pattrs;
@@ -986,7 +990,8 @@ parse_param_list(Compiler* c, Type* ret) {
 			was_arr[n] = 0;
 			fixed_len[n] = -1;
 			maybe_unused[n] = (char)!!(pattrs & AtMaybeUnused);
-			retained[n] = (char)!!(pattrs & AtRetained);
+			retains[n] = (char)!!(pattrs & AtRetains);
+			consumes[n] = (char)!!(pattrs & AtConsumes);
 			if (is_ranged(ty)) {
 				/* ranged array parameter: pass by value */
 			} else if (is_array(ty)) {
@@ -1028,8 +1033,10 @@ parse_param_list(Compiler* c, Type* ret) {
 			ty->param_fixed_len[i] = fixed_len[i];
 		if (ty->param_maybe_unused)
 			ty->param_maybe_unused[i] = maybe_unused[i];
-		if (ty->param_retained)
-			ty->param_retained[i] = retained[i];
+		if (ty->param_retains)
+			ty->param_retains[i] = retains[i];
+		if (ty->param_consumes)
+			ty->param_consumes[i] = consumes[i];
 	}
 	return ty;
 }
@@ -1261,6 +1268,8 @@ peek_method_receiver(Compiler* c) {
 	save_pc = pending_pointee_const;
 	save_poly = pending_poly;
 	take(c);
+	while (eat_attr_specifier(c, NULL))
+		;
 	if (!is_typename(c) && !atkw(c, KwStruct) && !atkw(c, KwUnion) && !atkw(c, KwEnum)) {
 		c->lex.pos = save;
 		pending_pointee_const = save_pc;
@@ -1411,56 +1420,70 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 
 	*recv_tag = NULL;
 	expect(c, PnLparen, "'('");
-	ft = parse_receiver_type(c);
-	if (!is_ptr(ft) || ft->base == NULL || !is_aggr(ft->base))
-		error_tok(c, peek(c), "method receiver must be a struct or union pointer");
-	tag = ft->base->tag;
-	if (tag == NULL)
-		error_tok(c, peek(c), "method receiver type needs a name");
-	*recv_ty = ft;
-	*recv_tag = xstrdup(tag);
-	if (peek(c)->kind != TkIdent)
-		error_tok(c, peek(c), "expected receiver name");
-	rname = take(c)->s;
-	*recv_name = rname;
-	expect(c, PnRparen, "')'");
-	expect(c, PnDot, "'.'");
-	if (peek(c)->kind != TkIdent)
-		error_tok(c, peek(c), "expected method name");
-	*name = take(c)->s;
-	expect(c, PnLparen, "'('");
-	ft = parse_param_list(c, ret);
-	expect(c, PnRparen, "')'");
-	if (ft->params_len >= MaxParams)
-		error_at(c, peek(c)->span, "method declarations are limited to %d total parameters",
-			 MaxParams);
-	np = ft->params_len + 1;
-	params = xmalloc((size_t)np * sizeof(Type*));
-	param_names = xmalloc((size_t)np * sizeof(char*));
-	params[0] = *recv_ty;
-	param_names[0] = xstrdup(rname);
-	for (i = 0; i < ft->params_len; i++) {
-		params[i + 1] = ft->params[i];
-		param_names[i + 1] = ft->param_names && ft->param_names[i] ? xstrdup(ft->param_names[i]) : NULL;
+	{
+		unsigned recv_attrs;
+
+		recv_attrs = parse_attr_seq(c);
+		ft = parse_receiver_type(c);
+		if (!is_ptr(ft) || ft->base == NULL || !is_aggr(ft->base))
+			error_tok(c, peek(c), "method receiver must be a struct or union pointer");
+		tag = ft->base->tag;
+		if (tag == NULL)
+			error_tok(c, peek(c), "method receiver type needs a name");
+		*recv_ty = ft;
+		*recv_tag = xstrdup(tag);
+		if (peek(c)->kind != TkIdent)
+			error_tok(c, peek(c), "expected receiver name");
+		rname = take(c)->s;
+		*recv_name = rname;
+		expect(c, PnRparen, "')'");
+		expect(c, PnDot, "'.'");
+		if (peek(c)->kind != TkIdent)
+			error_tok(c, peek(c), "expected method name");
+		*name = take(c)->s;
+		expect(c, PnLparen, "'('");
+		ft = parse_param_list(c, ret);
+		expect(c, PnRparen, "')'");
+		if (ft->params_len >= MaxParams)
+			error_at(c, peek(c)->span,
+				 "method declarations are limited to %d total parameters",
+				 MaxParams);
+		np = ft->params_len + 1;
+		params = xmalloc((size_t)np * sizeof(Type*));
+		param_names = xmalloc((size_t)np * sizeof(char*));
+		params[0] = *recv_ty;
+		param_names[0] = xstrdup(rname);
+		for (i = 0; i < ft->params_len; i++) {
+			params[i + 1] = ft->params[i];
+			param_names[i + 1] = ft->param_names && ft->param_names[i]
+						     ? xstrdup(ft->param_names[i])
+						     : NULL;
+		}
+		fn = type_func(c, ret, params, np, ft->is_varargs);
+		for (i = 0; i < np; i++)
+			fn->param_names[i] = param_names[i];
+		if (fn->param_retains)
+			fn->param_retains[0] = (char)!!(recv_attrs & AtRetains);
+		if (fn->param_consumes)
+			fn->param_consumes[0] = (char)!!(recv_attrs & AtConsumes);
+		for (i = 0; i < ft->params_len; i++) {
+			if (ft->param_array)
+				fn->param_array[i + 1] = ft->param_array[i];
+			if (ft->param_fixed_len)
+				fn->param_fixed_len[i + 1] = ft->param_fixed_len[i];
+			if (ft->param_maybe_unused && fn->param_maybe_unused)
+				fn->param_maybe_unused[i + 1] = ft->param_maybe_unused[i];
+			if (ft->param_retains && fn->param_retains)
+				fn->param_retains[i + 1] = ft->param_retains[i];
+			if (ft->param_returned && fn->param_returned)
+				fn->param_returned[i + 1] = ft->param_returned[i];
+			if (ft->param_consumes && fn->param_consumes)
+				fn->param_consumes[i + 1] = ft->param_consumes[i];
+		}
+		free(params);
+		free(param_names);
+		return fn;
 	}
-	fn = type_func(c, ret, params, np, ft->is_varargs);
-	for (i = 0; i < np; i++)
-		fn->param_names[i] = param_names[i];
-	for (i = 0; i < ft->params_len; i++) {
-		if (ft->param_array)
-			fn->param_array[i + 1] = ft->param_array[i];
-		if (ft->param_fixed_len)
-			fn->param_fixed_len[i + 1] = ft->param_fixed_len[i];
-		if (ft->param_maybe_unused && fn->param_maybe_unused)
-			fn->param_maybe_unused[i + 1] = ft->param_maybe_unused[i];
-		if (ft->param_retained && fn->param_retained)
-			fn->param_retained[i + 1] = ft->param_retained[i];
-		if (ft->param_returned && fn->param_returned)
-			fn->param_returned[i + 1] = ft->param_returned[i];
-	}
-	free(params);
-	free(param_names);
-	return fn;
 }
 
 // Parse a tuple type from (T1, T2, …).

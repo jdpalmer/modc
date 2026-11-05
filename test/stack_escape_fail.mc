@@ -3,7 +3,7 @@
 // fail: F:address of parameter 's' escapes this function
 // fail: F:stack address held in 'p' escapes this function
 // fail: F:stack address held in 'h' escapes this function
-// fail: F:passing stack address to [[retained]] parameter
+// fail: F:passing stack address to [[retains]] parameter
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -70,11 +70,11 @@ Holder bad_agg_taint() {
 	return h;
 }
 
-void stash([[retained]] int* p) {
+void stash([[retains]] int* p) {
 	g = p;
 }
 
-void bad_retained_call() {
+void bad_retains_call() {
 	int x = 0;
 	stash(&x);
 }
