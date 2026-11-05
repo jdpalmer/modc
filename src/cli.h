@@ -27,7 +27,7 @@ typedef struct {
 	int verbose;
 	int no_system_includes;
 	int corpus;
-	int bounds_check;
+	int release; /* --release: omit runtime bounds/null traps */
 	int target; /* TargetHost / TargetWindows / … */
 	char* output;
 	char** incpaths;

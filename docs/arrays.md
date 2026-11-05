@@ -54,7 +54,7 @@ optional-resource probing. %C’s use case is app assets in `.mc`; missing files
 are hard errors, and stubs are preferred over growing the preprocessor. Revisit
 only if a real stub or dogfood file needs them.
 
-Fixed arrays implicitly convert to `T[..]` where a ranged type is expected. In user translation units, declaring a parameter as `void f(int a[N])` enforces an exact `T[N]` matching requirement at call sites. Within `f`, `len(a)` returns `N`, indexing uses that length under `--bounds-check`, and `a[lo..hi]` is allowed like a fixed array.
+Fixed arrays implicitly convert to `T[..]` where a ranged type is expected. In user translation units, declaring a parameter as `void f(int a[N])` enforces an exact `T[N]` matching requirement at call sites. Within `f`, `len(a)` returns `N`, indexing uses that length (unless `--release`), and `a[lo..hi]` is allowed like a fixed array.
 
 ## Open Arrays `T[]`
 
@@ -112,20 +112,19 @@ stop there. `cap(s)` is how many elements are addressable from `ptr(s)`
 (`len <= cap`). Spare room is for mutators that grow into the same block; it is
 not inherited by a subslice.
 
-### Bounds checks (`--bounds-check`)
+### Runtime checks (on by default)
 
-By default, indexing and subranges on `T[..]` / `T[N]` are unchecked (same as C).
-Pass `--bounds-check` to `modc build`, `run`, `test`, or `emit` to insert
-unsigned compares and call `__modc_bounds_fail` on overflow (see the `crash`
-package: message, cleanups, then abort):
+By default, `modc build` / `run` / `test` / `emit` insert traps via the `crash`
+package (message, cleanups, abort). Pass `--release` to omit them (production):
 
-- `a[i]` / `s[i]` — require `i < N` or `i < len(s)`
+- `a[i]` / `s[i]` — require `i < N` or `i < len(s)` (`__modc_bounds_fail`)
 - `void f(int a[N])` — `a[i]` uses the parameter’s fixed `N` (open `T[]` / raw
   `T*` stay unchecked)
 - `a[lo..hi]` / `s[lo..hi]` — require `lo <= hi` and `hi <=` parent length
   (end exclusive; `a[2..]` checks `2 <= len`)
+- method entry — pointer receiver must be non-null (`__modc_null_fail`)
 
-Raw `T*` indexing is never checked. Release builds omit the flag for zero cost.
+Raw `T*` indexing is never checked.
 
 Closed windows (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set
 `len == cap`. Writable scratch over a block is `ranged(p, 0, n)` — length

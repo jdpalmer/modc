@@ -2,7 +2,7 @@
 //
 // crash_init registers an optional cleanup (e.g. tty restore) and installs
 // cross-platform fault handlers. panic / __modc_* print a message, run
-// cleanups LIFO, then abort. Bounds checks (--bounds-check) and <assert.h>
+// cleanups LIFO, then abort. Runtime checks (default; omit with --release) and <assert.h>
 // call into the same path.
 #include <stdint.h>
 #include <stddef.h>
@@ -146,6 +146,26 @@ void __modc_bounds_fail(const char* file, int line, uint64_t index, uint64_t len
 		if (file != NULL && file[0] != 0 && line > 0) {
 			n = snprintf(buf, CrashMsgCap,
 				     "%s:%d: bounds: index %zu >= len %zu\n", file, line, ix, ln);
+		}
+		if (n > 0) {
+			if (n >= CrashMsgCap) {
+				n = CrashMsgCap - 1;
+			}
+			crash_write(buf, n);
+		}
+	}
+	crash_die();
+}
+
+void __modc_null_fail(const char* file, int line) {
+	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "null method receiver\n");
+		crash_reporting = 1;
+		crash_run_cleanups();
+		if (file != NULL && file[0] != 0 && line > 0) {
+			n = snprintf(buf, CrashMsgCap, "%s:%d: null method receiver\n", file,
+				     line);
 		}
 		if (n > 0) {
 			if (n >= CrashMsgCap) {

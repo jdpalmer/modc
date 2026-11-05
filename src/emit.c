@@ -614,6 +614,9 @@ inline_eligible(Compiler* c, Symbol* s) {
 
 	if (s == NULL || s->kind != SkFunc)
 		return 0;
+	/* Keep method entry null traps (runtime checks) on the real call. */
+	if (c->opt.runtime_check && s->is_method)
+		return 0;
 	fn = s->node;
 	if (fn == NULL || fn->kind != NdFunc)
 		return 0;
@@ -933,9 +936,9 @@ node_fixed_param_len(Node* n, int64_t* out) {
 	return 0;
 }
 
-// Call __modc_bounds_fail(file, line, index, len) then continue at lok.
-static void
-emit_bounds_fail(Compiler* c, Val index, Val len, Span sp, int lok) {
+/* Intern sp.file and return a Val pointing at that C string in emit_str_symbol. */
+static Val
+emit_span_file_ptr(Compiler* c, Span sp) {
 	Val fp;
 	int off, n;
 	const char* file;
@@ -948,10 +951,62 @@ emit_bounds_fail(Compiler* c, Val index, Val len, Span sp, int lok) {
 		fprintf(outf, "\t%s =l copy $%s\n", fp.text, emit_str_symbol);
 	else
 		fprintf(outf, "\t%s =l add $%s, %d\n", fp.text, emit_str_symbol, off);
+	return fp;
+}
+
+// Call __modc_bounds_fail(file, line, index, len) then continue at lok.
+static void
+emit_bounds_fail(Compiler* c, Val index, Val len, Span sp, int lok) {
+	Val fp;
+
+	fp = emit_span_file_ptr(c, sp);
 	fprintf(outf, "\tcall $__modc_bounds_fail(l %s, w %d, l %s, l %s)\n",
 		fp.text, sp.line > 0 ? sp.line : 0, index.text, len.text);
 	emitjmp(lok);
 	emitlbl(lok);
+}
+
+// Call __modc_null_fail(file, line) then continue at lok.
+static void
+emit_null_fail(Compiler* c, Span sp, int lok) {
+	Val fp;
+
+	fp = emit_span_file_ptr(c, sp);
+	fprintf(outf, "\tcall $__modc_null_fail(l %s, w %d)\n",
+		fp.text, sp.line > 0 ? sp.line : 0);
+	emitjmp(lok);
+	emitlbl(lok);
+}
+
+/* Under runtime checks: trap if a method's pointer receiver is null. */
+static void
+emit_recv_null_check(Compiler* c, Node* fn) {
+	Symbol* s;
+	Type* ty;
+	const char* pname;
+	Val ok;
+	int lok, ltrap;
+	Span sp;
+
+	if (!c->opt.runtime_check || fn == NULL)
+		return;
+	s = fn->symbol;
+	ty = fn->type;
+	if (s == NULL || !s->is_method || ty == NULL || ty->params_len < 1)
+		return;
+	if (ty->params[0] == NULL || !is_ptr(ty->params[0]))
+		return;
+	pname = (ty->param_names && ty->param_names[0]) ? ty->param_names[0] : NULL;
+	if (pname == NULL || pname[0] == 0)
+		return;
+	sp = fn->span;
+	ok = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w cnel %%%s, 0\n", ok.text, pname);
+	lok = newlbl();
+	ltrap = newlbl();
+	emitjnz(ok.text, lok, ltrap);
+	emitlbl(ltrap);
+	emit_null_fail(c, sp, lok);
 }
 
 // Branch to __modc_bounds_fail when index is not strictly less than len (unsigned).
@@ -1276,7 +1331,7 @@ emitlval(Compiler* c, Node* n) {
 			i = emitexpr(c, n->b);
 			if (i.cls != 'l')
 				i = coerce(i, 'l', c->types.type_llong);
-			if (c->opt.bounds_check) {
+			if (c->opt.runtime_check) {
 				lenoff = 8;
 				if (n->a->type->fields && n->a->type->fields->next)
 					lenoff = n->a->type->fields->next->offset;
@@ -1320,7 +1375,7 @@ emitlval(Compiler* c, Node* n) {
 			i = coerce(i, 'l', c->types.type_llong);
 		if (b.cls != 'l')
 			b = coerce(b, 'l', c->types.type_void_ptr);
-		if (c->opt.bounds_check) {
+		if (c->opt.runtime_check) {
 			Val lenv;
 			int64_t flen;
 
@@ -2244,7 +2299,7 @@ emitexpr(Compiler* c, Node* n) {
 		} else
 			hi = lenv;
 		/* Valid closed window: 0 <= lo <= hi <= parent len (unsigned). */
-		if (c->opt.bounds_check) {
+		if (c->opt.runtime_check) {
 			emit_ule_bounds(c, hi, lenv, n->span);
 			emit_ule_bounds(c, lo, hi, n->span);
 		}
@@ -3108,6 +3163,7 @@ emitfunc(Compiler* c, Node* fn) {
 	fputs(") {\n@start\n", outf);
 	emit_curfn = fn;
 	emitallocs(c);
+	emit_recv_null_check(c, fn);
 	if (is_aggr(ret)) {
 		int align, width;
 

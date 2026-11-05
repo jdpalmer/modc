@@ -1,4 +1,4 @@
-/* Fixed-array param OOB under --bounds-check; must abort (non-zero). */
+/* Fixed-array param OOB with runtime checks (default); must abort (non-zero). */
 static int grab(int a[2]) {
 	return a[2];
 }

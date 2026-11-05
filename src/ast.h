@@ -563,8 +563,9 @@ struct CompOpt {
 	int check_only;
 	/* Parse decls + signatures only; skip function bodies (FPC parse_only). */
 	int parse_only;
-	// Insert runtime index bounds traps.
-	int bounds_check;
+	/* Runtime traps (on by default): index/subrange bounds + method null.
+	 * Cleared by --release. */
+	int runtime_check;
 	// Codegen / ABI target (Target*).
 	int target;
 };

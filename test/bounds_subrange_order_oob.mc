@@ -1,4 +1,4 @@
-/* Subrange with lo > hi under --bounds-check; must abort (non-zero). */
+/* Subrange with lo > hi with runtime checks (default); must abort (non-zero). */
 int main() {
 	int a[4] = { 1, 2, 3, 4 };
 	int[..] w = { 0 };

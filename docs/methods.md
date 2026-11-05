@@ -51,8 +51,10 @@ rules in the method body (compile errors):
 
 Callers must not invoke a method on a null `T *`. That is a caller bug, same
 as passing null into a C API that does not document `free(3)`-style no-ops.
-Idempotent teardown is expressed by an **already-closed object** (for example
-`f.native == NULL` after `close`), not by a null receiver pointer.
+By default the compiler inserts a null trap at method entry
+(`__modc_null_fail`); `--release` omits it. Idempotent teardown is expressed by
+an **already-closed object** (for example `f.native == NULL` after `close`),
+not by a null receiver pointer.
 
 Everyday mutators (`init`, `show`, `append`, …) and teardown (`free`,
 `close`) all assume `r` is live and use `r.field` directly. Do not write

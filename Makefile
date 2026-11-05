@@ -76,22 +76,30 @@ $(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h
 check: $(MODC)
 	@mkdir -p $(BUILD)
 	./modc test test
-	./modc test --bounds-check test/bounds_ok_test.mc
+	./modc test test/bounds_ok_test.mc
+	./modc test test/null_recv_ok_test.mc
 	./modc test test/special/cli_args_test.mc -- a b
 	./modc test -M test test/testdriver
 	./modc selftest
-	./modc build --bounds-check -o $(BUILD)/bounds_oob test/bounds_oob.mc
+	./modc build -o $(BUILD)/bounds_oob test/bounds_oob.mc
 	@$(BUILD)/bounds_oob >$(BUILD)/bounds_oob.out 2>$(BUILD)/bounds_oob.err; test $$? -ne 0
 	@grep -q 'bounds: index' $(BUILD)/bounds_oob.err
-	./modc build --bounds-check -o $(BUILD)/bounds_param_oob test/bounds_param_oob.mc
+	./modc build -o $(BUILD)/bounds_param_oob test/bounds_param_oob.mc
 	@$(BUILD)/bounds_param_oob >$(BUILD)/bounds_param_oob.out 2>$(BUILD)/bounds_param_oob.err; test $$? -ne 0
 	@grep -q 'bounds: index' $(BUILD)/bounds_param_oob.err
-	./modc build --bounds-check -o $(BUILD)/bounds_subrange_oob test/bounds_subrange_oob.mc
+	./modc build -o $(BUILD)/bounds_subrange_oob test/bounds_subrange_oob.mc
 	@$(BUILD)/bounds_subrange_oob >$(BUILD)/bounds_subrange_oob.out 2>$(BUILD)/bounds_subrange_oob.err; test $$? -ne 0
 	@grep -q 'bounds: index' $(BUILD)/bounds_subrange_oob.err
-	./modc build --bounds-check -o $(BUILD)/bounds_subrange_order_oob test/bounds_subrange_order_oob.mc
+	./modc build -o $(BUILD)/bounds_subrange_order_oob test/bounds_subrange_order_oob.mc
 	@$(BUILD)/bounds_subrange_order_oob >$(BUILD)/bounds_subrange_order_oob.out 2>$(BUILD)/bounds_subrange_order_oob.err; test $$? -ne 0
 	@grep -q 'bounds: index' $(BUILD)/bounds_subrange_order_oob.err
+	./modc build -o $(BUILD)/null_recv_oob test/null_recv_oob.mc
+	@$(BUILD)/null_recv_oob >$(BUILD)/null_recv_oob.out 2>$(BUILD)/null_recv_oob.err; test $$? -ne 0
+	@grep -q 'null method receiver' $(BUILD)/null_recv_oob.err
+	# --release omits traps (null recv should not print the checked message)
+	./modc build --release -o $(BUILD)/null_recv_release test/null_recv_oob.mc
+	@$(BUILD)/null_recv_release >$(BUILD)/null_recv_release.out 2>$(BUILD)/null_recv_release.err; test $$? -ne 0
+	@! grep -q 'null method receiver' $(BUILD)/null_recv_release.err
 	./modc build -o $(BUILD)/crash_panic test/crash_panic_die.mc
 	@$(BUILD)/crash_panic >/dev/null 2>&1; test $$? -ne 0
 	./modc build -o $(BUILD)/crash_cleanup test/crash_cleanup_die.mc

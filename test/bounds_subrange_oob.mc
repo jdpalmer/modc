@@ -1,4 +1,4 @@
-/* Subrange past parent len under --bounds-check; must abort (non-zero). */
+/* Subrange past parent len with runtime checks (default); must abort (non-zero). */
 int main() {
 	int a[2] = { 1, 2 };
 	int[..] w = { 0 };
