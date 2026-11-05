@@ -54,7 +54,7 @@ struct OsPoll {
 
 void ocmd_clear_stdio(OsCmd* c) {
 	int i = 0;
-	for (i = 0; i < 3; i++) {
+	for (; i < 3; i++) {
 		c.mode[i] = OsIoInherit;
 		if (c.child_h[i] != 0 && c.child_h[i] != INVALID_HANDLE_VALUE) {
 			CloseHandle(c.child_h[i]);
@@ -64,14 +64,13 @@ void ocmd_clear_stdio(OsCmd* c) {
 }
 
 OsCmd* ocmd_new() {
-	OsCmd* c = 0;
+	OsCmd* c = (OsCmd *)malloc(sizeof(*c));
 	int i = 0;
-	c = (OsCmd *)malloc(sizeof(*c));
 	if (c == 0) {
 		return 0;
 	}
 	memset(c, 0, sizeof(*c));
-	for (i = 0; i < 3; i++) {
+	for (; i < 3; i++) {
 		c.mode[i] = OsIoInherit;
 		c.child_h[i] = 0;
 	}
@@ -80,7 +79,7 @@ OsCmd* ocmd_new() {
 
 void ocmd_free_args(OsCmd* c) {
 	int i = 0;
-	for (i = 0; i < c.nargs; i++) {
+	for (; i < c.nargs; i++) {
 		free(c.argv[i]);
 		c.argv[i] = 0;
 	}
@@ -91,7 +90,7 @@ void ocmd_free_args(OsCmd* c) {
 
 void ocmd_free_env(OsCmd* c) {
 	int i = 0;
-	for (i = 0; i < c.nenv; i++) {
+	for (; i < c.nenv; i++) {
 		free(c.ekey[i]);
 		free(c.eval[i]);
 		c.ekey[i] = 0;
@@ -118,8 +117,7 @@ void ocmd_free(OsCmd* c) {
 }
 
 char* ocmd_strdup(const char *s, size_t n) {
-	char* p = 0;
-	p = (char*)malloc(n + 1);
+	char* p = (char*)malloc(n + 1);
 	if (p == 0) {
 		return 0;
 	}
@@ -174,12 +172,10 @@ int ocmd_set_dir(OsCmd* c, const char *d, size_t n) {
 
 int ocmd_set_env(OsCmd* c, const char *k, size_t kn, const char *v, size_t vn) {
 	int i = 0;
-	char* nk = 0;
-	char* nv = 0;
 	if (c == 0 || kn == 0) {
 		return 0;
 	}
-	for (i = 0; i < c.nenv; i++) {
+	for (; i < c.nenv; i++) {
 		if (strlen(c.ekey[i]) == kn && memcmp(c.ekey[i], k, kn) == 0) {
 			free(c.eval[i]);
 			c.eval[i] = ocmd_strdup(v, vn);
@@ -189,8 +185,8 @@ int ocmd_set_env(OsCmd* c, const char *k, size_t kn, const char *v, size_t vn) {
 	if (c.nenv >= OsEnvMax) {
 		return 0;
 	}
-	nk = ocmd_strdup(k, kn);
-	nv = ocmd_strdup(v, vn);
+	char* nk = ocmd_strdup(k, kn);
+	char* nv = ocmd_strdup(v, vn);
 	if (nk == 0 || (vn != 0 && nv == 0)) {
 		free(nk);
 		free(nv);
@@ -221,8 +217,6 @@ int ocmd_pipe(OsCmd* c, int which, HANDLE* parent_h) {
 	SECURITY_ATTRIBUTES sa = { 0 };
 	HANDLE rd = 0;
 	HANDLE wr = 0;
-	HANDLE parent = 0;
-	HANDLE child = 0;
 	if (c == 0 || parent_h == 0 || which < 0 || which > 2) {
 		return 0;
 	}
@@ -231,15 +225,9 @@ int ocmd_pipe(OsCmd* c, int which, HANDLE* parent_h) {
 	if (!CreatePipe(&rd, &wr, &sa, 0)) {
 		return 0;
 	}
-	if (which == OsStdIn) {
-		parent = wr;
-		child = rd;
-		SetHandleInformation(parent, HANDLE_FLAG_INHERIT, 0);
-	} else {
-		parent = rd;
-		child = wr;
-		SetHandleInformation(parent, HANDLE_FLAG_INHERIT, 0);
-	}
+	HANDLE parent = which == OsStdIn ? wr: rd;
+	HANDLE child = which == OsStdIn ? rd: wr;
+	SetHandleInformation(parent, HANDLE_FLAG_INHERIT, 0);
 	if (c.child_h[which] != 0 && c.child_h[which] != INVALID_HANDLE_VALUE) {
 		CloseHandle(c.child_h[which]);
 	}
@@ -254,7 +242,7 @@ int ocmd_path_has_sep(const char *p) {
 	if (p == 0) {
 		return 0;
 	}
-	for (i = 0; p[i]; i++) {
+	for (; p[i]; i++) {
 		if (p[i] == '/' || p[i] == '\\' || p[i] == ':') {
 			return 1;
 		}
@@ -263,7 +251,6 @@ int ocmd_path_has_sep(const char *p) {
 }
 
 int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
-	DWORD n = 0;
 	if (name == 0 || name[0] == 0 || dst == 0 || dstcap < 2) {
 		return 0;
 	}
@@ -275,7 +262,7 @@ int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 		memcpy(dst, name, nlen + 1);
 		return 1;
 	}
-	n = SearchPathA(0, name, ".exe", (DWORD)dstcap, dst, 0);
+	DWORD n = SearchPathA(0, name, ".exe", (DWORD)dstcap, dst, 0);
 	if (n > 0 && n < dstcap) {
 		return 1;
 	}
@@ -289,13 +276,12 @@ int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 /* Quote one argv element for CreateProcess command line. */
 int ocmd_quote_arg(const char *arg, char *dst, size_t cap, size_t* used) {
 	size_t i = 0;
-	size_t o = 0;
 	int need = 0;
 	if (arg == 0 || dst == 0 || used == 0) {
 		return 0;
 	}
-	o = *used;
-	for (i = 0; arg[i]; i++) {
+	size_t o = *used;
+	for (; arg[i]; i++) {
 		if (arg[i] == ' ' || arg[i] == '\t' || arg[i] == '"') {
 			need = 1;
 			break;
@@ -340,7 +326,7 @@ int ocmd_build_cmdline(OsCmd* c, char* dst, size_t cap) {
 	if (c == 0 || dst == 0 || cap == 0) {
 		return 0;
 	}
-	for (i = 0; i < c.nargs; i++) {
+	for (; i < c.nargs; i++) {
 		if (i > 0) {
 			if (used + 1 >= cap) {
 				return 0;
@@ -359,34 +345,27 @@ int ocmd_build_cmdline(OsCmd* c, char* dst, size_t cap) {
 }
 
 char* ocmd_build_env_block(OsCmd* c) {
-	char* parent = 0;
-	char* p = 0;
-	char* block = 0;
-	size_t cap = 0;
-	size_t len = 0;
 	int i = 0;
 	if (c == 0 || c.nenv == 0) {
 		return 0;
 	}
-	parent = GetEnvironmentStringsA();
+	char* parent = GetEnvironmentStringsA();
 	if (parent == 0) {
 		return 0;
 	}
 	/* Measure parent, skipping keys we override or unset. */
-	cap = 1;
-	p = parent;
+	size_t cap = 1;
+	char* p = parent;
 	while (*p) {
-		char* eq = 0;
-		size_t kn = 0;
 		int skip = 0;
 		int k = 0;
-		eq = strchr(p, '=');
+		char* eq = strchr(p, '=');
 		if (eq == 0) {
 			p += strlen(p) + 1;
 			continue;
 		}
-		kn = eq - p;
-		for (k = 0; k < c.nenv; k++) {
+		size_t kn = eq - p;
+		for (; k < c.nenv; k++) {
 			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], p, kn) == 0) {
 				skip = 1;
 				break;
@@ -397,38 +376,35 @@ char* ocmd_build_env_block(OsCmd* c) {
 		}
 		p += strlen(p) + 1;
 	}
-	for (i = 0; i < c.nenv; i++) {
+	for (; i < c.nenv; i++) {
 		if (c.eval[i] == 0 || c.eval[i][0] == 0) {
 			continue;
 		}
 		cap += strlen(c.ekey[i]) + 1 + strlen(c.eval[i]) + 1;
 	}
-	block = (char*)malloc(cap);
+	char* block = (char*)malloc(cap);
 	if (block == 0) {
 		FreeEnvironmentStringsA(parent);
 		return 0;
 	}
-	len = 0;
+	size_t len = 0;
 	p = parent;
 	while (*p) {
-		char* eq = 0;
-		size_t kn = 0;
-		size_t ln = 0;
 		int skip = 0;
 		int k = 0;
-		eq = strchr(p, '=');
+		char* eq = strchr(p, '=');
 		if (eq == 0) {
 			p += strlen(p) + 1;
 			continue;
 		}
-		kn = eq - p;
-		for (k = 0; k < c.nenv; k++) {
+		size_t kn = eq - p;
+		for (; k < c.nenv; k++) {
 			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], p, kn) == 0) {
 				skip = 1;
 				break;
 			}
 		}
-		ln = strlen(p) + 1;
+		size_t ln = strlen(p) + 1;
 		if (!skip) {
 			memcpy(block + len, p, ln);
 			len += ln;
@@ -436,13 +412,11 @@ char* ocmd_build_env_block(OsCmd* c) {
 		p += ln;
 	}
 	for (i = 0; i < c.nenv; i++) {
-		size_t kn = 0;
-		size_t vn = 0;
 		if (c.eval[i] == 0 || c.eval[i][0] == 0) {
 			continue;
 		}
-		kn = strlen(c.ekey[i]);
-		vn = strlen(c.eval[i]);
+		size_t kn = strlen(c.ekey[i]);
+		size_t vn = strlen(c.eval[i]);
 		memcpy(block + len, c.ekey[i], kn);
 		len += kn;
 		block[len++] = '=';
@@ -457,10 +431,9 @@ char* ocmd_build_env_block(OsCmd* c) {
 
 HANDLE ocmd_open_null(int wr) {
 	SECURITY_ATTRIBUTES sa = { 0 };
-	HANDLE h = 0;
 	sa.nLength = sizeof(sa);
 	sa.bInheritHandle = 1;
-	h = CreateFileA("NUL", wr ? GENERIC_WRITE: GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, 0);
+	HANDLE h = CreateFileA("NUL", wr ? GENERIC_WRITE: GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, 0);
 	if (h == INVALID_HANDLE_VALUE) {
 		return 0;
 	}
@@ -474,8 +447,8 @@ int ocmd_start(OsCmd* c) {
 	PROCESS_INFORMATION pi = { 0 };
 	HANDLE nul_h[3] = { 0 };
 	char* envblock = 0;
-	int i = 0;
 	BOOL ok = 0;
+	int i = 0;
 	if (c == 0 || c.file == 0 || c.started) {
 		return 0;
 	}
@@ -493,7 +466,7 @@ int ocmd_start(OsCmd* c) {
 	}
 	si.cb = sizeof(si);
 	si.dwFlags = STARTF_USESTDHANDLES;
-	for (i = 0; i < 3; i++) {
+	for (; i < 3; i++) {
 		if (c.mode[i] == OsIoPipe) {
 			if (c.child_h[i] == 0 || c.child_h[i] == INVALID_HANDLE_VALUE) {
 				return 0;
@@ -582,11 +555,10 @@ int ocmd_wait(OsCmd* c, int* code) {
 
 int ocmd_poll_reap(OsCmd* c) {
 	DWORD st = 0;
-	DWORD w = 0;
 	if (c == 0 || !c.started || c.reaped) {
 		return c && c.reaped;
 	}
-	w = WaitForSingleObject(c.proc, 0);
+	DWORD w = WaitForSingleObject(c.proc, 0);
 	if (w == WAIT_TIMEOUT) {
 		return 0;
 	}
@@ -632,7 +604,7 @@ int opoll_add_file(OsPoll* p, void* file, int events) {
 	if (p == 0 || file == 0 || p.n >= OsPollMax) {
 		return 0;
 	}
-	for (i = 0; i < p.n; i++) {
+	for (; i < p.n; i++) {
 		if (!p.slot[i].is_cmd && p.slot[i].file == file) {
 			return 0;
 		}
@@ -653,7 +625,7 @@ int opoll_add_cmd(OsPoll* p, void* cmd_handle, void* ocmd) {
 	if (p == 0 || cmd_handle == 0 || ocmd == 0 || p.n >= OsPollMax) {
 		return 0;
 	}
-	for (i = 0; i < p.n; i++) {
+	for (; i < p.n; i++) {
 		if (p.slot[i].is_cmd && p.slot[i].cmd == cmd_handle) {
 			return 0;
 		}
@@ -687,7 +659,7 @@ int opoll_wait(OsPoll* p, HANDLE* hs, int timeout_ms) {
 		return -1;
 	}
 	p.nready = 0;
-	for (i = 0; i < p.n; i++) {
+	for (; i < p.n; i++) {
 		p.slot[i].ready = 0;
 		p.slot[i].revents = 0;
 	}

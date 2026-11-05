@@ -5,8 +5,7 @@
 #include <string.h>
 
 overload size_t write_cap(char dst[], const char[..] src, size_t cap) {
-	size_t n = { 0 };
-	n = len(src);
+	size_t n = len(src);
 	if (cap == 0 || dst == NULL) {
 		return n;
 	}

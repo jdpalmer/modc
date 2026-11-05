@@ -14,7 +14,6 @@ JsonValue;
 
 int self_ref_ptr_run() {
 	JsonValue v = { 0 };
-	JsonValue* p = { 0 };
 	JsonValue* kids[1] = { 0 };
 
 	v.kind = 1;
@@ -24,7 +23,7 @@ int self_ref_ptr_run() {
 	kids[0] = &v;
 	v.items = kids;
 	v.n = 1;
-	p = v.items[0];
+	JsonValue* p = v.items[0];
 	if (p == 0 || p.kind != 1) {
 		return 1;
 	}

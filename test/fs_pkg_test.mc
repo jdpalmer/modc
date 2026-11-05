@@ -20,14 +20,8 @@ int write_all(File* f, const char[..] src) {
 int test_rw_seek_remove() {
 	const char[..] name = "fs_pkg_tmp.bin";
 	char got[16] = { 0 };
-	File f = { 0 };
-	int ok = 0;
 	fs_remove(name);
-	{
-		auto (opened, good) = file_open(name, OpenRead | OpenWrite | OpenCreate | OpenTrunc);
-		f = opened;
-		ok = good;
-	}
+	auto (f, ok) = file_open(name, OpenRead | OpenWrite | OpenCreate | OpenTrunc);
 	if (!ok) {
 		return 1;
 	}
@@ -70,14 +64,8 @@ int test_rw_seek_remove() {
 int test_append() {
 	const char[..] name = "fs_pkg_tmp.bin";
 	char got[16] = { 0 };
-	File f = { 0 };
-	int ok = 0;
 	fs_remove(name);
-	{
-		auto (opened, good) = file_open(name, OpenWrite | OpenCreate | OpenTrunc);
-		f = opened;
-		ok = good;
-	}
+	auto (f, ok) = file_open(name, OpenWrite | OpenCreate | OpenTrunc);
 	if (!ok || !write_all(&f, "ab")) {
 		f.close();
 		fs_remove(name);
@@ -148,8 +136,6 @@ int test_mkdir_rename() {
 	const char[..] dir = "fs_pkg_tmp_dir";
 	const char[..] from = "fs_pkg_tmp.bin";
 	const char[..] to = "fs_pkg_tmp_renamed.bin";
-	File f = { 0 };
-	int ok = 0;
 	fs_remove(from);
 	fs_remove(to);
 	fs_remove(dir);
@@ -159,11 +145,7 @@ int test_mkdir_rename() {
 	if (!fs_remove(dir)) {
 		return 2;
 	}
-	{
-		auto (opened, good) = file_open(from, OpenWrite | OpenCreate | OpenTrunc);
-		f = opened;
-		ok = good;
-	}
+	auto (f, ok) = file_open(from, OpenWrite | OpenCreate | OpenTrunc);
 	if (!ok) {
 		return 3;
 	}
@@ -183,9 +165,7 @@ int test_stat_dir() {
 	const char[..] fa = "fs_pkg_list/a";
 	const char[..] fb = "fs_pkg_list/b";
 	const char[..] file = "fs_pkg_stat.bin";
-	File f = { 0 };
 	Dir d = { 0 };
-	int ok = 0;
 	int saw_a = 0;
 	int saw_b = 0;
 	int nent = 0;
@@ -203,11 +183,7 @@ int test_stat_dir() {
 			return 2;
 		}
 	}
-	{
-		auto (opened, good) = file_open(fa, OpenWrite | OpenCreate | OpenTrunc);
-		f = opened;
-		ok = good;
-	}
+	auto (f, ok) = file_open(fa, OpenWrite | OpenCreate | OpenTrunc);
 	if (!ok || !write_all(&f, "hello")) {
 		f.close();
 		fs_remove(fa);
@@ -492,7 +468,7 @@ int test_buf_tiny_writes() {
 		}
 		w = ow;
 	}
-	for (i = 0; i < 10; i = i + 1) {
+	for (; i < 10; i = i + 1) {
 		char one[1] = { 0 };
 		one[0] = (char)('0' + i);
 		auto (n, ok) = w.write(one);
@@ -518,7 +494,7 @@ int test_buf_tiny_writes() {
 			fs_remove(name);
 			return 4;
 		}
-		for (i = 0; i < 10; i = i + 1) {
+		for (; i < 10; i = i + 1) {
 			if (got[i] != (char)('0' + i)) {
 				r.close();
 				fs_remove(name);
@@ -547,7 +523,7 @@ int test_buf_utf8_split() {
 		}
 		w = ow;
 	}
-	for (i = 0; i < 3; i = i + 1) {
+	for (; i < 3; i = i + 1) {
 		char one[1] = { 0 };
 		one[0] = euro[i];
 		auto (n, ok) = w.write(one);

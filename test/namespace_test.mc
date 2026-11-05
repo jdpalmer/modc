@@ -61,8 +61,6 @@ int main() {
 	Point p = { 0 };
 	Rect r = { 0 };
 	union U u = { 0 };
-	Color c = COLOR_RED;
-
 	p.x = 3;
 	p.y = 4;
 	if (point_sum(p) != 7) {
@@ -77,7 +75,7 @@ int main() {
 	if (union_i(u) != 42) {
 		return 3;
 	}
-	c = COLOR_GREEN;
+	Color c = COLOR_GREEN;
 	if (color_val(c) != 1) {
 		return 4;
 	}

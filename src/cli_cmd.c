@@ -87,6 +87,10 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 		outname = default_out_name(o->files[0], o->target);
 		o->output = outname;
 	}
+	/* Default (and common -o build/…) lands under build/; ensure it exists. */
+	if (o->output &&
+	    (strncmp(o->output, "build/", 6) == 0 || strncmp(o->output, "build\\", 6) == 0))
+		(void)host_mkdir("build");
 	if (o->verbose)
 		fprintf(stderr, "building %s -> %s\n", o->files[0], o->output);
 	if (host_mkdtemp(dir, sizeof(dir), "modc-build") != 0) {

@@ -110,30 +110,27 @@ struct FsFd {
 };
 
 static int fs_fd(File* f) {
-	FsFd* blob = NULL;
 	if (f == NULL || f.native == NULL) {
 		return -1;
 	}
-	blob = (FsFd *)f.native;
+	FsFd* blob = (FsFd *)f.native;
 	return blob.fd;
 }
 
 static int fs_oflags(int flags) {
 	int rd = (flags & OpenRead) != 0;
 	int wr = (flags & OpenWrite) != 0;
-	int acc = 0;
 	if ((flags & OpenCreate) != 0) {
 		wr = 1;
 	}
 	if (!rd && !wr) {
 		return -1;
 	}
+	int acc = O_RDONLY;
 	if (rd && wr) {
 		acc = O_RDWR;
 	} else if (wr) {
 		acc = O_WRONLY;
-	} else {
-		acc = O_RDONLY;
 	}
 	if ((flags & OpenCreate) != 0) {
 		acc |= O_CREAT;
@@ -164,18 +161,15 @@ static int fs_oflags(int flags) {
 	return (f, true);
 #else
 	char zbuf[FsPathMax] = { 0 };
-	int ofl = 0;
-	int fd = 0;
-	FsFd* blob = NULL;
-	ofl = fs_oflags(flags);
+	int ofl = fs_oflags(flags);
 	if (ofl < 0 || !fs_syspath(path, zbuf, FsPathMax)) {
 		return (f, false);
 	}
-	fd = open(zbuf, ofl, 438);
+	int fd = open(zbuf, ofl, 438);
 	if (fd < 0) {
 		return (f, false);
 	}
-	blob = (FsFd *)malloc(sizeof(FsFd));
+	FsFd* blob = (FsFd *)malloc(sizeof(FsFd));
 	if (blob == NULL) {
 		close(fd);
 		return (f, false);
@@ -194,11 +188,10 @@ static int fs_oflags(int flags) {
 	(void)fd;
 	return (f, false);
 #else
-	FsFd* blob = NULL;
 	if (fd < 0) {
 		return (f, false);
 	}
-	blob = (FsFd *)malloc(sizeof(FsFd));
+	FsFd* blob = (FsFd *)malloc(sizeof(FsFd));
 	if (blob == NULL) {
 		return (f, false);
 	}
@@ -216,11 +209,10 @@ static int fs_oflags(int flags) {
 	(void)fd;
 	return (f, false);
 #else
-	FsFd* blob = NULL;
 	if (fd < 0) {
 		return (f, false);
 	}
-	blob = (FsFd *)malloc(sizeof(FsFd));
+	FsFd* blob = (FsFd *)malloc(sizeof(FsFd));
 	if (blob == NULL) {
 		return (f, false);
 	}
@@ -309,14 +301,13 @@ void* file_handle(File* f) {
 	return (n, true);
 #else
 	int fd = fs_fd(f);
-	ssize_t n = 0;
 	if (fd < 0) {
 		return (0, false);
 	}
 	if (cap(dst) == 0) {
 		return (0, true);
 	}
-	n = read(fd, ptr(dst), cap(dst));
+	ssize_t n = read(fd, ptr(dst), cap(dst));
 	if (n < 0) {
 		return (0, false);
 	}
@@ -339,14 +330,13 @@ void* file_handle(File* f) {
 	return (n, true);
 #else
 	int fd = fs_fd(f);
-	ssize_t n = 0;
 	if (fd < 0) {
 		return (0, false);
 	}
 	if (len(src) == 0) {
 		return (0, true);
 	}
-	n = write(fd, ptr(src), len(src));
+	ssize_t n = write(fd, ptr(src), len(src));
 	if (n < 0) {
 		return (0, false);
 	}
@@ -370,7 +360,6 @@ void* file_handle(File* f) {
 #else
 	int fd = fs_fd(f);
 	int wh = 0;
-	off_t got = 0;
 	if (fd < 0) {
 		return (0, false);
 	}
@@ -383,7 +372,7 @@ void* file_handle(File* f) {
 	} else {
 		return (0, false);
 	}
-	got = lseek(fd, off, wh);
+	off_t got = lseek(fd, off, wh);
 	if (got < 0) {
 		return (0, false);
 	}
@@ -391,7 +380,7 @@ void* file_handle(File* f) {
 #endif
 }
 
-void (File* f).close() {
+void ([[consumes]] File* f).close() {
 #ifdef _WIN32
 	if (f.native == NULL) {
 		return;
@@ -399,11 +388,10 @@ void (File* f).close() {
 	fs_win_close(f.native);
 	f.native = NULL;
 #else
-	FsFd* blob = NULL;
 	if (f.native == NULL) {
 		return;
 	}
-	blob = (FsFd *)f.native;
+	FsFd* blob = (FsFd *)f.native;
 	if (blob.owns && blob.fd >= 0) {
 		close(blob.fd);
 	}
@@ -439,14 +427,12 @@ static size_t fs_buf_cap(size_t cap) {
 }
 
 static size_t utf8_complete_prefix(const char *p, size_t n) {
-	size_t i = 0;
 	size_t trail = 0;
 	size_t need = 0;
-	char c = 0;
 	if (n == 0) {
 		return 0;
 	}
-	i = n;
+	size_t i = n;
 	while (i > 0 && trail < 3 && (p[i - 1] & 0xc0) == 0x80) {
 		trail = trail + 1;
 		i = i - 1;
@@ -454,7 +440,7 @@ static size_t utf8_complete_prefix(const char *p, size_t n) {
 	if (i == 0) {
 		return 0;
 	}
-	c = p[i - 1];
+	char c = p[i - 1];
 	if (c < 0x80) {
 		need = 1;
 	} else if ((c & 0xe0) == 0xc0) {
@@ -502,16 +488,14 @@ static int fs_file_write_all(File* f, const char *p, size_t n) {
 }
 
 static int fs_bufw_flush_safe(FsBufW* b) {
-	File* f = NULL;
-	size_t n = 0;
 	if (b == NULL || b.buf == NULL) {
 		return 0;
 	}
-	f = fs_bufw_file(b);
+	File* f = fs_bufw_file(b);
 	if (f == NULL) {
 		return 0;
 	}
-	n = utf8_complete_prefix(b.buf, b.len);
+	size_t n = utf8_complete_prefix(b.buf, b.len);
 	if (n == 0) {
 		return 1;
 	}
@@ -526,14 +510,13 @@ static int fs_bufw_flush_safe(FsBufW* b) {
 }
 
 static int fs_bufw_flush_all(FsBufW* b) {
-	File* f = NULL;
 	if (b == NULL || b.buf == NULL) {
 		return 0;
 	}
 	if (b.len == 0) {
 		return 1;
 	}
-	f = fs_bufw_file(b);
+	File* f = fs_bufw_file(b);
 	if (f == NULL) {
 		return 0;
 	}
@@ -544,36 +527,29 @@ static int fs_bufw_flush_all(FsBufW* b) {
 	return 1;
 }
 
-static int fs_bufw_setup(FsBufW* b, File* f, int owns, size_t cap) {
-	char* buf = NULL;
+/* Owned: File by value (moves native). Borrow: stores File* ([[retains]]). */
+static int fs_bufw_setup_owned(FsBufW* b, File f, size_t cap) {
 	size_t c = fs_buf_cap(cap);
-	if (b == NULL || f == NULL || f.native == NULL) {
+	if (b == NULL || f.native == NULL) {
 		return 0;
 	}
 	if (cap != 0 && cap < 4) {
 		return 0;
 	}
-	buf = (char*)malloc(c);
+	char* buf = (char*)malloc(c);
 	if (buf == NULL) {
 		return 0;
 	}
-	b.owned.native = NULL;
+	b.owned.native = f.native;
 	b.borrow = NULL;
-	b.owns = owns;
-	if (owns) {
-		b.owned.native = f.native;
-		f.native = NULL;
-	} else {
-		b.borrow = f;
-	}
+	b.owns = 1;
 	b.buf = buf;
 	b.cap = c;
 	b.len = 0;
 	return 1;
 }
 
-static int fs_bufr_setup(FsBufR* b, File* f, int owns, size_t cap) {
-	char* buf = NULL;
+static int fs_bufw_setup_borrow(FsBufW* b, File* f, size_t cap) {
 	size_t c = fs_buf_cap(cap);
 	if (b == NULL || f == NULL || f.native == NULL) {
 		return 0;
@@ -581,19 +557,56 @@ static int fs_bufr_setup(FsBufR* b, File* f, int owns, size_t cap) {
 	if (cap != 0 && cap < 4) {
 		return 0;
 	}
-	buf = (char*)malloc(c);
+	char* buf = (char*)malloc(c);
 	if (buf == NULL) {
 		return 0;
 	}
 	b.owned.native = NULL;
-	b.borrow = NULL;
-	b.owns = owns;
-	if (owns) {
-		b.owned.native = f.native;
-		f.native = NULL;
-	} else {
-		b.borrow = f;
+	b.borrow = f;
+	b.owns = 0;
+	b.buf = buf;
+	b.cap = c;
+	b.len = 0;
+	return 1;
+}
+
+static int fs_bufr_setup_owned(FsBufR* b, File f, size_t cap) {
+	size_t c = fs_buf_cap(cap);
+	if (b == NULL || f.native == NULL) {
+		return 0;
 	}
+	if (cap != 0 && cap < 4) {
+		return 0;
+	}
+	char* buf = (char*)malloc(c);
+	if (buf == NULL) {
+		return 0;
+	}
+	b.owned.native = f.native;
+	b.borrow = NULL;
+	b.owns = 1;
+	b.buf = buf;
+	b.cap = c;
+	b.off = 0;
+	b.end = 0;
+	return 1;
+}
+
+static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
+	size_t c = fs_buf_cap(cap);
+	if (b == NULL || f == NULL || f.native == NULL) {
+		return 0;
+	}
+	if (cap != 0 && cap < 4) {
+		return 0;
+	}
+	char* buf = (char*)malloc(c);
+	if (buf == NULL) {
+		return 0;
+	}
+	b.owned.native = NULL;
+	b.borrow = f;
+	b.owns = 0;
 	b.buf = buf;
 	b.cap = c;
 	b.off = 0;
@@ -603,7 +616,6 @@ static int fs_bufr_setup(FsBufR* b, File* f, int owns, size_t cap) {
 
 (Writer, bool) writer_open(const char[..] path, int flags, size_t cap) {
 	Writer w = { 0 };
-	FsBufW* blob = NULL;
 	File f = { 0 };
 	{
 		auto (of, ok) = file_open(path, flags);
@@ -612,31 +624,31 @@ static int fs_bufr_setup(FsBufR* b, File* f, int owns, size_t cap) {
 		}
 		f = of;
 	}
-	blob = (FsBufW *)malloc(sizeof(FsBufW));
+	FsBufW* blob = (FsBufW *)malloc(sizeof(FsBufW));
 	if (blob == NULL) {
 		f.close();
 		return (w, false);
 	}
-	if (!fs_bufw_setup(blob, &f, 1, cap)) {
+	if (!fs_bufw_setup_owned(blob, f, cap)) {
 		f.close();
 		free(blob);
 		return (w, false);
 	}
+	f.native = NULL;
 	w.native = blob;
 	return (w, true);
 }
 
 (Writer, bool) writer_from_file(File* f, size_t cap) {
 	Writer w = { 0 };
-	FsBufW* blob = NULL;
 	if (f == NULL || f.native == NULL) {
 		return (w, false);
 	}
-	blob = (FsBufW *)malloc(sizeof(FsBufW));
+	FsBufW* blob = (FsBufW *)malloc(sizeof(FsBufW));
 	if (blob == NULL) {
 		return (w, false);
 	}
-	if (!fs_bufw_setup(blob, f, 0, cap)) {
+	if (!fs_bufw_setup_borrow(blob, f, cap)) {
 		free(blob);
 		return (w, false);
 	}
@@ -645,24 +657,20 @@ static int fs_bufr_setup(FsBufR* b, File* f, int owns, size_t cap) {
 }
 
 (int64_t, bool) (Writer* w).write(const char[..] src) {
-	FsBufW* b = NULL;
-	File* f = NULL;
-	const char *p = NULL;
-	size_t want = 0;
 	size_t done = 0;
 	if (w.native == NULL) {
 		return (0, false);
 	}
-	b = (FsBufW *)w.native;
-	f = fs_bufw_file(b);
+	FsBufW* b = (FsBufW *)w.native;
+	File* f = fs_bufw_file(b);
 	if (f == NULL || f.native == NULL || b.buf == NULL) {
 		return (0, false);
 	}
-	want = len(src);
+	size_t want = len(src);
 	if (want == 0) {
 		return (0, true);
 	}
-	p = ptr(src);
+	const char *p = ptr(src);
 	if (p == NULL) {
 		return (0, false);
 	}
@@ -733,20 +741,18 @@ static int fs_bufr_setup(FsBufR* b, File* f, int owns, size_t cap) {
 }
 
 bool (Writer* w).flush() {
-	FsBufW* b = NULL;
 	if (w.native == NULL) {
 		return false;
 	}
-	b = (FsBufW *)w.native;
+	FsBufW* b = (FsBufW *)w.native;
 	return fs_bufw_flush_safe(b) != 0;
 }
 
-void (Writer* w).close() {
-	FsBufW* b = NULL;
+void ([[consumes]] Writer* w).close() {
 	if (w.native == NULL) {
 		return;
 	}
-	b = (FsBufW *)w.native;
+	FsBufW* b = (FsBufW *)w.native;
 	(void)fs_bufw_flush_all(b);
 	if (b.owns) {
 		b.owned.close();
@@ -758,7 +764,6 @@ void (Writer* w).close() {
 
 (Reader, bool) reader_open(const char[..] path, int flags, size_t cap) {
 	Reader r = { 0 };
-	FsBufR* blob = NULL;
 	File f = { 0 };
 	{
 		auto (of, ok) = file_open(path, flags);
@@ -767,31 +772,31 @@ void (Writer* w).close() {
 		}
 		f = of;
 	}
-	blob = (FsBufR *)malloc(sizeof(FsBufR));
+	FsBufR* blob = (FsBufR *)malloc(sizeof(FsBufR));
 	if (blob == NULL) {
 		f.close();
 		return (r, false);
 	}
-	if (!fs_bufr_setup(blob, &f, 1, cap)) {
+	if (!fs_bufr_setup_owned(blob, f, cap)) {
 		f.close();
 		free(blob);
 		return (r, false);
 	}
+	f.native = NULL;
 	r.native = blob;
 	return (r, true);
 }
 
 (Reader, bool) reader_from_file(File* f, size_t cap) {
 	Reader r = { 0 };
-	FsBufR* blob = NULL;
 	if (f == NULL || f.native == NULL) {
 		return (r, false);
 	}
-	blob = (FsBufR *)malloc(sizeof(FsBufR));
+	FsBufR* blob = (FsBufR *)malloc(sizeof(FsBufR));
 	if (blob == NULL) {
 		return (r, false);
 	}
-	if (!fs_bufr_setup(blob, f, 0, cap)) {
+	if (!fs_bufr_setup_borrow(blob, f, cap)) {
 		free(blob);
 		return (r, false);
 	}
@@ -800,24 +805,20 @@ void (Writer* w).close() {
 }
 
 (int64_t, bool) (Reader* r).read(char[..] dst) {
-	FsBufR* b = NULL;
-	File* f = NULL;
-	char* out = NULL;
-	size_t want = 0;
 	size_t got = 0;
 	if (r.native == NULL) {
 		return (0, false);
 	}
-	b = (FsBufR *)r.native;
-	f = fs_bufr_file(b);
+	FsBufR* b = (FsBufR *)r.native;
+	File* f = fs_bufr_file(b);
 	if (f == NULL || f.native == NULL || b.buf == NULL) {
 		return (0, false);
 	}
-	want = cap(dst);
+	size_t want = cap(dst);
 	if (want == 0) {
 		return (0, true);
 	}
-	out = ptr(dst);
+	char* out = ptr(dst);
 	if (out == NULL) {
 		return (0, false);
 	}
@@ -847,12 +848,11 @@ void (Writer* w).close() {
 	return (got, true);
 }
 
-void (Reader* r).close() {
-	FsBufR* b = NULL;
+void ([[consumes]] Reader* r).close() {
 	if (r.native == NULL) {
 		return;
 	}
-	b = (FsBufR *)r.native;
+	FsBufR* b = (FsBufR *)r.native;
 	if (b.owns) {
 		b.owned.close();
 	}
@@ -997,16 +997,14 @@ static int fs_dotname(char* name, size_t n) {
 	return (d, true);
 #else
 	char zbuf[FsPathMax] = { 0 };
-	void* dp = NULL;
-	FsDir* blob = NULL;
 	if (!fs_syspath(path, zbuf, FsPathMax)) {
 		return (d, false);
 	}
-	dp = fs_sys_opendir(zbuf);
+	void* dp = fs_sys_opendir(zbuf);
 	if (dp == NULL) {
 		return (d, false);
 	}
-	blob = (FsDir *)malloc(sizeof(FsDir));
+	FsDir* blob = (FsDir *)malloc(sizeof(FsDir));
 	if (blob == NULL) {
 		fs_sys_closedir(dp);
 		return (d, false);
@@ -1036,18 +1034,16 @@ static int fs_dotname(char* name, size_t n) {
 	}
 	return (ranged(name, n), true);
 #else
-	FsDir* blob = NULL;
-	int rc = 0;
 	size_t n = 0;
 	if (d.native == NULL) {
 		return (fs_empty(), false);
 	}
-	blob = (FsDir *)d.native;
+	FsDir* blob = (FsDir *)d.native;
 	if (blob.dp == NULL) {
 		return (fs_empty(), false);
 	}
 	for (;;) {
-		rc = fs_sys_readdir(blob.dp, blob.name, DirNameMax, &n);
+		int rc = fs_sys_readdir(blob.dp, blob.name, DirNameMax, &n);
 		if (rc == 0) {
 			return (fs_empty(), true);
 		}
@@ -1063,7 +1059,7 @@ static int fs_dotname(char* name, size_t n) {
 #endif
 }
 
-void (Dir* d).close() {
+void ([[consumes]] Dir* d).close() {
 #ifdef _WIN32
 	if (d.native == NULL) {
 		return;
@@ -1071,11 +1067,10 @@ void (Dir* d).close() {
 	fs_win_dirclose(d.native);
 	d.native = NULL;
 #else
-	FsDir* blob = NULL;
 	if (d.native == NULL) {
 		return;
 	}
-	blob = (FsDir *)d.native;
+	FsDir* blob = (FsDir *)d.native;
 	if (blob.dp != NULL) {
 		fs_sys_closedir(blob.dp);
 	}

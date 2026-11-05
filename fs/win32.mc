@@ -69,9 +69,8 @@ int fs_win_bad(HANDLE h) {
 }
 
 int64_t fs_win_mtime(unsigned lo, unsigned hi) {
-	uint64_t ticks = 0;
 	uint64_t epoch = 116444736000000000ul;
-	ticks = ((uint64_t)hi << 32) | (uint64_t)lo;
+	uint64_t ticks = ((uint64_t)hi << 32) | (uint64_t)lo;
 	if (ticks < epoch) {
 		return 0;
 	}
@@ -79,11 +78,10 @@ int64_t fs_win_mtime(unsigned lo, unsigned hi) {
 }
 
 void* fs_win_from_handle(HANDLE h, int owns) {
-	FsWinFile* blob = 0;
 	if (fs_win_bad(h)) {
 		return 0;
 	}
-	blob = (FsWinFile *)malloc(sizeof(*blob));
+	FsWinFile* blob = (FsWinFile *)malloc(sizeof(*blob));
 	if (blob == 0) {
 		return 0;
 	}
@@ -95,11 +93,10 @@ void* fs_win_from_handle(HANDLE h, int owns) {
 }
 
 HANDLE fs_win_handle(void* blob) {
-	FsWinFile* f = 0;
 	if (blob == 0) {
 		return 0;
 	}
-	f = (FsWinFile *)blob;
+	FsWinFile* f = (FsWinFile *)blob;
 	if (fs_win_bad(f.h)) {
 		return 0;
 	}
@@ -107,44 +104,37 @@ HANDLE fs_win_handle(void* blob) {
 }
 
 void* fs_win_open(char* path, int flags) {
-	FsWinFile* blob = 0;
-	HANDLE h = 0;
-	DWORD access = 0;
-	DWORD disp = 0;
-	int rd = 0;
-	int wr = 0;
 	if (path == 0 || path[0] == 0) {
 		return 0;
 	}
-	rd = (flags & 1) != 0;
-	wr = (flags & 2) != 0;
+	int rd = (flags & 1) != 0;
+	int wr = (flags & 2) != 0;
 	if ((flags & 4) != 0) {
 		wr = 1;
 	}
 	if (!rd && !wr) {
 		return 0;
 	}
-	access = 0;
+	DWORD access = 0;
 	if (rd) {
 		access |= GENERIC_READ;
 	}
 	if (wr) {
 		access |= GENERIC_WRITE;
 	}
+	DWORD disp = OPEN_EXISTING;
 	if ((flags & 16) != 0 && wr && (flags & 4) != 0) {
 		disp = CREATE_ALWAYS;
 	} else if ((flags & 16) != 0 && wr) {
 		disp = TRUNCATE_EXISTING;
 	} else if ((flags & 4) != 0) {
 		disp = OPEN_ALWAYS;
-	} else {
-		disp = OPEN_EXISTING;
 	}
-	h = CreateFileA(path, access, FsWinShare, 0, disp, FILE_ATTRIBUTE_NORMAL, 0);
+	HANDLE h = CreateFileA(path, access, FsWinShare, 0, disp, FILE_ATTRIBUTE_NORMAL, 0);
 	if (fs_win_bad(h)) {
 		return 0;
 	}
-	blob = (FsWinFile *)malloc(sizeof(*blob));
+	FsWinFile* blob = (FsWinFile *)malloc(sizeof(*blob));
 	if (blob == 0) {
 		CloseHandle(h);
 		return 0;
@@ -156,11 +146,10 @@ void* fs_win_open(char* path, int flags) {
 }
 
 void fs_win_close(void* blob) {
-	FsWinFile* f = 0;
 	if (blob == 0) {
 		return;
 	}
-	f = (FsWinFile *)blob;
+	FsWinFile* f = (FsWinFile *)blob;
 	if (f.owns && !fs_win_bad(f.h)) {
 		CloseHandle(f.h);
 	}
@@ -168,13 +157,10 @@ void fs_win_close(void* blob) {
 }
 
 int fs_win_read(void* blob, void* buf, size_t n, int64_t* nout) {
-	FsWinFile* f = 0;
-	unsigned got = 0;
-	unsigned ask = 0;
 	if (blob == 0 || nout == 0) {
 		return 0;
 	}
-	f = (FsWinFile *)blob;
+	FsWinFile* f = (FsWinFile *)blob;
 	if (fs_win_bad(f.h)) {
 		return 0;
 	}
@@ -185,8 +171,8 @@ int fs_win_read(void* blob, void* buf, size_t n, int64_t* nout) {
 	if (buf == 0) {
 		return 0;
 	}
-	ask = n > 0x7fffffffu ? 0x7fffffffu:(unsigned)n;
-	got = 0;
+	unsigned ask = n > 0x7fffffffu ? 0x7fffffffu:(unsigned)n;
+	unsigned got = 0;
 	if (!ReadFile(f.h, buf, ask, &got, 0)) {
 		return 0;
 	}
@@ -195,13 +181,10 @@ int fs_win_read(void* blob, void* buf, size_t n, int64_t* nout) {
 }
 
 int fs_win_write(void* blob, void* buf, size_t n, int64_t* nout) {
-	FsWinFile* f = 0;
-	unsigned got = 0;
-	unsigned ask = 0;
 	if (blob == 0 || nout == 0) {
 		return 0;
 	}
-	f = (FsWinFile *)blob;
+	FsWinFile* f = (FsWinFile *)blob;
 	if (fs_win_bad(f.h)) {
 		return 0;
 	}
@@ -217,8 +200,8 @@ int fs_win_write(void* blob, void* buf, size_t n, int64_t* nout) {
 	if (buf == 0) {
 		return 0;
 	}
-	ask = n > 0x7fffffffu ? 0x7fffffffu:(unsigned)n;
-	got = 0;
+	unsigned ask = n > 0x7fffffffu ? 0x7fffffffu:(unsigned)n;
+	unsigned got = 0;
 	if (!WriteFile(f.h, buf, ask, &got, 0)) {
 		return 0;
 	}
@@ -227,26 +210,22 @@ int fs_win_write(void* blob, void* buf, size_t n, int64_t* nout) {
 }
 
 int fs_win_seek(void* blob, int64_t off, int whence, int64_t* npos) {
-	FsWinFile* f = 0;
-	unsigned method = 0;
-	int64_t neu = 0;
 	if (blob == 0 || npos == 0) {
 		return 0;
 	}
-	f = (FsWinFile *)blob;
+	FsWinFile* f = (FsWinFile *)blob;
 	if (fs_win_bad(f.h)) {
 		return 0;
 	}
+	unsigned method = FILE_BEGIN;
 	if (whence == 1) {
 		method = FILE_CURRENT;
 	} else if (whence == 2) {
 		method = FILE_END;
-	} else if (whence == 0) {
-		method = FILE_BEGIN;
-	} else {
+	} else if (whence != 0) {
 		return 0;
 	}
-	neu = 0;
+	int64_t neu = 0;
 	if (!SetFilePointerEx(f.h, off, &neu, method)) {
 		return 0;
 	}
@@ -281,19 +260,17 @@ int fs_win_mkdir(char* path) {
 
 int fs_win_stat(char* path, int* kind, int64_t* size, int64_t* mtime) {
 	struct FsWinInfo info = { 0 };
-	HANDLE h = 0;
-	DWORD typ = 0;
 	if (path == 0 || kind == 0 || size == 0 || mtime == 0) {
 		return 0;
 	}
 	*kind = 0;
 	*size = 0;
 	*mtime = 0;
-	h = CreateFileA(path, 0, FsWinShare, 0, OPEN_EXISTING, FsWinBackup, 0);
+	HANDLE h = CreateFileA(path, 0, FsWinShare, 0, OPEN_EXISTING, FsWinBackup, 0);
 	if (fs_win_bad(h)) {
 		return 0;
 	}
-	typ = GetFileType(h);
+	DWORD typ = GetFileType(h);
 	if (typ == FILE_TYPE_DISK) {
 		memset(&info, 0, sizeof(info));
 		if (!GetFileInformationByHandle(h, (BY_HANDLE_FILE_INFORMATION *)& info)) {
@@ -331,20 +308,16 @@ int fs_win_dot(char* name) {
 }
 
 void* fs_win_diropen(char* path) {
-	FsWinDir* blob = 0;
 	struct FsWinFind ent = { 0 };
 	char pat[4100] = { 0 };
-	size_t n = 0;
-	DWORD attr = 0;
-	HANDLE hf = 0;
 	if (path == 0 || path[0] == 0) {
 		return 0;
 	}
-	attr = GetFileAttributesA(path);
+	DWORD attr = GetFileAttributesA(path);
 	if (attr == FsWinBadAttr || (attr & FsWinAttrDir) == 0) {
 		return 0;
 	}
-	n = strlen(path);
+	size_t n = strlen(path);
 	if (n + 3 >= sizeof(pat)) {
 		return 0;
 	}
@@ -355,11 +328,11 @@ void* fs_win_diropen(char* path) {
 	pat[n++] = '*';
 	pat[n] = 0;
 	memset(&ent, 0, sizeof(ent));
-	hf = FindFirstFileA(pat, (WIN32_FIND_DATAA *)& ent);
+	HANDLE hf = FindFirstFileA(pat, (WIN32_FIND_DATAA *)& ent);
 	if (fs_win_bad(hf)) {
 		return 0;
 	}
-	blob = (FsWinDir *)malloc(sizeof(*blob));
+	FsWinDir* blob = (FsWinDir *)malloc(sizeof(*blob));
 	if (blob == 0) {
 		FindClose(hf);
 		return 0;
@@ -370,9 +343,8 @@ void* fs_win_diropen(char* path) {
 	blob.name[0] = 0;
 	/* Prime with the first non-dot name, or mark end. */
 	for (;;) {
-		size_t ln = 0;
 		if (!fs_win_dot(ent.name)) {
-			ln = strlen(ent.name);
+			size_t ln = strlen(ent.name);
 			if (ln >= sizeof(blob.name)) {
 				FindClose(hf);
 				free(blob);
@@ -399,17 +371,15 @@ void* fs_win_diropen(char* path) {
 /* 1 = *out points into the blob (valid until the next next/close),
    0 = end, -1 = error. */
 int fs_win_next(void* blob, char** out, size_t* nlen) {
-	FsWinDir* d = 0;
 	struct FsWinFind ent = { 0 };
-	size_t n = 0;
 	if (blob == 0 || out == 0 || nlen == 0) {
 		return -1;
 	}
-	d = (FsWinDir *)blob;
+	FsWinDir* d = (FsWinDir *)blob;
 	*out = 0;
 	*nlen = 0;
 	if (d.have) {
-		n = strlen(d.name);
+		size_t n = strlen(d.name);
 		*out = d.name;
 		*nlen = n;
 		d.have = 0;
@@ -433,7 +403,7 @@ int fs_win_next(void* blob, char** out, size_t* nlen) {
 		if (fs_win_dot(ent.name)) {
 			continue;
 		}
-		n = strlen(ent.name);
+		size_t n = strlen(ent.name);
 		if (n >= sizeof(d.name)) {
 			return -1;
 		}
@@ -445,11 +415,10 @@ int fs_win_next(void* blob, char** out, size_t* nlen) {
 }
 
 void fs_win_dirclose(void* blob) {
-	FsWinDir* d = 0;
 	if (blob == 0) {
 		return;
 	}
-	d = (FsWinDir *)blob;
+	FsWinDir* d = (FsWinDir *)blob;
 	if (!fs_win_bad(d.hf)) {
 		FindClose(d.hf);
 	}

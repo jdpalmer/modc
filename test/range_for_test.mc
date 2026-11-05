@@ -13,8 +13,7 @@ int sum_array() {
 	a[1] = 2;
 	a[2] = 3;
 	a[3] = 4;
-	t = 0;
-	for (i = 0; i < 4; i++) {
+	for (; i < 4; i++) {
 		a[i] = a[i];
 	}
 	for (auto x: a) {
@@ -25,7 +24,6 @@ int sum_array() {
 
 int sum_ranged(int[..] s) {
 	int t = { 0 };
-	t = 0;
 	for (auto v: s) {
 		t = t + v;
 	}
@@ -49,7 +47,6 @@ int sum_nested() {
 	m[0][1] = 2;
 	m[1][0] = 3;
 	m[1][1] = 4;
-	t = 0;
 	for (auto row: m) {
 		for (auto x: row) {
 			t = t + x;
@@ -63,7 +60,6 @@ int explicit_type() {
 	int64_t t = { 0 };
 	a[0] = 10;
 	a[1] = 20;
-	t = 0;
 	for (int64_t x: a) {
 		t = t + x;
 	}
@@ -78,7 +74,6 @@ int with_break() {
 	a[2] = 99;
 	a[3] = 4;
 	a[4] = 5;
-	t = 0;
 	for (auto x: a) {
 		if (x == 99) {
 			break;
@@ -98,7 +93,6 @@ int ptr_bind_array() {
 	for (auto* p: a) {
 		*p = 7;
 	}
-	t = 0;
 	for (int* p: a) {
 		t = t +*p;
 	}
@@ -117,7 +111,6 @@ int ptr_bind_ranged() {
 	for (auto* p: s) {
 		*p = *p + 1;
 	}
-	t = 0;
 	for (auto x: s) {
 		t = t + x;
 	}
@@ -138,7 +131,6 @@ int ptr_bind_struct() {
 		p.x = 3;
 		p.y = 4;
 	}
-	t = 0;
 	for (auto* p: s) {
 		t = t + p.x + p.y;
 	}

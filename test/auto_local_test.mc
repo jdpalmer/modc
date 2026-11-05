@@ -29,14 +29,13 @@ int infer_array_decay() {
 int infer_ranged() {
 	int a[3] = { 0 };
 	int[..] s = { 0 };
-	int sum = { 0 };
+	int sum = 0;
 	int i = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
 	s = a;
-	sum = 0;
-	for (i = 0; i < (int)len(s); i++) {
+	for (; i < (int)len(s); i++) {
 		sum = sum + s[i];
 	}
 	return sum;
@@ -49,11 +48,9 @@ int infer_char_ptr() {
 
 int main() {
 	int a[2] = { 0 };
-	void *p = { 0 };
-
 	a[0] = 1;
 	a[1] = 2;
-	p = a;
+	void *p = a;
 	assert_eq(infer_int(), 3);
 	assert_eq(infer_double(), 1.0);
 	assert_eq(infer_ptr(p), p);

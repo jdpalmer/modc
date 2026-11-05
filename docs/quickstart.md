@@ -34,7 +34,8 @@ modc build
 But %C is loaded with a number of useful build tools:
 
 ```sh
-modc build                    # build current dir; -o defaults to dir name
+modc build                    # build current dir; default output build/<dir>
+modc build hello.mc           # → build/hello (override with -o)
 modc build hello.mc -o hello  # modc → qbe → cc → binary
 modc build pkgdir/            # same for a package directory
 modc check hello.mc           # API/signature type-check (reuses export cache)

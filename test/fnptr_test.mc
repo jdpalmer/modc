@@ -24,27 +24,23 @@ int callstar(int(*fp)(int, int), int a, int b) {
 }
 
 int via_local() {
-	int(*fp)(int, int) = { 0 };
-	fp = add;
+	int(*fp)(int, int) = add;
 	return fp(20, 22);
 }
 
 int via_addr() {
-	int(*fp)(int, int) = { 0 };
-	fp = &add;
+	int(*fp)(int, int) = &add;
 	return (*fp)(10, 32);
 }
 
 /* Package-private static: decay and & must use the mangled linkname. */
 int via_static_decay() {
-	int(*fp)(int, int) = { 0 };
-	fp = mul;
+	int(*fp)(int, int) = mul;
 	return fp(6, 7);
 }
 
 int via_static_addr() {
-	int(*fp)(int, int) = { 0 };
-	fp = &mul;
+	int(*fp)(int, int) = &mul;
 	return (*fp)(6, 7);
 }
 
@@ -55,12 +51,7 @@ int via_static_global() {
 }
 
 int choose(int which, int a, int b) {
-	int(*fp)(int, int) = { 0 };
-	if (which) {
-		fp = add;
-	} else {
-		fp = sub;
-	}
+	int(*fp)(int, int) = which ? add : sub;
 	return fp(a, b);
 }
 

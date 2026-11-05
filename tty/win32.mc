@@ -41,7 +41,7 @@ static int tty_is_console(HANDLE h) {
 static struct TtySaved* tty_slot(HANDLE h, int create) {
 	int i = 0;
 	int free_i = -1;
-	for (i = 0; i < TtySavedMax; i++) {
+	for (; i < TtySavedMax; i++) {
 		if (tty_saved[i].valid && tty_saved[i].h == h) {
 			return &tty_saved[i];
 		}
@@ -68,12 +68,10 @@ bool tty_set_raw(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
 	HANDLE hout = GetStdHandle(STD_OUTPUT_HANDLE);
 	DWORD mode = 0;
-	DWORD out_mode = 0;
-	struct TtySaved* s = 0;
 	if (!tty_is_console(h)) {
 		return false;
 	}
-	s = tty_slot(h, 1);
+	struct TtySaved* s = tty_slot(h, 1);
 	if (s == 0) {
 		return false;
 	}
@@ -94,6 +92,7 @@ bool tty_set_raw(File* f) {
 	}
 	s.desired_mode = mode;
 	s.editor = 1;
+	DWORD out_mode = 0;
 	if (tty_is_console(hout) && GetConsoleMode(hout, &out_mode)) {
 		tty_out_handle = hout;
 		tty_desired_out_mode = out_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
@@ -112,11 +111,10 @@ bool tty_set_raw(File* f) {
 
 bool tty_set_cooked(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
-	struct TtySaved* s = 0;
 	if (!tty_is_console(h)) {
 		return false;
 	}
-	s = tty_slot(h, 0);
+	struct TtySaved* s = tty_slot(h, 0);
 	if (s == 0 || !s.valid) {
 		return false;
 	}
@@ -140,10 +138,9 @@ bool tty_set_cooked(File* f) {
 /* Re-apply editor input/output modes if Windows Terminal reset them after ANSI. */
 void tty_reapply_editor_mode(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
-	struct TtySaved* s = 0;
 	DWORD current = 0;
 	if (tty_is_console(h)) {
-		s = tty_slot(h, 0);
+		struct TtySaved* s = tty_slot(h, 0);
 		if (s != 0 && s.valid && s.editor && s.desired_mode != 0) {
 			if (GetConsoleMode(h, &current) && current != s.desired_mode) {
 				(void)SetConsoleMode(h, s.desired_mode);
@@ -190,16 +187,14 @@ void tty_reapply_editor_mode(File* f) {
 /* Console wait: poll GetNumberOfConsoleInputEvents; pipes use PeekNamedPipe. */
 bool tty_wait_readable(File* f, int timeout_ms) {
 	HANDLE h = (HANDLE)file_handle(f);
-	DWORD ft = 0;
 	DWORD n = 0;
 	DWORD avail = 0;
 	DWORD waited = 0;
 	DWORD step = 10;
-	DWORD timeout = 0;
 	if (h == 0 || h == INVALID_HANDLE_VALUE) {
 		return false;
 	}
-	ft = GetFileType(h);
+	DWORD ft = GetFileType(h);
 	if (ft == FILE_TYPE_CHAR) {
 		if (GetNumberOfConsoleInputEvents(h, &n) && n > 0) {
 			return true;
@@ -207,11 +202,7 @@ bool tty_wait_readable(File* f, int timeout_ms) {
 		if (timeout_ms == 0) {
 			return false;
 		}
-		if (timeout_ms < 0) {
-			timeout = 24u * 60u * 60u * 1000u;
-		} else {
-			timeout = timeout_ms;
-		}
+		DWORD timeout = timeout_ms < 0 ? 24u * 60u * 60u * 1000u: (DWORD)timeout_ms;
 		while (waited < timeout) {
 			Sleep(step);
 			waited = waited + step;
@@ -232,11 +223,7 @@ bool tty_wait_readable(File* f, int timeout_ms) {
 		if (timeout_ms == 0) {
 			return false;
 		}
-		if (timeout_ms < 0) {
-			timeout = 24u * 60u * 60u * 1000u;
-		} else {
-			timeout = timeout_ms;
-		}
+		DWORD timeout = timeout_ms < 0 ? 24u * 60u * 60u * 1000u: (DWORD)timeout_ms;
 		while (waited < timeout) {
 			Sleep(1);
 			waited = waited + 1;

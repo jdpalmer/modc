@@ -6,15 +6,9 @@ import "arena";
 int test_copy_cat() {
 	Arena a = { 0 };
 	char buf[32] = { 0 };
-	char[..] out = { 0 };
-	bool ok = { 0 };
 	a.init();
 	defer a.free();
-	{
-		auto (copy_ok, s) = a.copy("hello world");
-		ok = copy_ok;
-		out = s;
-	}
+	auto (ok, out) = a.copy("hello world");
 	if (!ok) {
 		return 1;
 	}
@@ -71,7 +65,7 @@ int test_append() {
 	if (a.z(s)[0] != '\0') {
 		return 9;
 	}
-	for (i = 0; i < 100; i = i + 1) {
+	for (; i < 100; i = i + 1) {
 		auto (ok, next) = a.append_byte(s, 'a');
 		if (!ok) {
 			return 10;
@@ -91,18 +85,12 @@ int test_join() {
 	Arena a = { 0 };
 	char buf[32] = { 0 };
 	const char[..] parts[3] = { 0 };
-	char[..] out = { 0 };
-	bool ok = { 0 };
 	parts[0] = "a";
 	parts[1] = "b";
 	parts[2] = "c";
 	a.init();
 	defer a.free();
-	{
-		auto (join_ok, next) = a.join(",", parts, 3);
-		ok = join_ok;
-		out = next;
-	}
+	auto (ok, out) = a.join(",", parts, 3);
 	if (!ok) {
 		return 1;
 	}
@@ -158,15 +146,9 @@ int test_join() {
 int test_replace() {
 	Arena a = { 0 };
 	char buf[32] = { 0 };
-	char[..] out = { 0 };
-	bool ok = { 0 };
 	a.init();
 	defer a.free();
-	{
-		auto (rep_ok, next) = a.replace("foo bar foo", "foo", "baz");
-		ok = rep_ok;
-		out = next;
-	}
+	auto (ok, out) = a.replace("foo bar foo", "foo", "baz");
 	if (!ok) {
 		return 1;
 	}
@@ -206,15 +188,9 @@ int test_replace() {
 
 int test_reset() {
 	Arena a = { 0 };
-	char[..] out = { 0 };
-	bool ok = { 0 };
 	a.init();
 	defer a.free();
-	{
-		auto (copy_ok, next) = a.copy("first");
-		ok = copy_ok;
-		out = next;
-	}
+	auto (ok, out) = a.copy("first");
 	if (!ok || !str_eq(out, "first")) {
 		return 1;
 	}

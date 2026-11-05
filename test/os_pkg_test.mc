@@ -60,10 +60,8 @@ int test_cwd() {
 }
 
 int test_mono() {
-	int64_t a = 0;
-	int64_t b = 0;
-	a = os_mono_ns();
-	b = os_mono_ns();
+	int64_t a = os_mono_ns();
+	int64_t b = os_mono_ns();
 	if (a <= 0 || b < a) {
 		return 1;
 	}
@@ -128,7 +126,7 @@ int test_cmd_echo() {
 	{
 		int saw = 0;
 		int i = 0;
-		for (i = 0; i < 50; i++) {
+		for (; i < 50; i++) {
 			auto (n, ok) = p.wait(200);
 			if (!ok) {
 				out.close();
@@ -204,7 +202,7 @@ int test_cmd_echo() {
 	{
 		int saw = 0;
 		int i = 0;
-		for (i = 0; i < 50; i++) {
+		for (; i < 50; i++) {
 			auto (n, ok) = p.wait(200);
 			if (!ok) {
 				out.close();

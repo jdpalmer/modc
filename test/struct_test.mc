@@ -30,8 +30,7 @@ int localpt() {
 int sumarr(int* a, int n) {
 	int i = { 0 };
 	int s = { 0 };
-	s = 0;
-	for (i = 0; i < n; i++) {
+	for (; i < n; i++) {
 		s = s + a[i];
 	}
 	return s;
@@ -45,8 +44,7 @@ int sumlocal() {
 	a[1] = 2;
 	a[2] = 3;
 	a[3] = 4;
-	s = 0;
-	for (i = 0; i < 4; i++) {
+	for (; i < 4; i++) {
 		s = s + a[i];
 	}
 	return s;
@@ -54,7 +52,6 @@ int sumlocal() {
 
 int ptrwalk(int* p, int n) {
 	int s = { 0 };
-	s = 0;
 	while (n > 0) {
 		s = s +*p;
 		p++;
@@ -64,10 +61,8 @@ int ptrwalk(int* p, int n) {
 }
 
 int rect_area(Rect* r) {
-	int w = { 0 };
-	int h = { 0 };
-	w = r.max.x - r.min.x;
-	h = r.max.y - r.min.y;
+	int w = r.max.x - r.min.x;
+	int h = r.max.y - r.min.y;
 	return w * h;
 }
 

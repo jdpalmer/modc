@@ -26,7 +26,7 @@ static WinSize tty_wsz0() {
 static struct TtySaved* tty_slot(int fd, int create) {
 	int i = 0;
 	int free_i = -1;
-	for (i = 0; i < TtySavedMax; i++) {
+	for (; i < TtySavedMax; i++) {
 		if (tty_saved[i].valid && tty_saved[i].fd == fd) {
 			return &tty_saved[i];
 		}
@@ -53,11 +53,10 @@ bool tty_isatty(File* f) {
 bool tty_set_raw(File* f) {
 	int fd = file_fd(f);
 	struct termios t = { 0 };
-	struct TtySaved* s = 0;
 	if (fd < 0 || isatty(fd) == 0) {
 		return false;
 	}
-	s = tty_slot(fd, 1);
+	struct TtySaved* s = tty_slot(fd, 1);
 	if (s == 0) {
 		return false;
 	}
@@ -74,11 +73,10 @@ bool tty_set_raw(File* f) {
 
 bool tty_set_cooked(File* f) {
 	int fd = file_fd(f);
-	struct TtySaved* s = 0;
 	if (fd < 0 || isatty(fd) == 0) {
 		return false;
 	}
-	s = tty_slot(fd, 0);
+	struct TtySaved* s = tty_slot(fd, 0);
 	if (s == 0 || !s.valid) {
 		return false;
 	}

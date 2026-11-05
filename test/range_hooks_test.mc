@@ -42,7 +42,6 @@ overload int range_at(Triple t, size_t i) {
 
 int sum_buf(MyBuf b) {
 	int s = { 0 };
-	s = 0;
 	for (auto x: b) {
 		s = s + x;
 	}
@@ -67,7 +66,6 @@ int sum_triple() {
 	t.a = 10;
 	t.b = 20;
 	t.c = 30;
-	s = 0;
 	for (auto x: t) {
 		s = s + x;
 	}

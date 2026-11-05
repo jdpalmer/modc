@@ -96,13 +96,13 @@ int field_cursor_ok() {
 int string_array_init_ok() {
 	char local[8] = "y";
 	char adjacent[] = "noise";
-	int i = 0;
+	int i = 1;
 
 	if (padded_msg[0] != 'x' || exact_msg[0] != 'h' ||
 	    exact_msg[1] != 'i' || adjacent_msg[0] != 'p') {
 		return 0;
 	}
-	for (i = 1; i < 8; i++) {
+	for (; i < 8; i++) {
 		if (padded_msg[i] != 0 || local[i] != 0) {
 			return 0;
 		}

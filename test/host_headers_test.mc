@@ -21,17 +21,12 @@ struct Pair {
 };
 
 int host_headers() {
-	size_t off = { 0 };
-	int32_t a = { 0 };
-	uint64_t b = { 0 };
-	void* p = { 0 };
-	bool ok = { 0 };
+	size_t off = offsetof(struct Pair, y);
+	int32_t a = 42;
+	uint64_t b = (uint64_t)a + off;
+	void* p = NULL;
+	bool ok = true;
 	char buf[32] = { 0 };
-	off = offsetof(struct Pair, y);
-	a = 42;
-	b = (uint64_t)a + off;
-	p = NULL;
-	ok = true;
 	if (p != 0) {
 		return 1;
 	}

@@ -28,8 +28,7 @@ int shl_var(int x, int n) {
 }
 
 int shl_var_wrap(int x) {
-	int n = { 0 };
-	n = 32;
+	int n = 32;
 	return x << n;
 }
 

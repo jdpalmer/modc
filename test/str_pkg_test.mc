@@ -98,7 +98,6 @@ int test_sep_trim() {
 	}
 	cstr_write(line, "a=b=c");
 	rest = str_from_cstr(line);
-	n = 0;
 	while (!str_is_empty(rest)) {
 		auto (t, r) = str_split_once(rest, "=");
 		tok = t;

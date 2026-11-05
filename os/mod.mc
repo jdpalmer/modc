@@ -72,11 +72,10 @@ static int os_zcopy(const char[..] s, char* buf, size_t cap) {
 #ifdef _WIN32
 	static char buf[OsCap] = { 0 };
 	char zkey[OsCap] = { 0 };
-	unsigned n = 0;
 	if (!os_zcopy(key, zkey, OsCap)) {
 		return (false, os_empty());
 	}
-	n = GetEnvironmentVariableA(zkey, buf, OsCap);
+	unsigned n = GetEnvironmentVariableA(zkey, buf, OsCap);
 	if (n == 0) {
 		/* 203 = ERROR_ENVVAR_NOT_FOUND. 0 with no error is an empty value. */
 		/* ERROR_ENVVAR_NOT_FOUND or other error → missing. 0 = empty value. */
@@ -91,11 +90,10 @@ static int os_zcopy(const char[..] s, char* buf, size_t cap) {
 	return (true, ranged(buf, n));
 #else
 	char zkey[OsCap] = { 0 };
-	char* v = NULL;
 	if (!os_zcopy(key, zkey, OsCap)) {
 		return (false, os_empty());
 	}
-	v = getenv(zkey);
+	char* v = getenv(zkey);
 	if (v == NULL) {
 		return (false, os_empty());
 	}
@@ -143,11 +141,10 @@ bool os_set_env(const char[..] key, const char[..] val) {
 (char[..], bool) os_cwd(char[..] dst) {
 #ifdef _WIN32
 	char host[OsCap] = { 0 };
-	unsigned n = 0;
 	if (cap(dst) == 0 || ptr(dst) == NULL) {
 		return (ranged((char*)0, 0), false);
 	}
-	n = GetCurrentDirectoryA(OsCap, host);
+	unsigned n = GetCurrentDirectoryA(OsCap, host);
 	if (n == 0 || n >= OsCap) {
 		if (cap(dst) > 0) {
 			ptr(dst)[0] = 0;
@@ -156,7 +153,6 @@ bool os_set_env(const char[..] key, const char[..] val) {
 	}
 	return path_from_sys(dst, ranged(host, n));
 #else
-	size_t n = 0;
 	if (cap(dst) == 0 || ptr(dst) == NULL) {
 		return (ranged((char*)0, 0), false);
 	}
@@ -166,7 +162,7 @@ bool os_set_env(const char[..] key, const char[..] val) {
 		}
 		return (ranged((char*)0, 0), false);
 	}
-	n = strlen(ptr(dst));
+	size_t n = strlen(ptr(dst));
 	return (ranged(ptr(dst), n, cap(dst)), true);
 #endif
 }
@@ -245,7 +241,6 @@ void os_exit(int code) {
 
 (char[..], bool) os_look_path(char[..] dst, const char[..] name) {
 	char host[OsPathMax] = { 0 };
-	size_t n = 0;
 	if (cap(dst) == 0 || ptr(dst) == NULL || len(name) == 0 || ptr(name) == NULL) {
 		return (os_empty(), false);
 	}
@@ -258,7 +253,7 @@ void os_exit(int code) {
 			return (os_empty(), false);
 		}
 	}
-	n = strlen(host);
+	size_t n = strlen(host);
 	if (n >= cap(dst)) {
 		return (os_empty(), false);
 	}
@@ -270,8 +265,6 @@ void os_exit(int code) {
 }
 
 void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
-	OsCmd* blob = NULL;
-	size_t i = 0;
 	if (c.native != NULL) {
 		ocmd_free((OsCmd *)c.native);
 		c.native = NULL;
@@ -282,7 +275,7 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 	if (nargs > 0 && args == NULL) {
 		return;
 	}
-	blob = ocmd_new();
+	OsCmd* blob = ocmd_new();
 	if (blob == NULL) {
 		return;
 	}
@@ -290,7 +283,8 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 		ocmd_free(blob);
 		return;
 	}
-	for (i = 0; i < nargs; i++) {
+	size_t i = 0;
+	for (; i < nargs; i++) {
 		const char[..] a = args[i];
 		if (!ocmd_add_arg(blob, ptr(a), len(a))) {
 			ocmd_free(blob);
@@ -301,11 +295,10 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 }
 
 bool (Cmd* c).dir(const char[..] d) {
-	OsCmd* blob = NULL;
 	if (c.native == NULL) {
 		return false;
 	}
-	blob = (OsCmd *)c.native;
+	OsCmd* blob = (OsCmd *)c.native;
 	if (len(d) == 0) {
 		return ocmd_set_dir(blob, NULL, 0) != 0;
 	}
@@ -313,30 +306,27 @@ bool (Cmd* c).dir(const char[..] d) {
 }
 
 bool (Cmd* c).env(const char[..] key, const char[..] val) {
-	OsCmd* blob = NULL;
 	if (c.native == NULL || len(key) == 0) {
 		return false;
 	}
-	blob = (OsCmd *)c.native;
+	OsCmd* blob = (OsCmd *)c.native;
 	return ocmd_set_env(blob, ptr(key), len(key), ptr(val), len(val)) != 0;
 }
 
 bool (Cmd* c).stdio(int which, int mode) {
-	OsCmd* blob = NULL;
 	if (c.native == NULL) {
 		return false;
 	}
-	blob = (OsCmd *)c.native;
+	OsCmd* blob = (OsCmd *)c.native;
 	return ocmd_stdio(blob, which, mode) != 0;
 }
 
 (File, bool) (Cmd* c).pipe(int which) {
 	File f = { 0 };
-	OsCmd* blob = NULL;
 	if (c.native == NULL) {
 		return (f, false);
 	}
-	blob = (OsCmd *)c.native;
+	OsCmd* blob = (OsCmd *)c.native;
 #ifdef _WIN32
 	{
 		HANDLE parent = 0;
@@ -371,28 +361,26 @@ bool (Cmd* c).stdio(int which, int mode) {
 }
 
 bool (Cmd* c).start() {
-	OsCmd* blob = NULL;
 	if (c.native == NULL) {
 		return false;
 	}
-	blob = (OsCmd *)c.native;
+	OsCmd* blob = (OsCmd *)c.native;
 	return ocmd_start(blob) != 0;
 }
 
 (int, bool) (Cmd* c).wait() {
-	OsCmd* blob = NULL;
 	int code = 0;
 	if (c.native == NULL) {
 		return (0, false);
 	}
-	blob = (OsCmd *)c.native;
+	OsCmd* blob = (OsCmd *)c.native;
 	if (!ocmd_wait(blob, &code)) {
 		return (0, false);
 	}
 	return (code, true);
 }
 
-void (Cmd* c).close() {
+void ([[consumes]] Cmd* c).close() {
 	if (c.native == NULL) {
 		return;
 	}
@@ -402,12 +390,11 @@ void (Cmd* c).close() {
 }
 
 void (Poll* p).init() {
-	OsPoll* blob = NULL;
 	if (p.native != NULL) {
 		free(p.native);
 		p.native = NULL;
 	}
-	blob = (OsPoll *)malloc(sizeof(OsPoll));
+	OsPoll* blob = (OsPoll *)malloc(sizeof(OsPoll));
 	if (blob == NULL) {
 		return;
 	}
@@ -416,7 +403,6 @@ void (Poll* p).init() {
 }
 
 bool (Poll* p).add_file(File* f, int events) {
-	OsPoll* blob = NULL;
 	if (p.native == NULL || f == NULL) {
 		return false;
 	}
@@ -429,61 +415,53 @@ bool (Poll* p).add_file(File* f, int events) {
 		return false;
 	}
 #endif
-	blob = (OsPoll *)p.native;
+	OsPoll* blob = (OsPoll *)p.native;
 	return opoll_add_file(blob, f, events) != 0;
 }
 
 bool (Poll* p).add_cmd(Cmd* c) {
-	OsPoll* blob = NULL;
 	if (p.native == NULL || c == NULL || c.native == NULL) {
 		return false;
 	}
-	blob = (OsPoll *)p.native;
+	OsPoll* blob = (OsPoll *)p.native;
 	return opoll_add_cmd(blob, c, c.native) != 0;
 }
 
 (int, bool) (Poll* p).wait(int64_t timeout_ms) {
-	OsPoll* blob = NULL;
-	int i = 0;
-	int n = 0;
-	int t = 0;
 	if (p.native == NULL) {
 		return (0, false);
 	}
-	blob = (OsPoll *)p.native;
+	OsPoll* blob = (OsPoll *)p.native;
+	int t = (int)timeout_ms;
 	if (timeout_ms < 0) {
 		t = -1;
 	} else if (timeout_ms > 86400000) {
 		t = 86400000;
-	} else {
-		t = (int)timeout_ms;
 	}
 #ifdef _WIN32
-	{
-		HANDLE hs[OsPollMax] = { 0 };
-		for (i = 0; i < OsPollMax; i++) {
-			hs[i] = 0;
-		}
-		for (i = 0; i < blob.n; i++) {
-			if (!blob.slot[i].is_cmd && blob.slot[i].file != NULL) {
-				hs[i] = (HANDLE)file_handle((File *)blob.slot[i].file);
-			}
-		}
-		n = opoll_wait(blob, hs, t);
+	HANDLE hs[OsPollMax] = { 0 };
+	int i = 0;
+	for (; i < OsPollMax; i++) {
+		hs[i] = 0;
 	}
+	for (i = 0; i < blob.n; i++) {
+		if (!blob.slot[i].is_cmd && blob.slot[i].file != NULL) {
+			hs[i] = (HANDLE)file_handle((File *)blob.slot[i].file);
+		}
+	}
+	int n = opoll_wait(blob, hs, t);
 #else
-	{
-		int fds[OsPollMax] = { 0 };
-		for (i = 0; i < OsPollMax; i++) {
-			fds[i] = -1;
-		}
-		for (i = 0; i < blob.n; i++) {
-			if (!blob.slot[i].is_cmd && blob.slot[i].file != NULL) {
-				fds[i] = file_fd((File *)blob.slot[i].file);
-			}
-		}
-		n = opoll_wait(blob, fds, t);
+	int fds[OsPollMax] = { 0 };
+	int i = 0;
+	for (; i < OsPollMax; i++) {
+		fds[i] = -1;
 	}
+	for (i = 0; i < blob.n; i++) {
+		if (!blob.slot[i].is_cmd && blob.slot[i].file != NULL) {
+			fds[i] = file_fd((File *)blob.slot[i].file);
+		}
+	}
+	int n = opoll_wait(blob, fds, t);
 #endif
 	if (n < 0) {
 		return (0, false);
@@ -492,25 +470,22 @@ bool (Poll* p).add_cmd(Cmd* c) {
 }
 
 int (Poll* p).ready_count() {
-	OsPoll* blob = NULL;
 	if (p.native == NULL) {
 		return 0;
 	}
-	blob = (OsPoll *)p.native;
+	OsPoll* blob = (OsPoll *)p.native;
 	return blob.nready;
 }
 
 (File *, int) (Poll* p).ready_file(int i) {
-	OsPoll* blob = NULL;
-	int si = 0;
 	if (p.native == NULL || i < 0) {
 		return ((File *)0, 0);
 	}
-	blob = (OsPoll *)p.native;
+	OsPoll* blob = (OsPoll *)p.native;
 	if (i >= blob.nready) {
 		return ((File *)0, 0);
 	}
-	si = blob.ready_idx[i];
+	int si = blob.ready_idx[i];
 	if (blob.slot[si].is_cmd) {
 		return ((File *)0, 0);
 	}
@@ -518,16 +493,14 @@ int (Poll* p).ready_count() {
 }
 
 Cmd* (Poll* p).ready_cmd(int i) {
-	OsPoll* blob = NULL;
-	int si = 0;
 	if (p.native == NULL || i < 0) {
 		return NULL;
 	}
-	blob = (OsPoll *)p.native;
+	OsPoll* blob = (OsPoll *)p.native;
 	if (i >= blob.nready) {
 		return NULL;
 	}
-	si = blob.ready_idx[i];
+	int si = blob.ready_idx[i];
 	if (!blob.slot[si].is_cmd) {
 		return NULL;
 	}
@@ -535,15 +508,14 @@ Cmd* (Poll* p).ready_cmd(int i) {
 }
 
 void (Poll* p).reset() {
-	OsPoll* blob = NULL;
 	if (p.native == NULL) {
 		return;
 	}
-	blob = (OsPoll *)p.native;
+	OsPoll* blob = (OsPoll *)p.native;
 	opoll_reset(blob);
 }
 
-void (Poll* p).close() {
+void ([[consumes]] Poll* p).close() {
 	if (p.native == NULL) {
 		return;
 	}

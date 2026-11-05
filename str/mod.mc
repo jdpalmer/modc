@@ -78,13 +78,11 @@ char[..] str_from_cstr(const char* p) {
 // Caller owns the result: str_free when done. Do not str_free views into
 // literals, stack, arena, or subslices.
 (bool, char[..]) str_dup(const char[..] src) {
-	size_t n = { 0 };
-	char* p = { 0 };
-	n = len(src);
+	size_t n = len(src);
 	if (n == 0) {
 		return (true, str_empty());
 	}
-	p = malloc(n);
+	char* p = malloc(n);
 	if (p == NULL) {
 		return (false, str_empty());
 	}
@@ -106,19 +104,15 @@ void str_free(char[..]* s) {
 
 // Grow capacity to at least need (realloc). Length unchanged. NULL s → false.
 bool str_reserve(char[..]* s, size_t need) {
-	size_t n = { 0 };
-	size_t c = { 0 };
-	size_t nc = { 0 };
-	char* p = { 0 };
 	if (s == NULL) {
 		return false;
 	}
-	n = len(*s);
-	c = cap(*s);
+	size_t n = len(*s);
+	size_t c = cap(*s);
 	if (need <= c) {
 		return true;
 	}
-	nc = c;
+	size_t nc = c;
 	if (nc == 0) {
 		nc = 8;
 	}
@@ -132,7 +126,7 @@ bool str_reserve(char[..]* s, size_t need) {
 	if (nc < need) {
 		nc = need;
 	}
-	p = realloc(ptr(*s), nc);
+	char* p = realloc(ptr(*s), nc);
 	if (p == NULL) {
 		return false;
 	}
@@ -142,18 +136,15 @@ bool str_reserve(char[..]* s, size_t need) {
 
 // Append extra onto *s (may realloc). NULL s → false.
 bool str_append(char[..]* s, const char[..] extra) {
-	size_t n = { 0 };
-	size_t m = { 0 };
-	size_t newlen = { 0 };
 	if (s == NULL) {
 		return false;
 	}
-	m = len(extra);
+	size_t m = len(extra);
 	if (m == 0) {
 		return true;
 	}
-	n = len(*s);
-	newlen = n + m;
+	size_t n = len(*s);
+	size_t newlen = n + m;
 	if (newlen < n) {
 		return false;
 	}
@@ -175,12 +166,10 @@ bool str_append_byte(char[..]* s, char c) {
 // Replace *s contents with src. Reuses capacity when it fits; otherwise
 // mallocs a fresh block (safe if src aliases *s). Empty src keeps capacity.
 bool str_set(char[..]* s, const char[..] src) {
-	size_t n = { 0 };
-	char* p = { 0 };
 	if (s == NULL) {
 		return false;
 	}
-	n = len(src);
+	size_t n = len(src);
 	if (n == 0) {
 		if (ptr(*s) != NULL) {
 			*s = ranged(ptr(*s), 0, cap(*s));
@@ -194,7 +183,7 @@ bool str_set(char[..]* s, const char[..] src) {
 		*s = ranged(ptr(*s), n, cap(*s));
 		return true;
 	}
-	p = malloc(n);
+	char* p = malloc(n);
 	if (p == NULL) {
 		return false;
 	}
@@ -209,11 +198,10 @@ bool str_set(char[..]* s, const char[..] src) {
 // Ensure room for a trailing NUL at ptr[len] without changing len (for C
 // handoff). Writes '\0' into spare capacity.
 bool str_ensure_z(char[..]* s) {
-	size_t n = { 0 };
 	if (s == NULL) {
 		return false;
 	}
-	n = len(*s);
+	size_t n = len(*s);
 	if (!str_reserve(s, n + 1)) {
 		return false;
 	}

@@ -16,9 +16,8 @@ int (Buf* b).line_count_i() {
 
 int ternary_method_phi_run() {
 	Buf buf = { 0 };
-	int x = 0;
 	buf.n = 3;
-	x = 1 ? buf.line_count_i() : 0;
+	int x = 1 ? buf.line_count_i() : 0;
 	if (x != 3) {
 		return 1;
 	}

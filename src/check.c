@@ -2327,6 +2327,66 @@ esc_check_call(Compiler* c, EscapeState* st, Node* call) {
 
 static void esc_walk_stmt(Compiler* c, EscapeState* st, Node* n);
 
+/* True if every path through n leaves the enclosing function (return/goto). */
+static int
+stmt_always_exits(Node* n) {
+	int i;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdReturn || n->kind == NdGoto)
+		return 1;
+	if (n->kind == NdBlock) {
+		for (i = 0; i < n->children_len; i++) {
+			if (stmt_always_exits(n->children[i]))
+				return 1;
+		}
+		return 0;
+	}
+	if (n->kind == NdIf) {
+		if (n->c == NULL)
+			return 0;
+		return stmt_always_exits(n->b) && stmt_always_exits(n->c);
+	}
+	return 0;
+}
+
+static unsigned char*
+esc_snapshot_dead(EscapeState* st, int* out_n) {
+	unsigned char* copy;
+	int n;
+
+	n = st->n;
+	*out_n = n;
+	if (n <= 0)
+		return NULL;
+	copy = xmalloc((size_t)n);
+	memcpy(copy, st->dead_taint, (size_t)n);
+	return copy;
+}
+
+static void
+esc_restore_dead(EscapeState* st, unsigned char* snap, int snap_n) {
+	int i;
+
+	if (snap_n > 0 && snap != NULL)
+		memcpy(st->dead_taint, snap, (size_t)snap_n);
+	for (i = snap_n; i < st->n; i++)
+		st->dead_taint[i] = 0;
+}
+
+static void
+esc_union_dead(EscapeState* st, unsigned char* a, int an, unsigned char* b, int bn) {
+	int i, n;
+
+	n = st->n;
+	for (i = 0; i < n; i++) {
+		unsigned char av = (i < an && a) ? a[i] : 0;
+		unsigned char bv = (i < bn && b) ? b[i] : 0;
+		st->dead_taint[i] = (unsigned char)(av | bv);
+	}
+}
+
 static void
 esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
 	int i;
@@ -2420,7 +2480,42 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 				esc_walk_stmt(c, st, n->children[i]);
 		}
 		break;
-	case NdIf:
+	case NdIf: {
+		/* Path-sensitive dead_taint: free/consumes in a returning branch
+		 * must not poison the fall-through path (common fail/return ladders). */
+		unsigned char *save = NULL, *then_dead = NULL, *else_dead = NULL;
+		int save_n = 0, then_n = 0, else_n = 0;
+		int then_exits, else_exits;
+
+		esc_walk_stmt(c, st, n->a);
+		save = esc_snapshot_dead(st, &save_n);
+		esc_walk_stmt(c, st, n->b);
+		then_exits = stmt_always_exits(n->b);
+		then_dead = esc_snapshot_dead(st, &then_n);
+		esc_restore_dead(st, save, save_n);
+		esc_walk_stmt(c, st, n->c);
+		else_exits = stmt_always_exits(n->c);
+		else_dead = esc_snapshot_dead(st, &else_n);
+		if (then_exits && (else_exits || n->c == NULL)) {
+			/* then exits; else exits or absent → fall-through is pre-if */
+			esc_restore_dead(st, save, save_n);
+		} else if (then_exits) {
+			/* only else falls through */
+			esc_restore_dead(st, else_dead, else_n);
+		} else if (else_exits) {
+			/* only then falls through */
+			esc_restore_dead(st, then_dead, then_n);
+		} else if (n->c == NULL) {
+			/* no else: join pre-if with then */
+			esc_union_dead(st, save, save_n, then_dead, then_n);
+		} else {
+			esc_union_dead(st, then_dead, then_n, else_dead, else_n);
+		}
+		free(save);
+		free(then_dead);
+		free(else_dead);
+		break;
+	}
 	case NdWhile:
 	case NdDo:
 	case NdFor:

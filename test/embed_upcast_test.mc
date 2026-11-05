@@ -45,11 +45,10 @@ int via_call() {
 
 int via_assign() {
 	Entity e = { 0 };
-	Transform* p = { 0 };
 	e.id = 1;
 	e.x = 10;
 	e.y = 20;
-	p = &e;
+	Transform* p = &e;
 	return p.x == 10 && p.y == 20;
 }
 
@@ -97,11 +96,10 @@ int via_value_nested() {
 
 int via_ptr_value() {
 	Entity e = { 0 };
-	Entity* p = { 0 };
 	e.id = 1;
 	e.x = 10;
 	e.y = 20;
-	p = &e;
+	Entity* p = &e;
 	return xform_sum_val(p) == 30 && p.id == 1;
 }
 

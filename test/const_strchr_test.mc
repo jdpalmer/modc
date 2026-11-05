@@ -8,18 +8,14 @@
 int const_strchr_ok() {
 	const char *c = "hello";
 	char buf[8] = { 0 };
-	char *m = { 0 };
-	const char *pc = { 0 };
-	char *pm = { 0 };
-
 	buf[0] = 'h';
 	buf[1] = 'e';
 	buf[2] = 'l';
 	buf[3] = 'l';
 	buf[4] = 'o';
-	m = buf;
-	pc = strchr(c, 'e');
-	pm = strchr(m, 'e');
+	char *m = buf;
+	const char *pc = strchr(c, 'e');
+	char *pm = strchr(m, 'e');
 	if (pc == 0 || pm == 0) {
 		return 1;
 	}

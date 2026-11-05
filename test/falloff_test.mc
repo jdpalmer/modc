@@ -39,9 +39,8 @@ int via_enum(FallColor c) {
 
 int after_loop() {
 	int i = { 0 };
-	int s = { 0 };
-	s = 0;
-	for (i = 0; i < 3; i++) {
+	int s = 0;
+	for (; i < 3; i++) {
 		s = s + i;
 	}
 	return s;

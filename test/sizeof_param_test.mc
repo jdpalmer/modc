@@ -21,7 +21,6 @@ int main() {
 	int x = { 0 };
 	int a[8] = { 0 };
 
-	x = 0;
 	assert_eq(sizeof_local(), 16);
 	assert_eq(sizeof_ptr(&x), 8);
 	assert_eq(sizeof_elem(a), 4);

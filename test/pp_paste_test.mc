@@ -12,15 +12,13 @@
 #define VA_TAIL( fmt, ...) ( fmt, ## __VA_ARGS__)
 
 int stringify_ident() {
-	const char *s = { 0 };
-	s = STR(hello);
+	const char *s = STR(hello);
 	return s[0] == 'h' && s[1] == 'e' && s[2] == 'l' && s[3] == 'l' && s[4] == 'o' && s[5] == 0;
 }
 
 int stringify_no_expand() {
 	/* # does not expand the argument first → "ID(y)" not "y" */
-	const char *s = { 0 };
-	s = STR(ID(y));
+	const char *s = STR(ID(y));
 	return s[0] == 'I' && s[1] == 'D' && s[2] == '(' && s[3] == 'y' && s[4] == ')' && s[5] == 0;
 }
 

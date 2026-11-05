@@ -9,9 +9,8 @@ void take_ranged(const char[..] x) {
 
 int strlen_local() {
 	const char[..] name = { 0 };
-	int n = { 0 };
 	name = "James";
-	n = (int)strlen(name);
+	int n = (int)strlen(name);
 	if (n != 5) {
 		return 0;
 	}

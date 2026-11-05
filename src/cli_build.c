@@ -2539,24 +2539,31 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	return r;
 }
 
-/* Heap string: executable name from a file or directory path. */
+/* Heap string: build/<stem> from a file or directory path (build/ is gitignored). */
 char*
 default_out_name(const char* path, int target) {
 	char buf[PATH_MAX], cwd[PATH_MAX];
 	const char *base, *dot;
 	size_t n;
 	char* name;
+	char* out;
 	int want_exe;
+	const char* fallback;
 
 	want_exe = (target == TargetWindows);
 #ifdef _WIN32
 	want_exe = 1;
 #endif
+	fallback = want_exe ? "a.exe" : "a.out";
 	if (path == NULL || path[0] == 0)
 		path = ".";
 	if (strcmp(path, ".") == 0 || strcmp(path, "./") == 0 || strcmp(path, ".\\") == 0) {
-		if (host_getcwd(cwd, sizeof(cwd)) != 0)
-			return xstrdup(want_exe ? "a.exe" : "a.out");
+		if (host_getcwd(cwd, sizeof(cwd)) != 0) {
+			out = xmalloc(6 + strlen(fallback) + 1);
+			memcpy(out, "build/", 6);
+			memcpy(out + 6, fallback, strlen(fallback) + 1);
+			return out;
+		}
 		path = cwd;
 	}
 	snprintf(buf, sizeof(buf), "%s", path);
@@ -2568,7 +2575,7 @@ default_out_name(const char* path, int target) {
 	base = host_path_last_sep(buf);
 	base = base ? base + 1 : buf;
 	if (base[0] == 0)
-		return xstrdup(want_exe ? "a.exe" : "a.out");
+		base = fallback;
 	dot = strrchr(base, '.');
 	if (dot && strcmp(dot, ".mc") == 0 && dot > base)
 		name = xstrndup(base, (size_t)(dot - base));
@@ -2583,10 +2590,15 @@ default_out_name(const char* path, int target) {
 			memcpy(with, name, n);
 			memcpy(with + n, ".exe", 5);
 			free(name);
-			return with;
+			name = with;
 		}
 	}
-	return name;
+	n = strlen(name);
+	out = xmalloc(6 + n + 1);
+	memcpy(out, "build/", 6);
+	memcpy(out + 6, name, n + 1);
+	free(name);
+	return out;
 }
 
 // Default build input to "." when none was given.

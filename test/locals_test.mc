@@ -8,14 +8,12 @@ int add(int a, int b) {
 }
 
 int use_local(int a, int b) {
-	int x = { 0 };
-	x = a + b;
+	int x = a + b;
 	return x;
 }
 
 int call_add(int a, int b) {
-	int x = { 0 };
-	x = add(a, b);
+	int x = add(a, b);
 	return x;
 }
 
@@ -25,10 +23,9 @@ int ptr_store(int* p, int v) {
 }
 
 int main() {
-	int x = { 0 };
+	int x = 0;
 	assert_eq(use_local(20, 22), 42);
 	assert_eq(call_add(10, 32), 42);
-	x = 0;
 	assert_eq(ptr_store(&x, 7), 7);
 	assert_eq(x, 7);
 	return 0;

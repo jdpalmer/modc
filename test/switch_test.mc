@@ -14,7 +14,6 @@ int classify(int x) {
 
 int case_fall(int x) {
 	int s = { 0 };
-	s = 0;
 	switch (x) {
 		case 1: s = s + 1;
 		[[fallthrough]];
@@ -38,8 +37,7 @@ int case_range(int x) {
 int withbreak(int x) {
 	int i = { 0 };
 	int s = { 0 };
-	s = 0;
-	for (i = 0; i < 10; i++) {
+	for (; i < 10; i++) {
 		switch (i) {
 			case 3: break;
 			default: s = s + i;
@@ -65,8 +63,6 @@ int skipto(int x) {
 int loop_goto(int n) {
 	int i = { 0 };
 	int s = { 0 };
-	s = 0;
-	i = 0;
 	again: if (i >= n) {
 		goto done;
 	}

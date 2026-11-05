@@ -15,10 +15,8 @@ bool ok(bool a, int b) {
 }
 
 int typedef_fnptr_run() {
-	BinOp op = { 0 };
-	Handler h = { 0 };
-	op = add;
-	h = ok;
+	BinOp op = add;
+	Handler h = ok;
 	if (op(20, 22) != 42) {
 		return 1;
 	}

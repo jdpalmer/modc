@@ -24,20 +24,17 @@ struct Arena {
 };
 
 static bool arena_ensure(Arena* a, size_t need) {
-	char* p = { 0 };
-	size_t newcap = { 0 };
 	if (need <= a.cap) {
 		return true;
 	}
+	size_t newcap = 4096;
 	if (a.cap != 0) {
 		newcap = a.cap;
-	} else {
-		newcap = 4096;
 	}
 	while (newcap < need) {
 		newcap = newcap * 2;
 	}
-	p = realloc(a.base, newcap);
+	char* p = realloc(a.base, newcap);
 	if (p == NULL) {
 		return false;
 	}
@@ -82,13 +79,11 @@ void ([[consumes]] Arena* a).reset() {
 
 // Copy a view into the arena.
 (bool, char[..]) ([[region]] Arena* a).copy(const char[..] s) {
-	size_t n = { 0 };
-	char* p = { 0 };
-	n = len(s);
+	size_t n = len(s);
 	if (n == 0) {
 		return (true, str_empty());
 	}
-	p = arena_bump(a, n);
+	char* p = arena_bump(a, n);
 	if (p == NULL) {
 		return (false, str_empty());
 	}
@@ -98,13 +93,9 @@ void ([[consumes]] Arena* a).reset() {
 
 // Append s onto cur; copies into the arena. Returns a new view (assign it).
 (bool, char[..]) ([[region]] Arena* a).append(char[..] cur, const char[..] s) {
-	size_t cn = { 0 };
-	size_t n = { 0 };
-	size_t newlen = { 0 };
-	char* p = { 0 };
-	cn = len(cur);
-	n = len(s);
-	newlen = cn + n;
+	size_t cn = len(cur);
+	size_t n = len(s);
+	size_t newlen = cn + n;
 	if (newlen < cn) {
 		return (false, str_empty());
 	}
@@ -114,7 +105,7 @@ void ([[consumes]] Arena* a).reset() {
 	if (n == 0) {
 		return (true, cur);
 	}
-	p = arena_bump(a, newlen);
+	char* p = arena_bump(a, newlen);
 	if (p == NULL) {
 		return (false, str_empty());
 	}
@@ -134,10 +125,8 @@ void ([[consumes]] Arena* a).reset() {
 
 // Join parts with sep into the arena.
 (bool, char[..]) ([[region]] Arena* a).join(const char[..] sep, const char[..]* parts, size_t nparts) {
-	char[..] out = { 0 };
-	size_t i = { 0 };
-	out = str_empty();
-	for (i = 0; i < nparts; i++) {
+	char[..] out = str_empty();
+	for (size_t i = 0; i < nparts; i++) {
 		if (i != 0) {
 			auto (ok, next) = a.append(out, sep);
 			if (!ok) {
@@ -158,17 +147,14 @@ void ([[consumes]] Arena* a).reset() {
 
 // Replace every occurrence of old with new.
 (bool, char[..]) ([[region]] Arena* a).replace(const char[..] s, const char[..] old, const char[..] new) {
-	char[..] out = { 0 };
-	size_t i = { 0 };
 	if (len(old) == 0) {
 		return a.copy(s);
 	}
-	out = str_empty();
-	i = 0;
+	char[..] out = str_empty();
+	size_t i = 0;
 	while (i < len(s)) {
 		const char[..] tail = s[i ..];
 		auto (ok, hit) = str_find(tail, old);
-		size_t off = { 0 };
 		if (!ok) {
 			auto (put_ok, next) = a.append(out, tail);
 			if (!put_ok) {
@@ -176,7 +162,7 @@ void ([[consumes]] Arena* a).reset() {
 			}
 			return (true, next);
 		}
-		off = ptr(hit) - ptr(tail);
+		size_t off = ptr(hit) - ptr(tail);
 		{
 			auto (put_ok, next) = a.append(out, tail[0 .. off]);
 			if (!put_ok) {
@@ -198,10 +184,8 @@ void ([[consumes]] Arena* a).reset() {
 
 // NUL-terminated copy of s in the arena (C boundary).
 char* ([[region]] Arena* a).z(const char[..] s) {
-	size_t n = { 0 };
-	char* p = { 0 };
-	n = len(s);
-	p = arena_bump(a, n + 1);
+	size_t n = len(s);
+	char* p = arena_bump(a, n + 1);
 	if (p == NULL) {
 		return NULL;
 	}

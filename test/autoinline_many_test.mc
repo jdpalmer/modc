@@ -324,8 +324,7 @@ static int h79(int a, int b) {
 }
 
 int autoinline_many_run() {
-	int x = { 0 };
-	x = 0;
+	int x = 0;
 	x = h0(x, 1);
 	x = h1(x, 1);
 	x = h2(x, 1);

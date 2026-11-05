@@ -50,19 +50,17 @@ bool path_is_abs(const char[..] p) {
 // Directory of p as a view. "" if none; "/" if p is root.
 const? char[..] path_dir(const? char[..] p) {
 	size_t n = len(p);
-	size_t end = 0;
-	size_t i = 0;
 	if (n == 0) {
 		return path_empty();
 	}
-	end = n;
+	size_t end = n;
 	while (end > 1 && path_slash(p[end - 1])) {
 		end--;
 	}
 	if (end == 1 && path_slash(p[0])) {
 		return p[0 .. 1];
 	}
-	i = end;
+	size_t i = end;
 	while (i > 0 && !path_slash(p[i - 1])) {
 		i--;
 	}
@@ -78,19 +76,17 @@ const? char[..] path_dir(const? char[..] p) {
 // Final component as a view. Trailing slashes ignored. "/" for root.
 const? char[..] path_base(const? char[..] p) {
 	size_t n = len(p);
-	size_t end = 0;
-	size_t i = 0;
 	if (n == 0) {
 		return path_empty();
 	}
-	end = n;
+	size_t end = n;
 	while (end > 0 && path_slash(p[end - 1])) {
 		end--;
 	}
 	if (end == 0) {
 		return p[0 .. 1];
 	}
-	i = end;
+	size_t i = end;
 	while (i > 0 && !path_slash(p[i - 1])) {
 		i--;
 	}
@@ -114,19 +110,15 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 // Write a/b into dst. Returns a view of the written path, or empty on failure.
 (char[..], bool) path_join(char[..] dst, const char[..] a, const char[..] b) {
 	char tmp[PathMax] = { 0 };
-	size_t an = 0;
-	size_t bi = 0;
-	size_t bt = 0;
 	size_t n = 0;
 	int aroot = 0;
-	int babs = 0;
-	an = path_trim_tail(a, len(a), &aroot);
-	babs = path_is_abs(b) ? 1: 0;
-	bi = 0;
+	size_t an = path_trim_tail(a, len(a), &aroot);
+	int babs = path_is_abs(b) ? 1: 0;
+	size_t bi = 0;
 	while (bi < len(b) && path_slash(b[bi])) {
 		bi++;
 	}
-	bt = len(b) - bi;
+	size_t bt = len(b) - bi;
 	while (bt > 0 && path_slash(b[bi + bt - 1])) {
 		bt--;
 	}
@@ -163,8 +155,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 	char tmp[PathMax] = { 0 };
 	size_t n = 0;
 	size_t i = 0;
-	int abs = 0;
-	abs = path_is_abs(p) ? 1: 0;
+	int abs = path_is_abs(p) ? 1: 0;
 	if (abs) {
 		tmp[n++] = '/';
 	}

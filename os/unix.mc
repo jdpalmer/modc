@@ -62,7 +62,7 @@ struct OsPoll {
 
 void ocmd_clear_stdio(OsCmd* c) {
 	int i = 0;
-	for (i = 0; i < 3; i++) {
+	for (; i < 3; i++) {
 		c.mode[i] = OsIoInherit;
 		if (c.child_fd[i] >= 0) {
 			close(c.child_fd[i]);
@@ -72,14 +72,13 @@ void ocmd_clear_stdio(OsCmd* c) {
 }
 
 OsCmd* ocmd_new() {
-	OsCmd* c = 0;
+	OsCmd* c = (OsCmd *)malloc(sizeof(*c));
 	int i = 0;
-	c = (OsCmd *)malloc(sizeof(*c));
 	if (c == 0) {
 		return 0;
 	}
 	memset(c, 0, sizeof(*c));
-	for (i = 0; i < 3; i++) {
+	for (; i < 3; i++) {
 		c.mode[i] = OsIoInherit;
 		c.child_fd[i] = -1;
 	}
@@ -89,7 +88,7 @@ OsCmd* ocmd_new() {
 
 void ocmd_free_args(OsCmd* c) {
 	int i = 0;
-	for (i = 0; i < c.nargs; i++) {
+	for (; i < c.nargs; i++) {
 		free(c.argv[i]);
 		c.argv[i] = 0;
 	}
@@ -100,7 +99,7 @@ void ocmd_free_args(OsCmd* c) {
 
 void ocmd_free_env(OsCmd* c) {
 	int i = 0;
-	for (i = 0; i < c.nenv; i++) {
+	for (; i < c.nenv; i++) {
 		free(c.ekey[i]);
 		free(c.eval[i]);
 		c.ekey[i] = 0;
@@ -121,8 +120,7 @@ void ocmd_free(OsCmd* c) {
 }
 
 char* ocmd_strdup(const char *s, size_t n) {
-	char* p = 0;
-	p = (char*)malloc(n + 1);
+	char* p = (char*)malloc(n + 1);
 	if (p == 0) {
 		return 0;
 	}
@@ -177,12 +175,10 @@ int ocmd_set_dir(OsCmd* c, const char *d, size_t n) {
 
 int ocmd_set_env(OsCmd* c, const char *k, size_t kn, const char *v, size_t vn) {
 	int i = 0;
-	char* nk = 0;
-	char* nv = 0;
 	if (c == 0 || kn == 0) {
 		return 0;
 	}
-	for (i = 0; i < c.nenv; i++) {
+	for (; i < c.nenv; i++) {
 		if (strlen(c.ekey[i]) == kn && memcmp(c.ekey[i], k, kn) == 0) {
 			free(c.eval[i]);
 			c.eval[i] = ocmd_strdup(v, vn);
@@ -192,8 +188,8 @@ int ocmd_set_env(OsCmd* c, const char *k, size_t kn, const char *v, size_t vn) {
 	if (c.nenv >= OsEnvMax) {
 		return 0;
 	}
-	nk = ocmd_strdup(k, kn);
-	nv = ocmd_strdup(v, vn);
+	char* nk = ocmd_strdup(k, kn);
+	char* nv = ocmd_strdup(v, vn);
 	if (nk == 0 || (vn != 0 && nv == 0)) {
 		free(nk);
 		free(nv);
@@ -223,8 +219,6 @@ int ocmd_stdio(OsCmd* c, int which, int mode) {
 /* Returns parent fd via *parent_fd; child stored on cmd. Caller wraps parent. */
 int ocmd_pipe(OsCmd* c, int which, int* parent_fd) {
 	int pfd[2] = { 0 };
-	int parent = 0;
-	int child = 0;
 	if (c == 0 || parent_fd == 0 || which < 0 || which > 2) {
 		return 0;
 	}
@@ -233,13 +227,8 @@ int ocmd_pipe(OsCmd* c, int which, int* parent_fd) {
 	}
 	fcntl(pfd[0], F_SETFD, FD_CLOEXEC);
 	fcntl(pfd[1], F_SETFD, FD_CLOEXEC);
-	if (which == OsStdIn) {
-		parent = pfd[1];
-		child = pfd[0];
-	} else {
-		parent = pfd[0];
-		child = pfd[1];
-	}
+	int parent = which == OsStdIn ? pfd[1] : pfd[0];
+	int child = which == OsStdIn ? pfd[0] : pfd[1];
 	if (c.child_fd[which] >= 0) {
 		close(c.child_fd[which]);
 	}
@@ -254,16 +243,10 @@ int ocmd_path_is_abs(const char *p) {
 }
 
 int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
-	const char *path = 0;
-	const char *a = 0;
-	const char *b = 0;
-	size_t nlen = 0;
-	size_t plen = 0;
-	size_t tot = 0;
 	if (name == 0 || name[0] == 0 || dst == 0 || dstcap < 2) {
 		return 0;
 	}
-	nlen = strlen(name);
+	size_t nlen = strlen(name);
 	if (ocmd_path_is_abs(name) || strchr(name, '/') != 0) {
 		if (nlen + 1 > dstcap) {
 			return 0;
@@ -271,22 +254,22 @@ int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 		memcpy(dst, name, nlen + 1);
 		return 1;
 	}
-	path = getenv("PATH");
+	const char *path = getenv("PATH");
 	if (path == 0) {
 		path = "/usr/bin:/bin";
 	}
-	a = path;
+	const char *a = path;
 	while (*a) {
-		b = a;
+		const char *b = a;
 		while (*b &&*b != ':') {
 			b++;
 		}
-		plen = b - a;
+		size_t plen = b - a;
 		if (plen == 0) {
 			a = *b ? b + 1: b;
 			continue;
 		}
-		tot = plen + 1 + nlen;
+		size_t tot = plen + 1 + nlen;
 		if (tot + 1 > dstcap) {
 			a = *b ? b + 1: b;
 			continue;
@@ -308,26 +291,21 @@ int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 }
 
 char** ocmd_build_env(OsCmd* c) {
-	char** env = 0;
+	char** e = environ;
 	int n = 0;
-	int i = 0;
-	int j = 0;
-	int cap = 0;
-	char** e = 0;
-	e = environ;
-	n = 0;
 	if (e) {
 		while (e[n]) {
 			n++;
 		}
 	}
-	cap = n + c.nenv + 1;
-	env = (char**)malloc((size_t)cap * sizeof(char*));
+	int cap = n + c.nenv + 1;
+	char** env = (char**)malloc((size_t)cap * sizeof(char*));
 	if (env == 0) {
 		return 0;
 	}
-	j = 0;
-	for (i = 0; i < n; i++) {
+	int j = 0;
+	int i = 0;
+	for (; i < n; i++) {
 		char* eq = 0;
 		size_t kn = 0;
 		int skip = 0;
@@ -349,18 +327,14 @@ char** ocmd_build_env(OsCmd* c) {
 		}
 	}
 	for (i = 0; i < c.nenv; i++) {
-		size_t kn = 0;
-		size_t vn = 0;
-		size_t tot = 0;
-		char* line = 0;
 		if (c.eval[i] == 0 || c.eval[i][0] == 0) {
 			/* empty val = unset: already skipped from parent */
 			continue;
 		}
-		kn = strlen(c.ekey[i]);
-		vn = strlen(c.eval[i]);
-		tot = kn + 1 + vn;
-		line = (char*)malloc(tot + 1);
+		size_t kn = strlen(c.ekey[i]);
+		size_t vn = strlen(c.eval[i]);
+		size_t tot = kn + 1 + vn;
+		char* line = (char*)malloc(tot + 1);
 		if (line == 0) {
 			/* leak prior env lines we malloc'd — only overlay lines */
 			while (--i >= 0) {
@@ -391,7 +365,7 @@ void ocmd_free_envp(char** env, OsCmd* c) {
 		}
 	}
 	/* Overlay lines were malloc'd after parent copies — free any not in environ */
-	for (i = 0; env[i]; i++) {
+	for (; env[i]; i++) {
 		int from_parent = 0;
 		int j = 0;
 		for (j = 0; j < nparent; j++) {
@@ -409,17 +383,12 @@ void ocmd_free_envp(char** env, OsCmd* c) {
 }
 
 int ocmd_open_null(int wr) {
-	int fd = 0;
-	fd = open("/dev/null", wr ? O_WRONLY: O_RDONLY);
+	int fd = open("/dev/null", wr ? O_WRONLY: O_RDONLY);
 	return fd;
 }
 
 int ocmd_start(OsCmd* c) {
 	char resolved[OsPathMax] = { 0 };
-	char** envp = 0;
-	int pid = 0;
-	int i = 0;
-	int nullfd = 0;
 	if (c == 0 || c.file == 0 || c.started) {
 		return 0;
 	}
@@ -431,18 +400,19 @@ int ocmd_start(OsCmd* c) {
 	} else if (!ocmd_resolve_path(c.file, resolved, sizeof(resolved))) {
 		return 0;
 	}
-	envp = ocmd_build_env(c);
+	char** envp = ocmd_build_env(c);
 	if (envp == 0) {
 		return 0;
 	}
-	pid = fork();
+	int pid = fork();
 	if (pid < 0) {
 		ocmd_free_envp(envp, c);
 		return 0;
 	}
 	if (pid == 0) {
 		/* child */
-		for (i = 0; i < 3; i++) {
+		int i = 0;
+		for (; i < 3; i++) {
 			if (c.mode[i] == OsIoPipe) {
 				if (c.child_fd[i] < 0) {
 					_exit(127);
@@ -451,7 +421,7 @@ int ocmd_start(OsCmd* c) {
 					_exit(127);
 				}
 			} else if (c.mode[i] == OsIoNull) {
-				nullfd = ocmd_open_null(i != 0);
+				int nullfd = ocmd_open_null(i != 0);
 				if (nullfd < 0) {
 					_exit(127);
 				}
@@ -476,10 +446,13 @@ int ocmd_start(OsCmd* c) {
 	}
 	/* parent */
 	ocmd_free_envp(envp, c);
-	for (i = 0; i < 3; i++) {
-		if (c.child_fd[i] >= 0) {
-			close(c.child_fd[i]);
-			c.child_fd[i] = -1;
+	{
+		int i = 0;
+		for (; i < 3; i++) {
+			if (c.child_fd[i] >= 0) {
+				close(c.child_fd[i]);
+				c.child_fd[i] = -1;
+			}
 		}
 	}
 	c.pid = pid;
@@ -500,7 +473,6 @@ int ocmd_status_code(int st) {
 
 int ocmd_wait(OsCmd* c, int* code) {
 	int st = 0;
-	int rc = 0;
 	if (c == 0 || code == 0) {
 		return 0;
 	}
@@ -511,7 +483,7 @@ int ocmd_wait(OsCmd* c, int* code) {
 		*code = c.status;
 		return 1;
 	}
-	rc = waitpid(c.pid, &st, 0);
+	int rc = waitpid(c.pid, &st, 0);
 	if (rc < 0) {
 		return 0;
 	}
@@ -524,11 +496,10 @@ int ocmd_wait(OsCmd* c, int* code) {
 /* Non-blocking reap for Poll. Returns 1 if exited (reaped). */
 int ocmd_poll_reap(OsCmd* c) {
 	int st = 0;
-	int rc = 0;
 	if (c == 0 || !c.started || c.reaped) {
 		return c && c.reaped;
 	}
-	rc = waitpid(c.pid, &st, WNOHANG);
+	int rc = waitpid(c.pid, &st, WNOHANG);
 	if (rc == 0) {
 		return 0;
 	}
@@ -564,7 +535,7 @@ int opoll_add_file(OsPoll* p, void* file, int events) {
 	if (p == 0 || file == 0 || p.n >= OsPollMax) {
 		return 0;
 	}
-	for (i = 0; i < p.n; i++) {
+	for (; i < p.n; i++) {
 		if (!p.slot[i].is_cmd && p.slot[i].file == file) {
 			return 0;
 		}
@@ -585,7 +556,7 @@ int opoll_add_cmd(OsPoll* p, void* cmd_handle, void* ocmd) {
 	if (p == 0 || cmd_handle == 0 || ocmd == 0 || p.n >= OsPollMax) {
 		return 0;
 	}
-	for (i = 0; i < p.n; i++) {
+	for (; i < p.n; i++) {
 		if (p.slot[i].is_cmd && p.slot[i].cmd == cmd_handle) {
 			return 0;
 		}
@@ -627,20 +598,17 @@ int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 	int map[OsPollMax] = { 0 };
 	int np = 0;
 	int i = 0;
-	int rc = 0;
 	int nready = 0;
-	int only_cmds = 0;
+	int only_cmds = 1;
 	if (p == 0) {
 		return -1;
 	}
 	p.nready = 0;
-	for (i = 0; i < p.n; i++) {
+	for (; i < p.n; i++) {
 		p.slot[i].ready = 0;
 		p.slot[i].revents = 0;
 	}
 	/* Reap cmds first */
-	nready = 0;
-	only_cmds = 1;
 	for (i = 0; i < p.n; i++) {
 		if (p.slot[i].is_cmd) {
 			OsCmd* c = (OsCmd *)p.slot[i].ocmd;
@@ -656,7 +624,6 @@ int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 		p.nready = nready;
 		return nready;
 	}
-	np = 0;
 	for (i = 0; i < p.n; i++) {
 		if (p.slot[i].is_cmd) {
 			continue;
@@ -676,6 +643,7 @@ int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 		map[np] = i;
 		np++;
 	}
+	(void)only_cmds;
 	if (np == 0) {
 		/* only cmds: block with waitpid if timeout < 0 and none ready */
 		if (nready > 0) {
@@ -712,8 +680,7 @@ int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 		}
 		/* timed wait with only cmds: poll with timeout using a dummy sleep via poll(0) —
 		   not portable. Use poll on no fds — Linux allows nfds=0. */
-		rc = poll(0, 0, timeout_ms < 0 ? -1: timeout_ms);
-		(void)rc;
+		(void)poll(0, 0, timeout_ms < 0 ? -1: timeout_ms);
 		for (i = 0; i < p.n; i++) {
 			if (p.slot[i].is_cmd && ocmd_poll_reap((OsCmd *)p.slot[i].ocmd)) {
 				p.slot[i].ready = 1;
@@ -723,14 +690,9 @@ int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 		p.nready = nready;
 		return nready;
 	}
-	{
-		int t = timeout_ms;
-		if (nready > 0) {
-			t = 0;
-			/* already have cmd ready: don't block */
-		}
-		rc = poll(pf, np, t);
-	}
+	int t = nready > 0 ? 0 : timeout_ms;
+	/* already have cmd ready: don't block */
+	int rc = poll(pf, np, t);
 	if (rc < 0) {
 		return -1;
 	}

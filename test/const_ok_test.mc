@@ -19,8 +19,6 @@ int const_ok() {
 	const char[..] v = "ab";
 	char buf[4] = { 0 };
 	char[..] w = { 0 };
-	char *m = { 0 };
-
 	if (sink("hi") != 2) {
 		return 1;
 	}
@@ -31,7 +29,7 @@ int const_ok() {
 		return 3;
 	}
 	w = ranged(buf, 0, 4);
-	m = buf;
+	char *m = buf;
 	m[0] = 'z';
 	/* explicit discard */
 	m = (char *)p;

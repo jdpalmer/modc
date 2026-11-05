@@ -7,16 +7,14 @@
 #include <math.h>
 
 int math_hdr_run() {
-	double a = { 0 };
-	float b = { 0 };
-	a = sqrt(4.0);
+	double a = sqrt(4.0);
 	if (a != 2.0) {
 		return 1;
 	}
 	if (fabs(-3.0) != 3.0) {
 		return 2;
 	}
-	b = sqrtf(9.0f);
+	float b = sqrtf(9.0f);
 	if (b != 9.0f / 3.0f) {
 		return 3;
 	}

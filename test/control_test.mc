@@ -12,9 +12,8 @@ int absdiff(int a, int b) {
 
 int sum_to(int n) {
 	int i = { 0 };
-	int s = { 0 };
-	s = 0;
-	for (i = 0; i < n; i++) {
+	int s = 0;
+	for (; i < n; i++) {
 		s = s + i;
 	}
 	return s;
@@ -23,17 +22,15 @@ int sum_to(int n) {
 int sum_pair(int n) {
 	int i = { 0 };
 	int j = { 0 };
-	int s = { 0 };
-	s = 0;
-	for (i = 0, j = 0; i < n; i++, j++) {
+	int s = 0;
+	for (; i < n; i++, j++) {
 		s = s + i + j;
 	}
 	return s;
 }
 
 int fact(int n) {
-	int r = { 0 };
-	r = 1;
+	int r = 1;
 	while (n > 1) {
 		r = r * n;
 		n--;
@@ -42,8 +39,7 @@ int fact(int n) {
 }
 
 int countdown(int n) {
-	int s = { 0 };
-	s = 0;
+	int s = 0;
 	do {
 		s = s + n;
 		n--;
@@ -54,9 +50,8 @@ int countdown(int n) {
 
 int early_break(int n) {
 	int i = { 0 };
-	int s = { 0 };
-	s = 0;
-	for (i = 0; i < n; i++) {
+	int s = 0;
+	for (; i < n; i++) {
 		if (i == 5) {
 			break;
 		}
@@ -67,9 +62,8 @@ int early_break(int n) {
 
 int skip_continue(int n) {
 	int i = { 0 };
-	int s = { 0 };
-	s = 0;
-	for (i = 0; i < n; i++) {
+	int s = 0;
+	for (; i < n; i++) {
 		if (i == 2) {
 			continue;
 		}
@@ -97,8 +91,7 @@ int cond(int a, int b, int c) {
 }
 
 int max3(int a, int b, int c) {
-	int m = { 0 };
-	m = a > b ? a: b;
+	int m = a > b ? a: b;
 	return m > c ? m: c;
 }
 

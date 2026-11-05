@@ -6,8 +6,7 @@
 int sum_elems(int[..] s) {
 	int i = { 0 };
 	int t = { 0 };
-	t = 0;
-	for (i = 0; i < (int)len(s); i++) {
+	for (; i < (int)len(s); i++) {
 		t = t + s[i];
 	}
 	return t;

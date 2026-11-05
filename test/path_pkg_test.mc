@@ -43,7 +43,7 @@ int test_abs_dir_base() {
 int test_join() {
 	char buf[64] = { 0 };
 	char[..] empty = { 0 };
-	char sentinel = 0;
+	char sentinel = 'Z';
 	{
 		auto (view, ok) = path_join(buf, "a", "b");
 		if (!ok || !expect_z(view, "a/b")) {
@@ -86,7 +86,6 @@ int test_join() {
 			return 7;
 		}
 	}
-	sentinel = 'Z';
 	empty = ranged(&sentinel, 0);
 	{
 		auto (view, ok) = path_join(empty, "a", "b");

@@ -4,8 +4,8 @@
 /* Extra parens allow intentional assignment in a condition. */
 
 int ok_if() {
-	int x = { 0 };
-	x = 1;
+	int x = 1;
+	(void)x;
 	if ((x = 0)) {
 		return 1;
 	}
@@ -16,8 +16,7 @@ int ok_if() {
 }
 
 int ok_cmp() {
-	int x = { 0 };
-	x = 1;
+	int x = 1;
 	if (x == 1) {
 		return 1;
 	}

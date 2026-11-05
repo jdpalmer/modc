@@ -26,12 +26,10 @@ void (Buffer *buf).touch() {
 
 /* Free function: locals then use of param named buf (jem buffer_clamp pattern). */
 void buffer_clamp_location(Buffer *buf, int *loc) {
-	int nlines = 0;
-
 	if (buf == NULL || loc == NULL) {
 		return;
 	}
-	nlines = (int)len(buf.lines);
+	int nlines = (int)len(buf.lines);
 	if (nlines < 1) {
 		*loc = 0;
 		return;

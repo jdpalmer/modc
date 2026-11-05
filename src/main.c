@@ -58,7 +58,7 @@ usage(const char* sub) {
 			"A directory is compiled like a package (mod.mc first if present).\n"
 			"\n"
 			"Options:\n"
-			"  -o, --output PROG           output executable (default: from path name)\n"
+			"  -o, --output PROG           output executable (default: build/<name>)\n"
 			"  -D, --define NAME[=VALUE]\n"
 			"  -I, --include-dir DIR\n"
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
