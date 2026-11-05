@@ -53,7 +53,10 @@ cleanup is recognized as consuming: `free` / `fclose`, or a `%C` parameter marke
 Views returned from a `[[region]]` parameter (Arena `copy` / `append` / `z`, …) are
 tied to that region and cannot escape past a consuming `free` / `reset` either.
 The `defer` keyword still only schedules cleanup order; `[[consumes]]` / `[[region]]`
-are what make the lifetime contract checkable.
+are what make the lifetime contract checkable. The same consume markers also reject
+straight-line use-after-free and double-free of that local after an immediate
+`free(p)` / `fclose(f)` / consuming call (uses before a deferred cleanup still run
+are allowed; the kill is at block exit).
 
 ## Practical application patterns
 

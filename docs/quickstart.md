@@ -313,6 +313,8 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Defer Invalidation**: After `defer free(p)` / `defer fclose(f)` / `defer` of a `[[consumes]]` call, that pointer must not escape the block (`return p` is an error; aliases are tracked). Method receivers use `([[consumes]] T *r).free()`. Views minted via a `[[region]]` parameter (e.g. Arena `copy`/`append`) are invalidated with that region.
 
+- **Straight-line consumes**: After an immediate `free(p)` / `fclose(f)` / `[[consumes]]` call (not merely `defer`), later uses of that local/param in the function are errors (`*p`, `p[i]`, passing `p` again). Reassignment (`p = malloc(...)`) clears the kill. Fail-branch `free` + `return` does not poison the success path. Aliases (`q = p; free(p); *q`) are not fully tracked.
+
 - **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts.
 
 - **No Unnecessary Casts**: A cast is a compile-time error when removing it preserves the value and %C would perform the same conversion at an assignment, initializer, return, or fixed-parameter boundary. Same-type arithmetic casts are rejected, as are narrow integer casts of literals that already fit (e.g. `(char)0x80` in comparisons — `char` is unsigned and promotes back to `int`). Casts that control arithmetic width, signedness, enum operations, overload selection, vararg ABI, pointer provenance, or intentional `(void)` discards remain valid.
@@ -329,7 +331,7 @@ When writing or generating %C code, adhere to the following dialect conventions 
 
 - **Return Values over Out-Parameters**: Return multi-value tuples such as `(T, bool)` alongside `auto` destructuring instead of passing mutable pointer out-parameters.
 
-- **Manual Lifetime Discipline**: Prefer `[[consumes]]` on cleanup APIs; the compiler rejects escaping values a `defer` will invalidate. Opaque `defer { … }` bodies without a consuming call are not checked.
+- **Manual Lifetime Discipline**: Prefer `[[consumes]]` on cleanup APIs; the compiler rejects escaping values a `defer` will invalidate and later uses after a straight-line consume. Opaque `defer { … }` bodies without a consuming call are not checked.
 
 ### Formatting and Declaration Structure
 

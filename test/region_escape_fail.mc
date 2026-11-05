@@ -1,4 +1,4 @@
-// fail: F:invalidated by a defer in this block and cannot escape
+// fail: F:cannot escape
 
 int g = 0;
 
@@ -22,9 +22,8 @@ int* bad_defer() {
 
 int* bad_taint() {
 	Reg r = { &g };
-	int* p = { 0 };
 	defer r.reset();
-	p = r.bump();
+	int* p = r.bump();
 	return p;
 }
 

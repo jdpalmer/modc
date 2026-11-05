@@ -1824,8 +1824,17 @@ static uint64_t
 expr_param_bits(EscapeState* st, Node* n);
 
 static int
+sym_is_consumed(EscapeState* st, Symbol* s) {
+	if (s == NULL)
+		return 0;
+	return sym_in_defer_kill(st, s) || esc_dead_tainted(st, s) ||
+	       sym_region_killed(st, s);
+}
+
+static int
 expr_may_dead(EscapeState* st, Node* n) {
 	Symbol* s;
+	Type* bt;
 	int i, j, lim;
 	Type* ft;
 
@@ -1842,23 +1851,29 @@ expr_may_dead(EscapeState* st, Node* n) {
 		return expr_may_dead(st, n->kind == NdComma ? n->b : n->a);
 	if (n->kind == NdCond)
 		return expr_may_dead(st, n->b) || expr_may_dead(st, n->c);
-	if (n->kind == NdName && n->symbol) {
-		if (sym_in_defer_kill(st, n->symbol) || esc_dead_tainted(st, n->symbol) ||
-		    sym_region_killed(st, n->symbol))
-			return 1;
-	}
+	if (n->kind == NdName && n->symbol)
+		return sym_is_consumed(st, n->symbol);
+	if (n->kind == NdDeref)
+		return expr_may_dead(st, n->a);
 	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
+		/* Any access through a consumed pointer is a use (including p[0] / p.x). */
+		bt = n->a->type;
+		if (bt && is_ptr(bt) && expr_may_dead(st, n->a))
+			return 1;
 		if (!type_may_carry_ptr(n->type) && !is_array(n->type))
 			return 0;
 		s = lvalue_stack_object(n->a);
-		if (s && (sym_in_defer_kill(st, s) || esc_dead_tainted(st, s) ||
-			  sym_region_killed(st, s)))
+		if (sym_is_consumed(st, s))
 			return 1;
-		if (n->a->kind == NdName && n->a->symbol &&
-		    (sym_in_defer_kill(st, n->a->symbol) ||
-		     esc_dead_tainted(st, n->a->symbol) ||
-		     sym_region_killed(st, n->a->symbol)))
+		if (n->a->kind == NdName && sym_is_consumed(st, n->a->symbol))
 			return 1;
+	}
+	if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus)) {
+		if (expr_may_dead(st, n->a))
+			return 1;
+		if (n->op == PnPlus && expr_may_dead(st, n->b))
+			return 1;
+		return 0;
 	}
 	if (n->kind == NdCall) {
 		ft = call_func_type(n);
@@ -1869,8 +1884,7 @@ expr_may_dead(EscapeState* st, Node* n) {
 			for (j = 0; j < lim; j++) {
 				if (param_is_region(ft, j)) {
 					s = consume_target_sym(n->children[j]);
-					if (s && (sym_in_defer_kill(st, s) ||
-						  esc_dead_tainted(st, s)))
+					if (sym_is_consumed(st, s))
 						return 1;
 				}
 				if (ft->param_returned && ft->param_returned[j] &&
@@ -1888,20 +1902,130 @@ expr_may_dead(EscapeState* st, Node* n) {
 	return 0;
 }
 
+static Symbol*
+expr_consumed_sym(EscapeState* st, Node* n) {
+	Symbol* s;
+
+	if (n == NULL)
+		return NULL;
+	if (n->kind == NdCast || n->kind == NdComma)
+		return expr_consumed_sym(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdName && n->symbol &&
+	    (sym_is_consumed(st, n->symbol) || esc_dead_tainted(st, n->symbol) ||
+	     sym_region_killed(st, n->symbol)))
+		return n->symbol;
+	if (n->kind == NdDeref || n->kind == NdUn || n->kind == NdPost)
+		return expr_consumed_sym(st, n->a);
+	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
+		s = expr_consumed_sym(st, n->a);
+		if (s)
+			return s;
+	}
+	if (n->kind == NdBin) {
+		s = expr_consumed_sym(st, n->a);
+		if (s)
+			return s;
+		return expr_consumed_sym(st, n->b);
+	}
+	return NULL;
+}
+
 static void
-report_defer_escape(Compiler* c, Node* n) {
+report_consumed_use(Compiler* c, EscapeState* st, Node* n) {
 	Symbol* s;
 
 	if (n == NULL)
 		return;
-	s = (n->kind == NdName) ? n->symbol : NULL;
+	s = expr_consumed_sym(st, n);
+	if (s == NULL && n->kind == NdName)
+		s = n->symbol;
 	if (s && s->name)
+		error_at(c, n->span, "use of consumed value '%s'", s->name);
+	else
+		error_at(c, n->span, "use of consumed value");
+}
+
+static void
+report_defer_escape(Compiler* c, EscapeState* st, Node* n) {
+	Symbol* s;
+
+	if (n == NULL)
+		return;
+	s = expr_consumed_sym(st, n);
+	if (s == NULL && n->kind == NdName)
+		s = n->symbol;
+	if (s && s->name && sym_in_defer_kill(st, s))
 		error_at(c, n->span,
 			 "'%s' is invalidated by a defer in this block and cannot escape",
 			 s->name);
-	else
+	else if (s && s->name)
+		error_at(c, n->span, "consumed value '%s' cannot escape", s->name);
+	else if (s && sym_in_defer_kill(st, s))
 		error_at(c, n->span,
 			 "value invalidated by a defer in this block cannot escape");
+	else
+		error_at(c, n->span, "consumed value cannot escape");
+}
+
+/* Already consumed (free/[[consumes]]), not merely scheduled by defer. */
+static int
+expr_may_already_consumed(EscapeState* st, Node* n) {
+	Symbol* s;
+	Type* bt;
+	int i;
+
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++) {
+			if (expr_may_already_consumed(st, n->children[i]))
+				return 1;
+		}
+		return 0;
+	}
+	if (n->kind == NdCast || n->kind == NdComma)
+		return expr_may_already_consumed(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdCond)
+		return expr_may_already_consumed(st, n->b) ||
+		       expr_may_already_consumed(st, n->c);
+	if (n->kind == NdName && n->symbol)
+		return esc_dead_tainted(st, n->symbol) ||
+		       sym_region_killed(st, n->symbol);
+	if (n->kind == NdDeref)
+		return expr_may_already_consumed(st, n->a);
+	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
+		bt = n->a->type;
+		if (bt && is_ptr(bt) && expr_may_already_consumed(st, n->a))
+			return 1;
+		s = lvalue_stack_object(n->a);
+		if (s && (esc_dead_tainted(st, s) || sym_region_killed(st, s)))
+			return 1;
+		if (n->a->kind == NdName && n->a->symbol &&
+		    (esc_dead_tainted(st, n->a->symbol) ||
+		     sym_region_killed(st, n->a->symbol)))
+			return 1;
+	}
+	if (n->kind == NdBin)
+		return expr_may_already_consumed(st, n->a) ||
+		       expr_may_already_consumed(st, n->b);
+	if (n->kind == NdUn || n->kind == NdPost)
+		return expr_may_already_consumed(st, n->a);
+	return 0;
+}
+
+static void
+esc_check_expr_use(Compiler* c, EscapeState* st, Node* n) {
+	int i;
+
+	if (n == NULL || !st->diag)
+		return;
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++)
+			esc_check_expr_use(c, st, n->children[i]);
+		return;
+	}
+	if (expr_may_already_consumed(st, n))
+		report_consumed_use(c, st, n);
 }
 
 static int
@@ -2429,7 +2553,7 @@ esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
 	if (st->diag) {
 		report_may_stack_escape(c, st, n);
 		if (expr_may_dead(st, n))
-			report_defer_escape(c, n);
+			report_defer_escape(c, st, n);
 	}
 }
 
@@ -2461,6 +2585,10 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		return;
 	}
 	if (n->kind == NdAssign) {
+		/* Reassignment to a plain local/param is not a use of its old value. */
+		if (!(n->a->kind == NdName && lhs_taint_target(n->a)))
+			esc_check_expr_use(c, st, n->a);
+		esc_check_expr_use(c, st, n->b);
 		if (lhs_is_escape_dest(n->a)) {
 			/* Write-back into the object reached through param P is not
 			 * retaining P; only bits that escape into foreign storage count. */
@@ -2472,7 +2600,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 			if (st->diag) {
 				report_may_stack_escape(c, st, n->b);
 				if (expr_may_dead(st, n->b))
-					report_defer_escape(c, n->b);
+					report_defer_escape(c, st, n->b);
 			}
 		}
 		dst = lhs_taint_target(n->a);
@@ -2483,9 +2611,11 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		return;
 	}
 	if (n->kind == NdDecl) {
-		if (n->init && n->init->expr && n->symbol)
-			esc_propagate_to(st, n->symbol, n->init->expr);
-		else if (n->init)
+		if (n->init && n->init->expr) {
+			esc_check_expr_use(c, st, n->init->expr);
+			if (n->symbol)
+				esc_propagate_to(st, n->symbol, n->init->expr);
+		} else if (n->init)
 			esc_walk_init(c, st, n->init, n->symbol);
 		esc_walk_stmt(c, st, n->a);
 		return;
@@ -2496,6 +2626,8 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 	}
 	if (n->kind == NdCall) {
 		esc_check_call(c, st, n);
+		for (i = 0; i < n->children_len; i++)
+			esc_check_expr_use(c, st, n->children[i]);
 		esc_walk_stmt(c, st, n->a);
 		for (i = 0; i < n->children_len; i++)
 			esc_walk_stmt(c, st, n->children[i]);
@@ -2523,6 +2655,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		int save_n = 0, then_n = 0, else_n = 0;
 		int then_exits, else_exits;
 
+		esc_check_expr_use(c, st, n->a);
 		esc_walk_stmt(c, st, n->a);
 		save = esc_snapshot_dead(st, &save_n);
 		esc_walk_stmt(c, st, n->b);
@@ -2555,10 +2688,21 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 	case NdWhile:
 	case NdDo:
 	case NdFor:
+		/* Conditions / for-iter expressions may read consumed pointers. */
+		esc_check_expr_use(c, st, n->a);
+		esc_check_expr_use(c, st, n->b);
+		esc_check_expr_use(c, st, n->c);
+		esc_walk_stmt(c, st, n->a);
+		esc_walk_stmt(c, st, n->b);
+		esc_walk_stmt(c, st, n->c);
+		for (i = 0; i < n->children_len; i++)
+			esc_walk_stmt(c, st, n->children[i]);
+		break;
 	case NdSwitch:
 	case NdCase:
 	case NdDefault:
 	case NdLabel:
+		esc_check_expr_use(c, st, n->a);
 		esc_walk_stmt(c, st, n->a);
 		esc_walk_stmt(c, st, n->b);
 		esc_walk_stmt(c, st, n->c);

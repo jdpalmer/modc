@@ -1,4 +1,4 @@
-// fail: F:invalidated by a defer in this block and cannot escape
+// fail: F:cannot escape
 
 import "arena";
 

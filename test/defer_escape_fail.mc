@@ -10,9 +10,8 @@ char* bad_free() {
 
 char* bad_taint() {
 	char* p = malloc(16);
-	char* q = { 0 };
 	defer free(p);
-	q = p;
+	char* q = p;
 	return q;
 }
 
