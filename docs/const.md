@@ -28,7 +28,8 @@ Mutable → const is implicit. Const → mutable is not.
 char *p = "hello";           /* error — needs const or a cast */
 char[..] s = "hello";        /* error — needs const or a cast */
 const char *q = "hello";     /* OK */
-const char[..] v = "hello";  /* OK */
+const char[..] v = "hello";  /* OK (locals and file-scope) */
+const char[..] kws[] = {"a", "b"}; /* OK — array of views */
 char buf[] = "hello";        /* OK — copies into a mutable array */
 q[0] = 'x';                  /* error: not a modifiable lvalue */
 ```

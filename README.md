@@ -24,6 +24,8 @@
 
 * **`defer`** keyword that supports block-scoped LIFO cleanup
 
+* **`[[retains]]`**, **`[[consumes]]`**, and **`[[region]]`** attributes for stack-escape, use-after-free, and arena-view checking
+
 * A **`for`** construct providing ranged iteration — `for (auto x : expr)` by
   value, or `for (auto *p : expr)` to bind a pointer into the range
 

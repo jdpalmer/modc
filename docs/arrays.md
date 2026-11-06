@@ -151,8 +151,10 @@ line = "James";         /* requires const char[..]; NUL excluded from len and ca
 Assigning a string literal to `const char[..]` sets length and capacity to the byte
 length of the text **excluding** the trailing NUL terminator. However, the
 backing read-only memory retains the NUL byte, preserving compatibility with
-standard C APIs. Mutable `char[..]` cannot bind a literal without a cast; use
-`char buf[] = "..."` to copy into a mutable array. See [const.md](const.md).
+standard C APIs. This works at file scope as well as in locals
+(`const char[..] kws[] = {"one", "two"};`). Mutable `char[..]` cannot bind a
+literal without a cast; use `char buf[] = "..."` to copy into a mutable array.
+See [const.md](const.md).
 
 ### Implicit conversions
 

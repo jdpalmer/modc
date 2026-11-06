@@ -3353,6 +3353,19 @@ flatten_init_list(Compiler* c, Type* t, Initializer* in, int off) {
 	}
 }
 
+/* ranged("…") from string→const char[..] conversion; arg is the NdStr. */
+static Node*
+ranged_string_lit_arg(Node* n) {
+	if (n == NULL || n->kind != NdCall || n->a == NULL || n->a->kind != NdName)
+		return NULL;
+	if (n->a->s == NULL || strcmp(n->a->s, "ranged") != 0 || n->a->symbol)
+		return NULL;
+	if (n->children_len != 1 || n->children[0] == NULL ||
+	    n->children[0]->kind != NdStr)
+		return NULL;
+	return n->children[0];
+}
+
 // Flatten one initializer subtree (scalar, array, or nested aggregate).
 static void
 flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
@@ -3364,6 +3377,7 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 	uint64_t dbits;
 	Field* f;
 	Symbol* sym;
+	Node* lit;
 
 	if (t == NULL)
 		return;
@@ -3394,6 +3408,29 @@ flatten_init(Compiler* c, Type* t, Initializer* in, int off) {
 		return;
 	}
 	if (is_aggr(t)) {
+		lit = (in && in->expr) ? ranged_string_lit_arg(in->expr) : NULL;
+		if (lit && is_ranged(t)) {
+			int64_t alen = 0;
+
+			if (lit->type && lit->type->len > 0) {
+				alen = lit->type->len;
+				if (!lit->is_embed)
+					alen--;
+			}
+			if (alen < 0)
+				alen = 0;
+			for (f = t->fields; f; f = f->next) {
+				if (f->name == NULL)
+					continue;
+				if (strcmp(f->name, "ptr") == 0)
+					addgi(off + f->offset, 8, 2, lit->int_val, NULL,
+					      (int)lit->int_val);
+				else if (strcmp(f->name, "len") == 0 ||
+					 strcmp(f->name, "cap") == 0)
+					addgi(off + f->offset, 8, 1, alen, NULL, 0);
+			}
+			return;
+		}
 		if (in == NULL) {
 			for (f = t->fields; f; f = f->next)
 				flatten_init(c, f->type, NULL, off + f->offset);

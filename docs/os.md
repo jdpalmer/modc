@@ -260,6 +260,8 @@ overload void panic(const char[..] file, int line, const char[..] msg);
 - `crash_init(term_close)` registers a LIFO cleanup and installs SEGV/ABRT/FPE(/BUS)
   handlers (Unix) or a vectored exception handler (Windows). Pass `NULL` to only
   install fault handlers. Call again to push another cleanup (cap 8).
-- On fatal: run cleanups, write a one-line message to stderr, then `abort`.
-- `__modc_bounds_fail` / `__modc_assert_fail` / `__modc_fatal` are the compiler
-  and assert entry points (same funnel).
+- On fatal (panic, bounds/null/assert, or a handled fault signal): run cleanups,
+  write a one-line message to stderr, then `abort` / re-raise. Fault lines look
+  like `crash: SIGSEGV` (Unix) or `crash: access violation` (Windows).
+- `__modc_bounds_fail` / `__modc_null_fail` / `__modc_assert_fail` / `__modc_fatal`
+  are the compiler and assert entry points (same funnel).

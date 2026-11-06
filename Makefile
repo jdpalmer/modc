@@ -106,6 +106,10 @@ check: $(MODC)
 	@$(BUILD)/crash_cleanup >$(BUILD)/crash_cleanup.out 2>$(BUILD)/crash_cleanup.err; test $$? -ne 0
 	@grep -q cleaned $(BUILD)/crash_cleanup.err
 	@grep -q after-cleanup $(BUILD)/crash_cleanup.err
+	./modc build -o $(BUILD)/crash_signal test/crash_signal_die.mc
+	@$(BUILD)/crash_signal >$(BUILD)/crash_signal.out 2>$(BUILD)/crash_signal.err; test $$? -ne 0
+	@grep -q cleaned $(BUILD)/crash_signal.err
+	@grep -q 'crash: SIGSEGV' $(BUILD)/crash_signal.err
 
 # Optional host integration (vendor, cache, format, doc, includes).
 check-special: $(MODC)

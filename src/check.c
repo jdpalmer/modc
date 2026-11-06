@@ -2831,6 +2831,19 @@ global_pointer_constant(Compiler* c, Node* n) {
 	return 0;
 }
 
+/* ranged("…") from string→const char[..] conversion; arg is the NdStr. */
+static Node*
+ranged_string_lit_arg(Node* n) {
+	if (n == NULL || n->kind != NdCall || n->a == NULL || n->a->kind != NdName)
+		return NULL;
+	if (n->a->s == NULL || strcmp(n->a->s, "ranged") != 0 || n->a->symbol)
+		return NULL;
+	if (n->children_len != 1 || n->children[0] == NULL ||
+	    n->children[0]->kind != NdStr)
+		return NULL;
+	return n->children[0];
+}
+
 static void
 check_global_init(Compiler* c, Initializer* in) {
 	double fv;
@@ -2841,6 +2854,8 @@ check_global_init(Compiler* c, Initializer* in) {
 		return;
 	if (in->expr) {
 		if (in->expr->kind == NdStr)
+			ok = 1;
+		else if (ranged_string_lit_arg(in->expr))
 			ok = 1;
 		else if ((in->expr->type && is_ptr(in->expr->type)) ||
 			 (in->expr->kind == NdName && in->expr->symbol &&

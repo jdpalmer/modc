@@ -1,9 +1,9 @@
 // crash — process-fatal funnel (no recover).
 //
 // crash_init registers an optional cleanup (e.g. tty restore) and installs
-// cross-platform fault handlers. panic / __modc_* print a message, run
-// cleanups LIFO, then abort. Runtime checks (default; omit with --release) and <assert.h>
-// call into the same path.
+// cross-platform fault handlers. panic / __modc_* / fault signals: run cleanups
+// LIFO, write a one-line stderr message, then abort (or re-raise the fault).
+// Runtime checks (default; omit with --release) and <assert.h> share this path.
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -53,6 +53,28 @@ static void crash_run_cleanups() {
 	}
 }
 
+/* Cleanup first (tty restore), then message — same order as __modc_*. */
+static void crash_begin_report(const char* msg) {
+	if (crash_reporting != 0) {
+		return;
+	}
+	crash_reporting = 1;
+	crash_run_cleanups();
+	if (msg == NULL || *msg == 0) {
+		return;
+	}
+	{
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "%s", msg);
+		if (n > 0) {
+			if (n >= CrashMsgCap) {
+				n = CrashMsgCap - 1;
+			}
+			crash_write(buf, n);
+		}
+	}
+}
+
 static void crash_die() {
 #ifdef _WIN32
 	abort();
@@ -65,24 +87,48 @@ static void crash_die() {
 #ifdef _WIN32
 static LONG crash_vectored(EXCEPTION_POINTERS* info) {
 	DWORD code = 0;
+	const char* msg = "crash: fault\n";
 	if (info == NULL || info.ExceptionRecord == NULL) {
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
 	code = info.ExceptionRecord.ExceptionCode;
-	if (code == EXCEPTION_ACCESS_VIOLATION || code == 0xc0000374 ||
-	    code == 0xc0000409 || code == EXCEPTION_ILLEGAL_INSTRUCTION) {
-		if (crash_reporting == 0) {
-			crash_reporting = 1;
-			crash_run_cleanups();
-		}
+	if (code == EXCEPTION_ACCESS_VIOLATION) {
+		msg = "crash: access violation\n";
+	} else if (code == 0xc0000374) {
+		msg = "crash: heap corruption\n";
+	} else if (code == 0xc0000409) {
+		msg = "crash: stack buffer overrun\n";
+	} else if (code == EXCEPTION_ILLEGAL_INSTRUCTION) {
+		msg = "crash: illegal instruction\n";
+	} else {
+		return EXCEPTION_CONTINUE_SEARCH;
 	}
+	crash_begin_report(msg);
 	return EXCEPTION_CONTINUE_SEARCH;
 }
 #else
 static void crash_on_signal(int sig) {
-	if (crash_reporting == 0) {
-		crash_reporting = 1;
-		crash_run_cleanups();
+	const char* name = "signal";
+
+	if (sig == SIGSEGV) {
+		name = "SIGSEGV";
+	} else if (sig == SIGABRT) {
+		name = "SIGABRT";
+	} else if (sig == SIGFPE) {
+		name = "SIGFPE";
+#ifdef SIGBUS
+	} else if (sig == SIGBUS) {
+		name = "SIGBUS";
+#endif
+	}
+	{
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "crash: %s\n", name);
+		if (n <= 0 || n >= CrashMsgCap) {
+			crash_begin_report("crash: signal\n");
+		} else {
+			crash_begin_report(buf);
+		}
 	}
 	signal(sig, SIG_DFL);
 	raise(sig);
