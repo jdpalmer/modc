@@ -931,8 +931,10 @@ cache_host_os(void) {
 
 /*
  * Shared compile environment for package knobs and foreign .o keys: version,
- * schema, target/OS, cc/cxx/qbe stamps, -D/-I/-F, modc/sys includes, flags.
- * #include <x> can resolve differently while .deps still name the old path.
+ * schema, this modc binary, target/OS, cc/cxx/qbe stamps, -D/-I/-F,
+ * modc/sys includes, flags. #include <x> can resolve differently while .deps
+ * still name the old path. Driver stamp ensures a rebuilt modc (new checks)
+ * cannot treat a prior export graph as a check/build hit.
  */
 static uint64_t
 hash_compile_env(Compiler* c, const char* projroot) {
@@ -942,6 +944,8 @@ hash_compile_env(Compiler* c, const char* projroot) {
 
 	h = cache_hash_str(MODC_VERSION);
 	h = cache_hash_mix(h, (uint64_t)ModcCacheSchema);
+	/* In-place ./modc rebuilds: path + mtime/size, not only the version string. */
+	h = cache_hash_mix(h, cache_hash_tool(c->paths.modc_driver));
 	h = cache_hash_mix(h, cache_hash_str(tool_qbe_target(c)));
 	h = cache_hash_mix(h, cache_hash_str(cache_host_os()));
 	h = cache_hash_mix(h, (uint64_t)c->opt.target + 1);
@@ -2295,12 +2299,15 @@ pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState
 
 /*
  * Typecheck path using .modc-cache exports when valid (no codegen).
- * Hits require export+iface+deps+needs (object optional). Writes export
- * artifacts for miss packages so later checks/builds can reuse them.
+ * Hits require export+iface+deps+needs (object optional) under knobs that
+ * include this modc binary stamp — a rebuilt driver cannot inherit a hit
+ * from an older binary. Writes export artifacts for miss packages so later
+ * checks/builds can reuse them.
  *
  * Uses parse_only: decls + signatures (skip function bodies). That matches
  * FPC's interface parse — enough for API/export/cascade; body diagnostics
- * run on build. Selftest still uses compile_file (full parse).
+ * (dead-init, consumes, bounds of locals, …) run on build. Selftest still
+ * uses compile_file (full parse). Do not treat check as a full safety gate.
  */
 int
 compile_check(Compiler* c, CliOpts* o, const char* path) {
@@ -2316,7 +2323,7 @@ compile_check(Compiler* c, CliOpts* o, const char* path) {
 	if (pkgs_all_cache_hit(st.pkgs, st.npkgs)) {
 		pkgs_log_each(o, st.pkgs, st.npkgs, "hit");
 		cache_log(o->verbose, "hit", "graph");
-		progress_msg("up to date");
+		progress_msg("up to date (API check)");
 		pkgs_free_files(&st);
 		c->opt.parse_only = prev_parse_only;
 		return 0;

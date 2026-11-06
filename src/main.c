@@ -371,6 +371,16 @@ init_modc_pkg(Compiler* c, const char* argv0) {
 #endif
 }
 
+/* Resolve argv0 to an absolute path for cache knobs (may leave NULL). */
+static void
+init_modc_driver(Compiler* c, const char* argv0) {
+	char exe[HOST_PATH_MAX];
+
+	c->paths.modc_driver = NULL;
+	if (exe_path(exe, sizeof(exe), argv0) == 0 && exe[0])
+		c->paths.modc_driver = xstrdup(exe);
+}
+
 // Register a host system include directory if it exists.
 static void
 add_sysinc(Compiler* c, const char* path) {
@@ -668,6 +678,8 @@ apply_cli(Compiler* c, CliOpts* o) {
 		fprintf(stderr, "modc include: %s\n", c->paths.modc_include);
 	if (o->verbose && c->paths.modc_pkg && c->paths.modc_pkg[0])
 		fprintf(stderr, "modc pkg: %s\n", c->paths.modc_pkg);
+	if (o->verbose && c->paths.modc_driver && c->paths.modc_driver[0])
+		fprintf(stderr, "modc driver: %s\n", c->paths.modc_driver);
 	if (o->verbose && o->target != TargetHost) {
 		const char* tname;
 
@@ -836,6 +848,7 @@ int main(int argc, char** argv) {
 		o.no_system_includes = 1;
 	init_modc_include(&c, argv[0]);
 	init_modc_pkg(&c, argv[0]);
+	init_modc_driver(&c, argv[0]);
 	if (argc < 2)
 		usage(NULL);
 	if (strcmp(argv[1], "-V") == 0 || strcmp(argv[1], "--version") == 0)

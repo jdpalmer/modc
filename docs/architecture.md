@@ -15,8 +15,8 @@ self-hosting.
 |-------|--------|--------|
 | Lex | `lex_pp_file` / lexer | Tokens; optional `TComment` for `modc format` |
 | PP | same call path | Macros, includes, `#pragma modc …`; rejected `#if` branches jump to the next `#` directive |
-| Parse | `parse_unit` | Recursive descent; builds AST and symbols. `opt.parse_only` skips function bodies (API/check). |
-| Type | `type_expr` (during parse) + `type_check_unit` | Conversions during parse; whole-unit passes after (skipped when `parse_only`). `TyError` poison suppresses cascade diagnostics after a primary error. |
+| Parse | `parse_unit` | Recursive descent; builds AST and symbols. `opt.parse_only` skips function bodies (`modc check` API surface). |
+| Type | `type_expr` (during parse) + `type_check_unit` | Conversions during parse; whole-unit passes after (skipped when `parse_only` — body diagnostics need `build`). `TyError` poison suppresses cascade diagnostics after a primary error. |
 | Emit | `emit_qbe` / `emit_qbe_pkg` | QBE IL text |
 | Link | `modc build` in `cli_build.c` | `qbe` → host `cc`; cache under `.modc-cache/` |
 

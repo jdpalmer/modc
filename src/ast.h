@@ -612,6 +612,8 @@ struct CompPaths {
 	char project_root[HOST_PATH_MAX];
 	// Stdlib package root (install or in-tree).
 	char* modc_pkg;
+	// Absolute path of this modc binary (cache knobs / driver stamp).
+	char* modc_driver;
 	// #pragma modc c_libs
 	char** c_libs;
 	int c_libs_len;
@@ -889,7 +891,7 @@ int vendor_cmd(int argc, char** argv);
 /* 0 if vendor/NAME/.modc-vendor-rev matches that package's modc.lock rev. */
 int vendor_pkg_rev_matches(const char* projroot, const char* pkg_dir);
 /* Single on-disk cache/export schema; bump when layout or export format changes. */
-enum { ModcCacheSchema = 4 };
+enum { ModcCacheSchema = 5 };
 
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);

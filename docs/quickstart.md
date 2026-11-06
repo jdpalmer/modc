@@ -38,13 +38,15 @@ modc build                    # build current dir; default output build/<dir>
 modc build hello.mc           # → build/hello (override with -o)
 modc build hello.mc -o hello  # modc → qbe → cc → binary
 modc build pkgdir/            # same for a package directory
-modc check hello.mc           # API/signature type-check (reuses export cache)
+modc check hello.mc           # API/signature check only (not function bodies)
 modc emit hello.mc            # QBE IL to stdout
 modc run hello.mc             # build temp, run, delete
 modc build hello.mc -o hello -- -lglfw   # extra linker flags after --
 ```
 
-`modc build` writes a content-addressed cache under `.modc-cache/` (package objects and link inputs keyed by sources, flags, and tool versions). Hits skip re-emit and reassemble; importers rebuild only when a dependency's public API changes. You can use `modc clean` to remove that cache for a project.
+`modc check` type-checks the import graph's **API surface** (types, signatures, globals) and skips function bodies — same idea as an interface parse. A cache hit means exports are valid for **this** `modc` binary (the driver stamp is part of the cache knobs); it is not a full substitute for `modc build`, which runs body diagnostics (dead-init, consumes, and so on).
+
+`modc build` writes a content-addressed cache under `.modc-cache/` (package objects and link inputs keyed by sources, flags, the `modc` driver, and tool versions). Hits skip re-emit and reassemble; importers rebuild only when a dependency's public API changes. You can use `modc clean` to remove that cache for a project.
 
 ## %C for C programmers
 
