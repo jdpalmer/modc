@@ -403,7 +403,9 @@ function bodies are skipped — same idea as FPC's interface parse), reusing
 `.modc-cache` package exports when valid under the same knobs as `build`
 (including a stamp of the running `modc` binary, so a rebuilt driver cannot
 inherit a hit from an older one). A check cache hit is not a full safety gate:
-body-level diagnostics (dead-init, consumes, escapes, …) run on `modc build`.
+body-level diagnostics (dead-init, consumes, escapes, …) run on `modc build`,
+and `check` may exit 0 when only those body issues exist. Use `build` for
+non-zero exit on full typecheck failure.
 `modc build` (with a file, a directory, or `.` by default) compiles the root
 plus its packages, applies `c_libs` / frameworks, and links; directory roots
 omit `*_test.mc`. The project root is inferred automatically, so the usual

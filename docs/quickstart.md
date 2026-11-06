@@ -44,7 +44,7 @@ modc run hello.mc             # build temp, run, delete
 modc build hello.mc -o hello -- -lglfw   # extra linker flags after --
 ```
 
-`modc check` type-checks the import graph's **API surface** (types, signatures, globals) and skips function bodies — same idea as an interface parse. A cache hit means exports are valid for **this** `modc` binary (the driver stamp is part of the cache knobs); it is not a full substitute for `modc build`, which runs body diagnostics (dead-init, consumes, and so on).
+`modc check` type-checks the import graph's **API surface** (types, signatures, globals) and skips function bodies — same idea as an interface parse. It can exit **0** even when `build` would fail on body diagnostics (dead-init, consumes, escapes, …). A cache hit means exports are valid for **this** `modc` binary (the driver stamp is part of the cache knobs). For “build until clean” loops and CI, use `modc build` (or `modc test` / selftest), not `check` alone.
 
 `modc build` writes a content-addressed cache under `.modc-cache/` (package objects and link inputs keyed by sources, flags, the `modc` driver, and tool versions). Hits skip re-emit and reassemble; importers rebuild only when a dependency's public API changes. You can use `modc clean` to remove that cache for a project.
 

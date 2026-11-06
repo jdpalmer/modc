@@ -81,6 +81,16 @@ check: $(MODC)
 	./modc test test/special/cli_args_test.mc -- a b
 	./modc test -M test test/testdriver
 	./modc selftest
+	# Driver must fail the process when typecheck prints errors (no pipeline masking).
+	@./modc build -o $(BUILD)/dead_init_fail_bin test/dead_init_fail.mc \
+		>$(BUILD)/dead_init_fail_build.out 2>$(BUILD)/dead_init_fail_build.err; \
+		test $$? -ne 0
+	@grep -q "initializer of 'x' is never used" $(BUILD)/dead_init_fail_build.err
+	# check is API-only: body dead-init must not fail the process.
+	@./modc check test/dead_init_fail.mc \
+		>$(BUILD)/dead_init_fail_check.out 2>$(BUILD)/dead_init_fail_check.err; \
+		test $$? -eq 0
+	@! grep -q "initializer of" $(BUILD)/dead_init_fail_check.err
 	./modc build -o $(BUILD)/bounds_oob test/bounds_oob.mc
 	@$(BUILD)/bounds_oob >$(BUILD)/bounds_oob.out 2>$(BUILD)/bounds_oob.err; test $$? -ne 0
 	@grep -q 'bounds: index' $(BUILD)/bounds_oob.err
