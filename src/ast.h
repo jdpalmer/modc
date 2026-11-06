@@ -877,6 +877,7 @@ int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n);
 int pkg_ensure(Compiler* c, const char* spec, char*** files, int* nfiles);
 int pkg_is_test_src(const char* path);
 void pkg_file_root(const char* mcfile, char* out, size_t out_len);
+void pkg_mangle_from_root(const char* root, char* out, size_t out_len);
 void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len);
 int pkg_list_tests(const char* root, char*** out, int* out_len);
 int pkg_resolve_spec(Compiler* c, const char* spec, char* out, size_t out_len);

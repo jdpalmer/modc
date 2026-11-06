@@ -1,0 +1,3 @@
+struct Box {
+	int n;
+};

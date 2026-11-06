@@ -666,13 +666,6 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	rt = recv->base;
 	if (rt->pkg_private)
 		storage = StStatic;
-	if (rt->pkg_root && c->paths.infile) {
-		char root[1024];
-
-		pkg_file_root(c->paths.infile, root, sizeof(root));
-		if (strcmp(root, rt->pkg_root) != 0)
-			error_at(c, sp, "method must be defined in the same package as %s", recv_tag);
-	}
 	if (find_field(rt, name, NULL))
 		error_at(c, sp, "method name %s conflicts with field on %s", name, recv_tag);
 	old = symbol_find_method(c, recv_tag, name);
@@ -684,7 +677,12 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	}
 	if (old)
 		error_at(c, sp, "duplicate method %s on %s", name, recv_tag);
-	pkg_mangle_from_file(c->paths.infile ? c->paths.infile : sp.file, pkg, sizeof(pkg));
+	/* Linker name uses the receiver type's origin package (not the defining file). */
+	pkg[0] = 0;
+	if (rt->pkg_root && rt->pkg_root[0])
+		pkg_mangle_from_root(rt->pkg_root, pkg, sizeof(pkg));
+	if (pkg[0] == 0)
+		pkg_mangle_from_file(c->paths.infile ? c->paths.infile : sp.file, pkg, sizeof(pkg));
 	if (pkg[0] == 0)
 		snprintf(pkg, sizeof(pkg), "main");
 	mangle_method(pkg, recv_tag, name, buf, sizeof(buf));

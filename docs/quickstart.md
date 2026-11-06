@@ -174,7 +174,7 @@ w.show();
 w.set_title("Tasks");
 ```
 
-Methods must be defined within the same package as the target type `T` and must always specify an explicit pointer receiver (`T *`). Additionally, a method name cannot conflict with any existing field name on the underlying type `T`. See [methods.md](methods.md) for deeper details on receiver bindings and structural constraints.
+Methods must use an explicit pointer receiver (`T *` for a struct or union). They may be defined outside `T`’s origin package (import the defining package to call them); linker names still use `T`’s package. A method name cannot conflict with any existing field name on `T`. See [methods.md](methods.md) for deeper details on receiver bindings and structural constraints.
 
 ### Packages
 

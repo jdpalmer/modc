@@ -509,17 +509,17 @@ void pkg_file_root(const char* mcfile, char* out, size_t out_len) {
 	snprintf(out, out_len, "%s", dir);
 }
 
-// Package prefix for method linker names (basename of pkg dir, lowercased).
-// Prefer [package] name, then identity dir when [package] root remaps sources.
-void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
-	char root[HOST_PATH_MAX], id[HOST_PATH_MAX], pkgname[HOST_PATH_MAX];
+// Package prefix for method linker names from a pkg_file_root path
+// (basename of pkg dir, lowercased). Prefer [package] name, then identity
+// dir when [package] root remaps sources.
+void pkg_mangle_from_root(const char* root, char* out, size_t out_len) {
+	char id[HOST_PATH_MAX], pkgname[HOST_PATH_MAX];
 	const char *base, *dot;
 	size_t i, n;
 
 	out[0] = 0;
-	if (mcfile == NULL || out_len == 0)
+	if (root == NULL || root[0] == 0 || out_len == 0)
 		return;
-	pkg_file_root(mcfile, root, sizeof(root));
 	pkgname[0] = 0;
 	id[0] = 0;
 	if (pkg_identity_for_srcdir(root, id, sizeof(id), pkgname, sizeof(pkgname)) &&
@@ -531,7 +531,37 @@ void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
 		base = host_path_basename(root);
 	}
 	if (base[0] == 0 || strcmp(base, ".") == 0)
-		base = host_path_basename(mcfile);
+		base = host_path_basename(root);
+	if (base[0] == 0 || strcmp(base, ".") == 0)
+		return;
+	dot = strrchr(base, '.');
+	if (dot && strcmp(dot, ".mc") == 0)
+		n = (size_t)(dot - base);
+	else
+		n = strlen(base);
+	if (n >= out_len)
+		n = out_len - 1;
+	for (i = 0; i < n; i++)
+		out[i] = (char)tolower((unsigned char)base[i]);
+	out[i] = 0;
+}
+
+// Package prefix for method linker names from a .mc file's package root.
+void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
+	char root[HOST_PATH_MAX];
+	const char *base, *dot;
+	size_t i, n;
+
+	out[0] = 0;
+	if (mcfile == NULL || out_len == 0)
+		return;
+	pkg_file_root(mcfile, root, sizeof(root));
+	pkg_mangle_from_root(root, out, out_len);
+	if (out[0])
+		return;
+	base = host_path_basename(mcfile);
+	if (base[0] == 0)
+		return;
 	dot = strrchr(base, '.');
 	if (dot && strcmp(dot, ".mc") == 0)
 		n = (size_t)(dot - base);
@@ -911,46 +941,62 @@ disc_on_stack(Disc* d, const char* path) {
 }
 
 // DFS a file and its imports, building the transitive source closure.
+// Paths are stored as absolute so the same .mc reached via different import
+// spellings (./base/mod.mc vs /abs/.../base/mod.mc) is not typechecked twice.
 static int
 visit_file(Compiler* c, Disc* d, const char* path) {
 	char **imps, **srcs;
 	int nimps, nsrcs, i, j;
-	char root[1024];
+	char root[1024], canon[HOST_PATH_MAX];
+	char* p;
 
-	if (disc_has(d, path))
+	if (path == NULL || path[0] == 0)
+		return 1;
+	if (host_abspath(path, canon, sizeof(canon)) == 0)
+		p = xstrdup(canon);
+	else
+		p = xstrdup(path);
+	if (disc_has(d, p)) {
+		free(p);
 		return 0;
-	if (disc_on_stack(d, path)) {
-		error_at(c, (Span){path, 1, 1, 1}, "import cycle involving %s", path);
+	}
+	if (disc_on_stack(d, p)) {
+		error_at(c, (Span){p, 1, 1, 1}, "import cycle involving %s", p);
+		free(p);
 		return 1;
 	}
 	if (d->stack_len >= MaxImportDepth) {
-		error_at(c, (Span){path, 1, 1, 1}, "import nesting too deep");
+		error_at(c, (Span){p, 1, 1, 1}, "import nesting too deep");
+		free(p);
 		return 1;
 	}
-	d->stack[d->stack_len++] = (char*)path;
+	d->stack[d->stack_len++] = p;
 	imps = NULL;
 	nimps = 0;
-	if (scan_imports(c, path, &imps, &nimps)) {
+	if (scan_imports(c, p, &imps, &nimps)) {
 		d->stack_len--;
+		free(p);
 		return 1;
 	}
 	for (i = 0; i < nimps; i++) {
-		if (resolve_import(c, imps[i], path, root, sizeof(root))) {
+		if (resolve_import(c, imps[i], p, root, sizeof(root))) {
 			for (j = 0; j < nimps; j++)
 				free(imps[j]);
 			free(imps);
 			d->stack_len--;
+			free(p);
 			return 1;
 		}
 		srcs = NULL;
 		nsrcs = 0;
 		if (list_sources(root, &srcs, &nsrcs)) {
-			error_at(c, (Span){path, 1, 1, 1},
+			error_at(c, (Span){p, 1, 1, 1},
 				 "package \"%s\" has no .mc sources", imps[i]);
 			for (j = 0; j < nimps; j++)
 				free(imps[j]);
 			free(imps);
 			d->stack_len--;
+			free(p);
 			return 1;
 		}
 		for (j = 0; j < nsrcs; j++) {
@@ -963,6 +1009,7 @@ visit_file(Compiler* c, Disc* d, const char* path) {
 					free(imps[k]);
 				free(imps);
 				d->stack_len--;
+				free(p);
 				return 1;
 			}
 		}
@@ -975,11 +1022,14 @@ visit_file(Compiler* c, Disc* d, const char* path) {
 	free(imps);
 	d->stack_len--;
 	if (d->files_len >= MaxPkgFiles) {
-		error_at(c, (Span){path, 1, 1, 1}, "too many package source files");
+		error_at(c, (Span){p, 1, 1, 1}, "too many package source files");
+		free(p);
 		return 1;
 	}
-	if (!disc_has(d, path))
-		d->files[d->files_len++] = xstrdup(path);
+	if (!disc_has(d, p))
+		d->files[d->files_len++] = p;
+	else
+		free(p);
 	return 0;
 }
 

@@ -77,9 +77,7 @@ package identity when they sit beside other packages in a mixed directory, so
 
 ## Methods and linker names
 
-Methods attach to a struct type within the same package, declared as `void (Window *w).show()` and called using dot-syntax (`w.show()`).
-
-Linker symbols are mangled as `{package}_{type}_{method}`. The type tag is converted to lowercase, and any slashes (`/`) in the import path become underscores (`_`). For example, in package `modui`, the method `(Window *w).show` resolves to `modui_window_show`. Standard free functions retain their source name unless explicitly marked with `overload`. See [methods.md](methods.md) for complete rules.
+Methods attach to a struct or union pointer type, declared as `void (Window *w).show()` and called using dot-syntax (`w.show()`). They may be defined outside the type’s origin package; import the defining package to use them. Linker symbols are mangled as `{type_package}_{type}_{method}` (the type’s origin package, not the defining file). The type tag is converted to lowercase, and any slashes (`/`) in the import path become underscores (`_`). For example, if `Window` originates in package `modui`, `(Window *w).show` resolves to `modui_window_show` even when another package defines the method. Standard free functions retain their source name unless explicitly marked with `overload`. See [methods.md](methods.md) for complete rules.
 
 ## Package-private fields
 

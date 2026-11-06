@@ -34,7 +34,7 @@ w.show();
 w.set_title("Tasks");
 ```
 
-Method declarations follow the form `ret (T *receiver).name(params)`. Receivers must be pointers, and both the method definition and target type `T` must reside in the same package. Methods cannot be nested inside functions, combined with `overload`, or overloaded on arity. Method names exist in a per-type namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a struct field, the field wins and the compiler emits a diagnostic.
+Method declarations follow the form `ret (T *receiver).name(params)`. Receivers must be pointers to a struct or union. A method may be defined in any package that can see `T` (including outside `T`'s origin package); the linker name still uses `T`'s origin package (see below). Duplicate `(T, name)` pairs are rejected. Methods cannot be nested inside functions, combined with `overload`, or overloaded on arity. Method names exist in a per-type namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a struct field, the field wins and the compiler emits a diagnostic. Visibility follows ordinary package rules: import the defining package to use the method.
 
 When calling `expr.name()`, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. Calling a method on a null `T *` is a caller error (see below). Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
 
@@ -73,7 +73,7 @@ void (File *f).close() {
 
 ## Linker Symbol Mangling
 
-Methods generate linker symbols using the `package_type_method` pattern. Package paths convert slashes to underscores (`ui/draw` becomes `ui_draw`), struct tags convert to lowercase (`Window` becomes `window`), and method names remain unchanged. The table below assumes the defining package is `ui`:
+Methods generate linker symbols using the `package_type_method` pattern, where **package** is the receiver type’s origin package (not necessarily the file that defines the method). Package paths convert slashes to underscores (`ui/draw` becomes `ui_draw`), struct tags convert to lowercase (`Window` becomes `window`), and method names remain unchanged. The table below assumes type `Window` originates in package `ui`:
 
 | **Source Method Declaration**        | **Generated Linker Symbol** |
 | ------------------------------------ | --------------------------- |
@@ -82,4 +82,4 @@ Methods generate linker symbols using the `package_type_method` pattern. Package
 
 As a design convention, use methods for operations on existing object handles and plain free functions for constructors or package initialization entry points (`window_open()`, `ui_init()`).
 
-Event callbacks remain plain C functions like `void on_click(Button *self)`. Advanced features such as method values, ADL, cross-package extension methods, and operator overloading are not supported.
+Event callbacks remain plain C functions like `void on_click(Button *self)`. Advanced features such as method values, ADL, and operator overloading are not supported.
