@@ -17,6 +17,9 @@ HOST := $(ROOT)/src/host/include
 BUILD := $(ROOT)/build
 MODC := $(ROOT)/modc
 
+# CalVer from src/cli.h (YYYY.MM.rev). Bump there only for install/tag/release.
+MODC_VERSION := $(shell awk -F'"' '/^\#define MODC_VERSION / { print $$2; exit }' $(ROOT)/src/cli.h)
+
 # Keep Makefile.msvc OBJS basenames in sync when editing this list.
 SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c src/export.c
 OBJS := $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
@@ -454,6 +457,16 @@ check-special: $(MODC)
 	$(BUILD)/fwk_include-bin
 	@./modc check test/sys_include_run.mc >$(BUILD)/bad_nosys.out 2>&1; test $$? -ne 0
 	@grep -Fq 'cannot find include file modc_system_probe.h' $(BUILD)/bad_nosys.out
+	# --- CalVer pkg stamp: mismatch warns; matching / missing stay quiet ---
+	@rm -rf $(BUILD)/verstamp && mkdir -p $(BUILD)/verstamp/pkg
+	@printf '1999.01.01\n' >$(BUILD)/verstamp/VERSION
+	@MODC_PKG=$(BUILD)/verstamp/pkg ./modc -V >$(BUILD)/verstamp.out 2>$(BUILD)/verstamp.err
+	@grep -q 'stdlib at' $(BUILD)/verstamp.err
+	@grep -q '1999.01.01' $(BUILD)/verstamp.err
+	@printf '$(MODC_VERSION)\n' >$(BUILD)/verstamp/VERSION
+	@MODC_PKG=$(BUILD)/verstamp/pkg ./modc -V >$(BUILD)/verstamp_ok.out 2>$(BUILD)/verstamp_ok.err
+	@! grep -q 'stdlib at' $(BUILD)/verstamp_ok.err
+	@grep -q '$(MODC_VERSION)' $(BUILD)/verstamp_ok.out
 
 install: $(MODC)
 	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg
@@ -470,6 +483,9 @@ install: $(MODC)
 	cp -R $(ROOT)/os $(DESTDIR)$(MODCLIB)/pkg/os
 	cp -R $(ROOT)/tty $(DESTDIR)$(MODCLIB)/pkg/tty
 	cp -R $(ROOT)/crash $(DESTDIR)$(MODCLIB)/pkg/crash
+	# Paired with MODC_VERSION in the binary — mismatch warns at startup.
+	printf '%s\n' "$(MODC_VERSION)" >$(DESTDIR)$(MODCLIB)/VERSION
+	chmod 644 $(DESTDIR)$(MODCLIB)/VERSION
 	# cp -R keeps the source tree's modes (often 600/700 under Dropbox); normalize.
 	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type d -exec chmod 755 {} +
 	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type f -exec chmod 644 {} +

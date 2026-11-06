@@ -381,6 +381,45 @@ init_modc_driver(Compiler* c, const char* argv0) {
 		c->paths.modc_driver = xstrdup(exe);
 }
 
+/*
+ * Installed trees ship lib/modc/VERSION next to pkg/. Missing file → in-tree or
+ * unstamped override (no warn). Mismatch → new binary with old stdlib (or vice versa).
+ */
+static void
+warn_pkg_version_mismatch(Compiler* c) {
+	char parent[HOST_PATH_MAX];
+	char verpath[HOST_PATH_MAX];
+	char* slash;
+	char* text;
+	size_t n, i;
+
+	if (c == NULL || c->paths.modc_pkg == NULL || c->paths.modc_pkg[0] == 0)
+		return;
+	snprintf(parent, sizeof(parent), "%s", c->paths.modc_pkg);
+	slash = (char*)host_path_last_sep(parent);
+	if (slash == NULL || slash == parent)
+		return;
+	*slash = 0;
+	snprintf(verpath, sizeof(verpath), "%s/VERSION", parent);
+	text = read_file(verpath, &n);
+	if (text == NULL)
+		return;
+	while (n > 0 &&
+	       (text[n - 1] == '\n' || text[n - 1] == '\r' || text[n - 1] == ' ' ||
+		text[n - 1] == '\t')) {
+		text[--n] = 0;
+	}
+	i = 0;
+	while (text[i] == ' ' || text[i] == '\t')
+		i++;
+	if (text[i] != 0 && strcmp(text + i, MODC_VERSION) != 0)
+		fprintf(stderr,
+			"modc: warning: stdlib at %s is version '%s', but this modc is %s "
+			"(re-run make install, or set MODC_PKG)\n",
+			c->paths.modc_pkg, text + i, MODC_VERSION);
+	free(text);
+}
+
 // Register a host system include directory if it exists.
 static void
 add_sysinc(Compiler* c, const char* path) {
@@ -849,6 +888,7 @@ int main(int argc, char** argv) {
 	init_modc_include(&c, argv[0]);
 	init_modc_pkg(&c, argv[0]);
 	init_modc_driver(&c, argv[0]);
+	warn_pkg_version_mismatch(&c);
 	if (argc < 2)
 		usage(NULL);
 	if (strcmp(argv[1], "-V") == 0 || strcmp(argv[1], "--version") == 0)

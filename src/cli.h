@@ -16,7 +16,8 @@
 #define PATH_MAX HOST_PATH_MAX
 #endif
 
-#define MODC_VERSION "0.1.0-dev"
+/* Public CalVer: YYYY.MM.rev — bump only for install/tag/release, not every push. */
+#define MODC_VERSION "2026.11.01"
 
 /* Installed layout: $PREFIX/bin/modc + $PREFIX/lib/modc/{include,pkg}/ */
 #define MODC_REL_INCLUDE "../lib/modc/include"

@@ -45,6 +45,7 @@ make install
 
 ```sh
 $PREFIX/bin/modc
+$PREFIX/lib/modc/VERSION     # CalVer stamp (must match `modc -V`)
 $PREFIX/lib/modc/include/    # hosted include stubs (shadow system headers)
 $PREFIX/lib/modc/pkg/        # shipped packages
 ```
@@ -53,7 +54,11 @@ Hosted stubs include the C library subset (`stdint.h`, `stdio.h`, …) plus
 curated POSIX and thin Win32 headers used by `fs` / `os`. See
 [interop.md](interop.md) (Hosted include stubs).
 
-If you are hacking on `modc` itself, the in-tree `./modc` uses the repo’s `src/host/include` and package dirs. The installed binary finds headers/packages relative to its location (or `MODC_INCLUDE` / `MODC_PKG`).
+If you are hacking on `modc` itself, the in-tree `./modc` uses the repo’s `src/host/include` and package dirs (no `VERSION` file — no mismatch warning). The installed binary finds headers/packages relative to its location (or `MODC_INCLUDE` / `MODC_PKG`). If an installed `lib/modc/VERSION` does not match the binary, `modc` prints a warning (re-install, or point `MODC_PKG` at a matching tree).
+
+### Versioning
+
+`modc -V` reports a **calendar version** `YYYY.MM.rev` (for example `2026.11.01`), defined as `MODC_VERSION` in `src/cli.h`. Bump it only when you cut an installable/release pair (tag, `make install` you care about, or a published build) — not on every local commit or GitHub push. Local rebuilds still invalidate `.modc-cache` via the driver binary stamp.
 
 ---
 
