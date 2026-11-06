@@ -94,6 +94,8 @@ check: $(MODC)
 	./modc build -o $(BUILD)/bounds_oob test/bounds_oob.mc
 	@$(BUILD)/bounds_oob >$(BUILD)/bounds_oob.out 2>$(BUILD)/bounds_oob.err; test $$? -ne 0
 	@grep -q 'bounds: index' $(BUILD)/bounds_oob.err
+	@grep -q 'index == len' $(BUILD)/bounds_oob.err
+	@grep -q 'off-by-one' $(BUILD)/bounds_oob.err
 	./modc build -o $(BUILD)/bounds_param_oob test/bounds_param_oob.mc
 	@$(BUILD)/bounds_param_oob >$(BUILD)/bounds_param_oob.out 2>$(BUILD)/bounds_param_oob.err; test $$? -ne 0
 	@grep -q 'bounds: index' $(BUILD)/bounds_param_oob.err

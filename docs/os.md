@@ -262,6 +262,7 @@ overload void panic(const char[..] file, int line, const char[..] msg);
   install fault handlers. Call again to push another cleanup (cap 8).
 - On fatal (panic, bounds/null/assert, or a handled fault signal): run cleanups,
   write a one-line message to stderr, then `abort` / re-raise. Fault lines look
-  like `crash: SIGSEGV` (Unix) or `crash: access violation` (Windows).
+  like `crash: SIGSEGV` (Unix) or `crash: access violation` (Windows). Bounds
+  traps that hit exactly `index == len` add an off-by-one hint (`valid 0..len-1`).
 - `__modc_bounds_fail` / `__modc_null_fail` / `__modc_assert_fail` / `__modc_fatal`
   are the compiler and assert entry points (same funnel).

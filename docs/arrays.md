@@ -117,7 +117,8 @@ not inherited by a subslice.
 By default, `modc build` / `run` / `test` / `emit` insert traps via the `crash`
 package (message, cleanups, abort). Pass `--release` to omit them (production):
 
-- `a[i]` / `s[i]` — require `i < N` or `i < len(s)` (`__modc_bounds_fail`)
+- `a[i]` / `s[i]` — require `i < N` or `i < len(s)` (`__modc_bounds_fail`;
+  when `index == len`, the message notes a likely off-by-one)
 - `void f(int a[N])` — `a[i]` uses the parameter’s fixed `N`
 - `a[lo..hi]` / `s[lo..hi]` — require `lo <= hi` and `hi <=` parent length
   (end exclusive; `a[2..]` checks `2 <= len`)

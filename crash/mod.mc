@@ -186,18 +186,28 @@ void __modc_bounds_fail(const char* file, int line, uint64_t index, uint64_t len
 	size_t ln = len;
 	if (crash_reporting == 0) {
 		char buf[CrashMsgCap] = { 0 };
-		int n = snprintf(buf, CrashMsgCap, "bounds: index %zu >= len %zu\n", ix, ln);
+		char hint[96] = { 0 };
+		/* index == len is the classic off-by-one (trim, exclusive end, …). */
+		if (ix == ln) {
+			(void)snprintf(hint, sizeof(hint),
+				       " (index == len; off-by-one? valid 0..%zu)",
+				       ln > 0 ? ln - 1 : 0);
+		}
 		crash_reporting = 1;
 		crash_run_cleanups();
-		if (file != NULL && *file != 0 && line > 0) {
-			n = snprintf(buf, CrashMsgCap,
-				     "%s:%d: bounds: index %zu >= len %zu\n", file, line, ix, ln);
-		}
-		if (n > 0) {
-			if (n >= CrashMsgCap) {
-				n = CrashMsgCap - 1;
+		{
+			int n = (file != NULL && *file != 0 && line > 0)
+					? snprintf(buf, CrashMsgCap,
+						   "%s:%d: bounds: index %zu >= len %zu%s\n", file,
+						   line, ix, ln, hint)
+					: snprintf(buf, CrashMsgCap,
+						   "bounds: index %zu >= len %zu%s\n", ix, ln, hint);
+			if (n > 0) {
+				if (n >= CrashMsgCap) {
+					n = CrashMsgCap - 1;
+				}
+				crash_write(buf, n);
 			}
-			crash_write(buf, n);
 		}
 	}
 	crash_die();
