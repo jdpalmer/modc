@@ -316,7 +316,7 @@ char** ocmd_build_env(OsCmd* c) {
 	int j = 0;
 	int i = 0;
 	for (; i < n; i++) {
-		char* row = (char*)es[i];
+		char* row = es[i];
 		char* eq = 0;
 		size_t kn = 0;
 		int skip = 0;
