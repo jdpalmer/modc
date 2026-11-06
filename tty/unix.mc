@@ -52,7 +52,6 @@ bool tty_isatty(File* f) {
 
 bool tty_set_raw(File* f) {
 	int fd = file_fd(f);
-	struct termios t = { 0 };
 	if (fd < 0 || isatty(fd) == 0) {
 		return false;
 	}
@@ -66,7 +65,7 @@ bool tty_set_raw(File* f) {
 		}
 		s.valid = 1;
 	}
-	t = s.saved;
+	struct termios t = s.saved;
 	cfmakeraw(&t);
 	return tcsetattr(fd, TCSANOW, &t) == 0;
 }

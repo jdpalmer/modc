@@ -316,23 +316,24 @@ char** ocmd_build_env(OsCmd* c) {
 	int j = 0;
 	int i = 0;
 	for (; i < n; i++) {
+		char* row = (char*)es[i];
 		char* eq = 0;
 		size_t kn = 0;
 		int skip = 0;
 		int k = 0;
-		eq = strchr(es[i], '=');
+		eq = strchr(row, '=');
 		if (eq == 0) {
 			continue;
 		}
-		kn = eq - es[i];
+		kn = eq - row;
 		for (k = 0; k < c.nenv; k++) {
-			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], es[i], kn) == 0) {
+			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], row, kn) == 0) {
 				skip = 1;
 				break;
 			}
 		}
 		if (!skip) {
-			out[j] = es[i];
+			out[j] = row;
 			j++;
 		}
 	}

@@ -617,13 +617,9 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 
 (Writer, bool) writer_open(const char[..] path, int flags, size_t cap) {
 	Writer w = { 0 };
-	File f = { 0 };
-	{
-		auto (of, ok) = file_open(path, flags);
-		if (!ok) {
-			return (w, false);
-		}
-		f = of;
+	auto (f, ok) = file_open(path, flags);
+	if (!ok) {
+		return (w, false);
 	}
 	FsBufW* blob = (FsBufW *)malloc(sizeof(FsBufW));
 	if (blob == NULL) {
@@ -765,13 +761,9 @@ void ([[consumes]] Writer* w).close() {
 
 (Reader, bool) reader_open(const char[..] path, int flags, size_t cap) {
 	Reader r = { 0 };
-	File f = { 0 };
-	{
-		auto (of, ok) = file_open(path, flags);
-		if (!ok) {
-			return (r, false);
-		}
-		f = of;
+	auto (f, ok) = file_open(path, flags);
+	if (!ok) {
+		return (r, false);
 	}
 	FsBufR* blob = (FsBufR *)malloc(sizeof(FsBufR));
 	if (blob == NULL) {
