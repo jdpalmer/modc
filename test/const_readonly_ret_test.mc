@@ -5,7 +5,9 @@
 
 int const_readonly_ret_ok() {
 	const char *p = hdr_msg();
-	return p[0] == 'h' ? 0 : 1;
+	const char[..] s = ranged(p, 1);
+
+	return s[0] == 'h' ? 0 : 1;
 }
 
 int main() {

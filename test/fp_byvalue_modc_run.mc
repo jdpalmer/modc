@@ -32,18 +32,15 @@ double modc_mixed_val(Mixed m) {
 }
 
 int modc_calls_host() {
-	Vec2 v = { 0 };
-	Vec2 w = { 0 };
-	Mixed m = { 0 };
-	v = host_make(1.0, 2.0);
+	Vec2 v = host_make(1.0, 2.0);
 	if (host_sum(v) != 3.0) {
 		return 1;
 	}
-	w = host_id(v);
+	Vec2 w = host_id(v);
 	if (w.x != 1.0 || w.y != 2.0) {
 		return 2;
 	}
-	m = host_mixed(7, 3.5);
+	Mixed m = host_mixed(7, 3.5);
 	if (host_mixed_tag(m) != 7) {
 		return 3;
 	}

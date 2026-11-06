@@ -2,10 +2,11 @@
 #include <assert.h>
 
 int sum8(int a[8]) {
+	int[..] s = ranged(a, 8);
 	int i = { 0 };
 	int t = 0;
-	for (; i < (int)len(a); i++) {
-		t = t + a[i];
+	for (; i < (int)len(s); i++) {
+		t = t + s[i];
 	}
 	return t;
 }

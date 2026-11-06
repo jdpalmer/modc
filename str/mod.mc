@@ -205,7 +205,10 @@ bool str_ensure_z(char[..]* s) {
 	if (!str_reserve(s, n + 1)) {
 		return false;
 	}
-	ptr(*s)[n] = '\0';
+	{
+		char[..] room = ranged(ptr(*s), cap(*s));
+		room[n] = '\0';
+	}
 	return true;
 }
 
@@ -405,10 +408,11 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 
 // Empty dst (NUL at index 0). Requires writable dst when cap > 0.
 overload void cstr_reset(char dst[], size_t cap) {
-	if (cap == 0) {
+	if (cap == 0 || dst == NULL) {
 		return;
 	}
-	dst[0] = '\0';
+	char[..] room = ranged(dst, cap);
+	room[0] = '\0';
 }
 
 // cstr_reset on fixed char[N].
@@ -419,10 +423,11 @@ overload void cstr_reset(char[..] dst) {
 // Length of the filled prefix before the first NUL (capped by cap).
 overload size_t cstr_zlen(char dst[], size_t cap) {
 	size_t i = 0;
-	if (cap == 0) {
+	if (cap == 0 || dst == NULL) {
 		return 0;
 	}
-	while (i < cap && dst[i] != '\0') {
+	char[..] room = ranged(dst, cap);
+	while (i < cap && room[i] != '\0') {
 		i = i + 1;
 	}
 	return i;
@@ -440,15 +445,16 @@ overload size_t cstr_write(char dst[], const char[..] src, size_t cap) {
 	if (cap == 0 || dst == NULL) {
 		return n;
 	}
+	char[..] room = ranged(dst, cap);
 	if (n >= cap) {
 		memcpy(dst, ptr(src), cap - 1);
-		dst[cap - 1] = '\0';
+		room[cap - 1] = '\0';
 		return n;
 	}
 	if (n != 0) {
 		memcpy(dst, ptr(src), n);
 	}
-	dst[n] = '\0';
+	room[n] = '\0';
 	return n;
 }
 

@@ -15,7 +15,7 @@ char* reassign_after_free() {
 	if (p == NULL) {
 		return NULL;
 	}
-	p[0] = 'a';
+	*p = 'a';
 	return p;
 }
 
@@ -28,7 +28,7 @@ char* fail_branch_free(int ok) {
 		free(p);
 		return NULL;
 	}
-	p[0] = 'b';
+	*p = 'b';
 	return p;
 }
 
@@ -38,7 +38,7 @@ void defer_use_before_leave() {
 		return;
 	}
 	defer free(p);
-	p[0] = 'c';
+	*p = 'c';
 }
 
 int main() {

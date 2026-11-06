@@ -29,7 +29,8 @@ static char[..] path_empty() {
 static(char[..], bool) path_put(char[..] dst, const char *src, size_t n) {
 	if (cap(dst) < n) {
 		if (cap(dst) > 0) {
-			ptr(dst)[0] = 0;
+			char[..] room = ranged(ptr(dst), cap(dst));
+			room[0] = 0;
 		}
 		return (path_empty(), false);
 	}
@@ -37,7 +38,8 @@ static(char[..], bool) path_put(char[..] dst, const char *src, size_t n) {
 		memcpy(ptr(dst), src, n);
 	}
 	if (cap(dst) > n) {
-		ptr(dst)[n] = 0;
+		char[..] room = ranged(ptr(dst), cap(dst));
+		room[n] = 0;
 	}
 	return (ranged(ptr(dst), n, cap(dst)), true);
 }

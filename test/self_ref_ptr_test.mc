@@ -23,9 +23,13 @@ int self_ref_ptr_run() {
 	kids[0] = &v;
 	v.items = kids;
 	v.n = 1;
-	JsonValue* p = v.items[0];
-	if (p == 0 || p.kind != 1) {
-		return 1;
+	{
+		JsonValue*[..] items = ranged(v.items, (int)v.n);
+		JsonValue* p = items[0];
+
+		if (p == 0 || p.kind != 1) {
+			return 1;
+		}
 	}
 	if (v.n != 1) {
 		return 2;

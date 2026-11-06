@@ -18,9 +18,10 @@ int sum2d(int a[2][3]) {
 	int i = { 0 };
 	int s = { 0 };
 	for (; i < 2; i++) {
+		int[..] row = ranged((int *)a + i * 3, 3);
 		int j = { 0 };
 		for (; j < 3; j++) {
-			s = s + a[i][j];
+			s = s + row[j];
 		}
 	}
 	return s;

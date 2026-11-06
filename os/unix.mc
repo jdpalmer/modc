@@ -127,7 +127,10 @@ char* ocmd_strdup(const char *s, size_t n) {
 	if (n) {
 		memcpy(p, s, n);
 	}
-	p[n] = 0;
+	{
+		char[..] room = ranged(p, n + 1);
+		room[n] = 0;
+	}
 	return p;
 }
 
@@ -239,11 +242,11 @@ int ocmd_pipe(OsCmd* c, int which, int* parent_fd) {
 }
 
 int ocmd_path_is_abs(const char *p) {
-	return p != 0 && p[0] == '/';
+	return p != 0 && *p == '/';
 }
 
 int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
-	if (name == 0 || name[0] == 0 || dst == 0 || dstcap < 2) {
+	if (name == 0 || *name == 0 || dst == 0 || dstcap < 2) {
 		return 0;
 	}
 	size_t nlen = strlen(name);
@@ -275,9 +278,12 @@ int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 			continue;
 		}
 		memcpy(dst, a, plen);
-		dst[plen] = '/';
-		memcpy(dst + plen + 1, name, nlen);
-		dst[tot] = 0;
+		{
+			char[..] room = ranged(dst, dstcap);
+			room[plen] = '/';
+			memcpy(dst + plen + 1, name, nlen);
+			room[tot] = 0;
+		}
 		{
 			int fd = open(dst, O_RDONLY);
 			if (fd >= 0) {
@@ -294,8 +300,10 @@ char** ocmd_build_env(OsCmd* c) {
 	char** e = environ;
 	int n = 0;
 	if (e) {
-		while (e[n]) {
+		char** p = e;
+		while (*p) {
 			n++;
+			p++;
 		}
 	}
 	int cap = n + c.nenv + 1;
@@ -303,6 +311,8 @@ char** ocmd_build_env(OsCmd* c) {
 	if (env == 0) {
 		return 0;
 	}
+	char*[..] es = ranged(e, n);
+	char*[..] out = ranged(env, cap);
 	int j = 0;
 	int i = 0;
 	for (; i < n; i++) {
@@ -310,29 +320,30 @@ char** ocmd_build_env(OsCmd* c) {
 		size_t kn = 0;
 		int skip = 0;
 		int k = 0;
-		eq = strchr(e[i], '=');
+		eq = strchr(es[i], '=');
 		if (eq == 0) {
 			continue;
 		}
-		kn = eq - e[i];
+		kn = eq - es[i];
 		for (k = 0; k < c.nenv; k++) {
-			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], e[i], kn) == 0) {
+			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], es[i], kn) == 0) {
 				skip = 1;
 				break;
 			}
 		}
 		if (!skip) {
-			env[j] = e[i];
+			out[j] = es[i];
 			j++;
 		}
 	}
 	for (i = 0; i < c.nenv; i++) {
-		if (c.eval[i] == 0 || c.eval[i][0] == 0) {
+		char* v = c.eval[i];
+		if (v == 0 || *v == 0) {
 			/* empty val = unset: already skipped from parent */
 			continue;
 		}
 		size_t kn = strlen(c.ekey[i]);
-		size_t vn = strlen(c.eval[i]);
+		size_t vn = strlen(v);
 		size_t tot = kn + 1 + vn;
 		char* line = (char*)malloc(tot + 1);
 		if (line == 0) {
@@ -343,39 +354,54 @@ char** ocmd_build_env(OsCmd* c) {
 			free(env);
 			return 0;
 		}
-		memcpy(line, c.ekey[i], kn);
-		line[kn] = '=';
-		memcpy(line + kn + 1, c.eval[i], vn);
-		line[tot] = 0;
-		env[j++] = line;
+		{
+			char[..] room = ranged(line, tot + 1);
+			memcpy(line, c.ekey[i], kn);
+			room[kn] = '=';
+			memcpy(line + kn + 1, v, vn);
+			room[tot] = 0;
+		}
+		out[j++] = line;
 	}
-	env[j] = 0;
+	out[j] = 0;
 	return env;
 }
 
 void ocmd_free_envp(char** env, OsCmd* c) {
 	int i = 0;
 	int nparent = 0;
+	int nenv = 0;
 	if (env == 0) {
 		return;
 	}
 	if (environ) {
-		while (environ[nparent]) {
+		char** p = environ;
+		while (*p) {
 			nparent++;
+			p++;
 		}
 	}
+	{
+		char** p = env;
+		while (*p) {
+			nenv++;
+			p++;
+		}
+	}
+	char*[..] es = ranged(env, nenv);
+	char*[..] parent = ranged(environ, nparent);
 	/* Overlay lines were malloc'd after parent copies — free any not in environ */
-	for (; env[i]; i++) {
+	for (; i < nenv; i++) {
 		int from_parent = 0;
 		int j = 0;
 		for (j = 0; j < nparent; j++) {
-			if (env[i] == environ[j]) {
+			if (es[i] == parent[j]) {
 				from_parent = 1;
 				break;
 			}
 		}
 		if (!from_parent) {
-			free(env[i]);
+			free(es[i]);
 		}
 	}
 	free(env);
@@ -436,7 +462,7 @@ int ocmd_start(OsCmd* c) {
 				close(c.child_fd[i]);
 			}
 		}
-		if (c.dir && c.dir[0]) {
+		if (c.dir != 0 && *c.dir != 0) {
 			if (chdir(c.dir) != 0) {
 				_exit(127);
 			}
@@ -603,6 +629,7 @@ int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 	if (p == 0) {
 		return -1;
 	}
+	int[..] fdv = ranged(fds, OsPollMax);
 	p.nready = 0;
 	for (; i < p.n; i++) {
 		p.slot[i].ready = 0;
@@ -628,10 +655,10 @@ int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 		if (p.slot[i].is_cmd) {
 			continue;
 		}
-		if (fds[i] < 0) {
+		if (fdv[i] < 0) {
 			continue;
 		}
-		pf[np].fd = fds[i];
+		pf[np].fd = fdv[i];
 		pf[np].events = 0;
 		if (p.slot[i].events & 1) {
 			pf[np].events |= POLLIN;

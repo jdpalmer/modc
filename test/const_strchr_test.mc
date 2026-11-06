@@ -25,7 +25,11 @@ int const_strchr_ok() {
 	if (memchr(c, 'h', 5) == 0) {
 		return 3;
 	}
-	pm[0] = 'E';
+	{
+		char[..] room = ranged(pm, 1);
+
+		room[0] = 'E';
+	}
 	if (buf[1] != 'E') {
 		return 4;
 	}

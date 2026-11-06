@@ -1,7 +1,9 @@
 // fail: F:cannot pass fixed array of length 5 to parameter expecting 8
 
 int sum8(int a[8]) {
-	return a[0];
+	int[..] s = ranged(a, 8);
+
+	return s[0];
 }
 
 int bad() {

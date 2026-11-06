@@ -16,6 +16,37 @@ int straight() {
 	return y;
 }
 
+struct Point {
+	int x;
+	int y;
+};
+
+int aggr_both(int c) {
+	Point p = { 0 };
+	Point a = { 1, 2 };
+	Point b = { 3, 4 };
+	if (c) {
+		p = a;
+	} else {
+		p = b;
+	}
+	return p.x;
+}
+
+int aggr_straight() {
+	Point q = { 0 };
+	Point r = { 5, 6 };
+	q = r;
+	return q.x;
+}
+
+int ranged_rebind() {
+	int a[2] = { 0 };
+	int[..] s = { 0 };
+	s = ranged(a, 2);
+	return s[0];
+}
+
 int main() {
 	return 0;
 }

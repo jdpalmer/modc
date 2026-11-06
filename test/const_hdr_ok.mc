@@ -13,7 +13,7 @@ int const_hdr_ok() {
 	sink("hi");
 	buf[0] = 'x';
 	buf[1] = 0;
-	p[0] = 'y';
+	*p = 'y';
 	(void)hdr_sink;
 	return 0;
 }

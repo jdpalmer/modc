@@ -41,7 +41,7 @@ int* ret_heap() {
 }
 
 int* ret_through_ptr(Screen* s) {
-	return &s.cells[0];
+	return s.cells;
 }
 
 int* ret_global_field() {

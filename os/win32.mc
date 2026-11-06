@@ -124,7 +124,10 @@ char* ocmd_strdup(const char *s, size_t n) {
 	if (n) {
 		memcpy(p, s, n);
 	}
-	p[n] = 0;
+	{
+		char[..] room = ranged(p, n + 1);
+		room[n] = 0;
+	}
 	return p;
 }
 
@@ -238,12 +241,11 @@ int ocmd_pipe(OsCmd* c, int which, HANDLE* parent_h) {
 }
 
 int ocmd_path_has_sep(const char *p) {
-	size_t i = 0;
 	if (p == 0) {
 		return 0;
 	}
-	for (; p[i]; i++) {
-		if (p[i] == '/' || p[i] == '\\' || p[i] == ':') {
+	for (; *p; p++) {
+		if (*p == '/' || *p == '\\' || *p == ':') {
 			return 1;
 		}
 	}
@@ -251,7 +253,7 @@ int ocmd_path_has_sep(const char *p) {
 }
 
 int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
-	if (name == 0 || name[0] == 0 || dst == 0 || dstcap < 2) {
+	if (name == 0 || strlen(name) == 0 || dst == 0 || dstcap < 2) {
 		return 0;
 	}
 	if (ocmd_path_has_sep(name)) {
@@ -275,46 +277,47 @@ int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 
 /* Quote one argv element for CreateProcess command line. */
 int ocmd_quote_arg(const char *arg, char *dst, size_t cap, size_t* used) {
-	size_t i = 0;
 	int need = 0;
 	if (arg == 0 || dst == 0 || used == 0) {
 		return 0;
 	}
+	char[..] out = ranged(dst, cap);
 	size_t o = *used;
-	for (; arg[i]; i++) {
-		if (arg[i] == ' ' || arg[i] == '\t' || arg[i] == '"') {
+	const char *a = arg;
+	for (; *a; a++) {
+		if (*a == ' ' || *a == '\t' || *a == '"') {
 			need = 1;
 			break;
 		}
 	}
-	if (!need && arg[0] == 0) {
+	if (!need && *arg == 0) {
 		need = 1;
 	}
 	if (need) {
 		if (o + 1 >= cap) {
 			return 0;
 		}
-		dst[o++] = '"';
+		out[o++] = '"';
 	}
-	for (i = 0; arg[i]; i++) {
-		if (arg[i] == '"') {
+	for (a = arg; *a; a++) {
+		if (*a == '"') {
 			if (o + 2 >= cap) {
 				return 0;
 			}
-			dst[o++] = '\\';
-			dst[o++] = '"';
+			out[o++] = '\\';
+			out[o++] = '"';
 		} else {
 			if (o + 1 >= cap) {
 				return 0;
 			}
-			dst[o++] = arg[i];
+			out[o++] = *a;
 		}
 	}
 	if (need) {
 		if (o + 1 >= cap) {
 			return 0;
 		}
-		dst[o++] = '"';
+		out[o++] = '"';
 	}
 	*used = o;
 	return 1;
@@ -326,12 +329,13 @@ int ocmd_build_cmdline(OsCmd* c, char* dst, size_t cap) {
 	if (c == 0 || dst == 0 || cap == 0) {
 		return 0;
 	}
+	char[..] out = ranged(dst, cap);
 	for (; i < c.nargs; i++) {
 		if (i > 0) {
 			if (used + 1 >= cap) {
 				return 0;
 			}
-			dst[used++] = ' ';
+			out[used++] = ' ';
 		}
 		if (!ocmd_quote_arg(c.argv[i], dst, cap, &used)) {
 			return 0;
@@ -340,7 +344,7 @@ int ocmd_build_cmdline(OsCmd* c, char* dst, size_t cap) {
 	if (used >= cap) {
 		return 0;
 	}
-	dst[used] = 0;
+	out[used] = 0;
 	return 1;
 }
 
@@ -377,16 +381,18 @@ char* ocmd_build_env_block(OsCmd* c) {
 		p += strlen(p) + 1;
 	}
 	for (; i < c.nenv; i++) {
-		if (c.eval[i] == 0 || c.eval[i][0] == 0) {
+		char* v = c.eval[i];
+		if (v == 0 || *v == 0) {
 			continue;
 		}
-		cap += strlen(c.ekey[i]) + 1 + strlen(c.eval[i]) + 1;
+		cap += strlen(c.ekey[i]) + 1 + strlen(v) + 1;
 	}
 	char* block = (char*)malloc(cap);
 	if (block == 0) {
 		FreeEnvironmentStringsA(parent);
 		return 0;
 	}
+	char[..] room = ranged(block, cap);
 	size_t len = 0;
 	p = parent;
 	while (*p) {
@@ -412,19 +418,20 @@ char* ocmd_build_env_block(OsCmd* c) {
 		p += ln;
 	}
 	for (i = 0; i < c.nenv; i++) {
-		if (c.eval[i] == 0 || c.eval[i][0] == 0) {
+		char* v = c.eval[i];
+		if (v == 0 || *v == 0) {
 			continue;
 		}
 		size_t kn = strlen(c.ekey[i]);
-		size_t vn = strlen(c.eval[i]);
+		size_t vn = strlen(v);
 		memcpy(block + len, c.ekey[i], kn);
 		len += kn;
-		block[len++] = '=';
-		memcpy(block + len, c.eval[i], vn);
+		room[len++] = '=';
+		memcpy(block + len, v, vn);
 		len += vn;
-		block[len++] = 0;
+		room[len++] = 0;
 	}
-	block[len] = 0;
+	room[len] = 0;
 	FreeEnvironmentStringsA(parent);
 	return block;
 }
@@ -501,7 +508,7 @@ int ocmd_start(OsCmd* c) {
 		}
 	}
 	envblock = ocmd_build_env_block(c);
-	ok = CreateProcessA(resolved, cmdline, 0, 0, 1, 0, envblock, c.dir && c.dir[0] ? c.dir: 0, &si, &pi);
+	ok = CreateProcessA(resolved, cmdline, 0, 0, 1, 0, envblock, c.dir != 0 && *c.dir != 0 ? c.dir: 0, &si, &pi);
 	free(envblock);
 	for (i = 0; i < 3; i++) {
 		if (nul_h[i]) {
@@ -658,6 +665,7 @@ int opoll_wait(OsPoll* p, HANDLE* hs, int timeout_ms) {
 	if (p == 0) {
 		return -1;
 	}
+	HANDLE[..] hv = ranged(hs ? hs: (HANDLE*)0, hs ? OsPollMax: 0);
 	p.nready = 0;
 	for (; i < p.n; i++) {
 		p.slot[i].ready = 0;
@@ -673,7 +681,7 @@ int opoll_wait(OsPoll* p, HANDLE* hs, int timeout_ms) {
 					p.ready_idx[nready++] = i;
 				}
 			} else {
-				HANDLE h = hs ? hs[i]: 0;
+				HANDLE h = hs ? hv[i]: 0;
 				DWORD avail = 0;
 				if (h == 0 || h == INVALID_HANDLE_VALUE) {
 					continue;

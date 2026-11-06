@@ -12,11 +12,12 @@
 
 /* ---- dead initializer (da_) ---- */
 /*
- * Prefix da_ — dead/unused initializer on scalar locals.
+ * Prefix da_ — dead/unused initializer on scalar and aggregate locals.
  * Required init at decl already rules out uninit reads in .mc; this pass
  * flags initializers that are always overwritten before any read
- * (placeholder init). Joins union "init still reaching"; loops keep
- * pre-loop reach (body may not run). Skipped for headers and for
+ * (placeholder init). Aggregates are whole-object only: `p = q` kills,
+ * `p.x = …` / `p[i] = …` do not. Joins union "init still reaching"; loops
+ * keep pre-loop reach (body may not run). Skipped for headers and for
  * functions that contain goto. Growable — no silent cap drop.
  */
 typedef struct DAState DAState;
@@ -84,7 +85,9 @@ da_trackable(Symbol* s) {
 		return 0;
 	if (s->maybe_unused)
 		return 0;
-	return is_scalar(s->type);
+	/* Scalars + assignable aggregates (struct/union, including T[..] / tuples).
+	 * Fixed arrays are not assignable as wholes, so skip them. */
+	return is_scalar(s->type) || is_aggr(s->type);
 }
 
 static int
@@ -262,11 +265,8 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 			da_use(st, n);
 		return;
 	case NdAddr:
-		/* Escape via &x: conservatively treat as observing the current value. */
-		if (n->a && n->a->kind == NdName)
-			da_use(st, n->a);
-		else
-			da_expr(c, n->a, st, 1);
+		/* &x / &p.x / &a[i]: conservatively observe the current value. */
+		da_expr(c, n->a, st, 0);
 		return;
 	case NdAssign:
 		da_expr(c, n->b, st, 0);
@@ -451,7 +451,7 @@ da_stmt(Compiler* c, Node* n, DAState* st) {
 	}
 }
 
-/* .mc only: scalar decl init never read before overwrite. */
+/* .mc only: scalar/aggregate decl init never read before overwrite. */
 static void
 check_dead_init_func(Compiler* c, Node* fn) {
 	DAState st = { 0 };

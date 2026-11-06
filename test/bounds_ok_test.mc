@@ -2,11 +2,12 @@
 #include <assert.h>
 
 static int sum4(int a[4]) {
+	int[..] s = ranged(a, 4);
 	int i = 0;
 	int t = 0;
 
 	for (; i < 4; i++) {
-		t += a[i];
+		t += s[i];
 	}
 	return t;
 }

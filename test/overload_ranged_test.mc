@@ -9,15 +9,19 @@ overload size_t write_cap(char dst[], const char[..] src, size_t cap) {
 	if (cap == 0 || dst == NULL) {
 		return n;
 	}
-	if (n >= cap) {
-		memcpy(dst, ptr(src), cap - 1);
-		dst[cap - 1] = '\0';
-		return n;
+	{
+		char[..] room = ranged(dst, cap);
+
+		if (n >= cap) {
+			memcpy(dst, ptr(src), cap - 1);
+			room[cap - 1] = '\0';
+			return n;
+		}
+		if (n != 0) {
+			memcpy(dst, ptr(src), n);
+		}
+		room[n] = '\0';
 	}
-	if (n != 0) {
-		memcpy(dst, ptr(src), n);
-	}
-	dst[n] = '\0';
 	return n;
 }
 

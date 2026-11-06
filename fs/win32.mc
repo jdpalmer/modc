@@ -104,7 +104,7 @@ HANDLE fs_win_handle(void* blob) {
 }
 
 void* fs_win_open(char* path, int flags) {
-	if (path == 0 || path[0] == 0) {
+	if (path == 0 || strlen(path) == 0) {
 		return 0;
 	}
 	int rd = (flags & 1) != 0;
@@ -234,7 +234,7 @@ int fs_win_seek(void* blob, int64_t off, int whence, int64_t* npos) {
 }
 
 int fs_win_remove(char* path) {
-	if (path == 0 || path[0] == 0) {
+	if (path == 0 || strlen(path) == 0) {
 		return 0;
 	}
 	if (DeleteFileA(path)) {
@@ -252,7 +252,7 @@ int fs_win_rename(char* from, char* to) {
 }
 
 int fs_win_mkdir(char* path) {
-	if (path == 0 || path[0] == 0) {
+	if (path == 0 || strlen(path) == 0) {
 		return 0;
 	}
 	return CreateDirectoryA(path, 0) != 0;
@@ -298,10 +298,12 @@ int fs_win_dot(char* name) {
 	if (name == 0) {
 		return 1;
 	}
-	if (name[0] == '.' && name[1] == 0) {
+	size_t n = strlen(name);
+	const char[..] s = ranged(name, n);
+	if (n == 1 && s[0] == '.') {
 		return 1;
 	}
-	if (name[0] == '.' && name[1] == '.' && name[2] == 0) {
+	if (n == 2 && s[0] == '.' && s[1] == '.') {
 		return 1;
 	}
 	return 0;
@@ -310,7 +312,7 @@ int fs_win_dot(char* name) {
 void* fs_win_diropen(char* path) {
 	struct FsWinFind ent = { 0 };
 	char pat[4100] = { 0 };
-	if (path == 0 || path[0] == 0) {
+	if (path == 0 || strlen(path) == 0) {
 		return 0;
 	}
 	DWORD attr = GetFileAttributesA(path);

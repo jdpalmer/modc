@@ -26,7 +26,7 @@ void bad_double_free() {
 void bad_index() {
 	char* p = malloc(16);
 	free(p);
-	p[0] = 'x';
+	*p = 'x';
 }
 
 void bad_custom() {

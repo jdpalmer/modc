@@ -17,7 +17,6 @@ static char[..] take_view(char[..] s) {
 int autoinline_aggr_run() {
 	auto (a, b) = pair(2, 3);
 	char buf[4] = { 0 };
-	char[..] v = { 0 };
 	if (a + b != 5) {
 		return 1;
 	}
@@ -35,7 +34,7 @@ int autoinline_aggr_run() {
 	}
 	buf[0] = 'x';
 	buf[1] = 'y';
-	v = take_view(ranged(buf, 2));
+	char[..] v = take_view(ranged(buf, 2));
 	if (len(v) != 2 || v[0] != 'x') {
 		return 4;
 	}

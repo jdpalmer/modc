@@ -64,7 +64,10 @@ int fs_sys_readdir(void* dp, char* name, size_t cap, size_t* nlen) {
 		return -1;
 	}
 	memcpy(name, ent.d_name, n);
-	name[n] = 0;
+	{
+		char[..] room = ranged(name, cap);
+		room[n] = 0;
+	}
 	*nlen = n;
 	return 1;
 }

@@ -121,7 +121,7 @@ void __modc_fatal(const char* file, int line, const char* msg) {
 				 msg != NULL ? msg : "fatal");
 		crash_reporting = 1;
 		crash_run_cleanups();
-		if (file != NULL && file[0] != 0 && line > 0) {
+		if (file != NULL && *file != 0 && line > 0) {
 			n = snprintf(buf, CrashMsgCap, "%s:%d: %s\n", file, line,
 				     msg != NULL ? msg : "fatal");
 		}
@@ -143,7 +143,7 @@ void __modc_bounds_fail(const char* file, int line, uint64_t index, uint64_t len
 		int n = snprintf(buf, CrashMsgCap, "bounds: index %zu >= len %zu\n", ix, ln);
 		crash_reporting = 1;
 		crash_run_cleanups();
-		if (file != NULL && file[0] != 0 && line > 0) {
+		if (file != NULL && *file != 0 && line > 0) {
 			n = snprintf(buf, CrashMsgCap,
 				     "%s:%d: bounds: index %zu >= len %zu\n", file, line, ix, ln);
 		}
@@ -163,7 +163,7 @@ void __modc_null_fail(const char* file, int line) {
 		int n = snprintf(buf, CrashMsgCap, "null method receiver\n");
 		crash_reporting = 1;
 		crash_run_cleanups();
-		if (file != NULL && file[0] != 0 && line > 0) {
+		if (file != NULL && *file != 0 && line > 0) {
 			n = snprintf(buf, CrashMsgCap, "%s:%d: null method receiver\n", file,
 				     line);
 		}
@@ -206,7 +206,10 @@ static const char* crash_zmsg(const char[..] msg, char* buf, size_t cap) {
 	if (n > 0 && ptr(msg) != NULL) {
 		memcpy(buf, ptr(msg), n);
 	}
-	buf[n] = 0;
+	{
+		char[..] room = ranged(buf, cap);
+		room[n] = 0;
+	}
 	return buf;
 }
 

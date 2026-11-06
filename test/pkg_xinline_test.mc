@@ -2,5 +2,7 @@ import "pkg_xinline_lib";
 
 int main() {
 	char* s = xinline_empty();
-	return (s != 0 && s[0] == 0) ? 0: 1;
+	char[..] room = ranged(s, 1);
+
+	return (s != 0 && room[0] == 0) ? 0 : 1;
 }

@@ -20,7 +20,7 @@ int file_line_tests() {
 			return 3;
 		}
 	}
-	if (f == 0 || f[0] == 0) {
+	if (f == 0 || *f == 0) {
 		return 4;
 	}
 	if (strstr(f, "pp_file_line") == 0) {

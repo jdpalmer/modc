@@ -19,7 +19,7 @@ Cell* cell_at(Screen* s, int row, int col) {
 	if (row < 0 || col < 0 || row >= s.rows || col >= s.cols) {
 		return 0;
 	}
-	return &s.cells[row * s.cols + col];
+	return s.cells + (row * s.cols + col);
 }
 
 void put_cell(Screen* s, int row, int col, int ch) {

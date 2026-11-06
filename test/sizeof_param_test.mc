@@ -13,7 +13,7 @@ int sizeof_ptr(int* p) {
 }
 
 int sizeof_elem(int a[8]) {
-	return sizeof(a[0]);
+	return sizeof(*a);
 }
 
 int main() {

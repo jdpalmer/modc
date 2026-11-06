@@ -21,9 +21,12 @@ void* infer_ptr(void* p) {
 int infer_array_decay() {
 	int a[4] = { 0 };
 	auto p = a;
+	int[..] s = { 0 };
+
 	a[0] = 10;
 	a[1] = 20;
-	return p[0] + p[1];
+	s = ranged(p, 4);
+	return s[0] + s[1];
 }
 
 int infer_ranged() {
@@ -43,7 +46,9 @@ int infer_ranged() {
 
 int infer_char_ptr() {
 	auto msg = "hi";
-	return (int)msg[0] + (int)msg[1];
+	const char[..] s = ranged(msg, 2);
+
+	return (int)s[0] + (int)s[1];
 }
 
 int main() {

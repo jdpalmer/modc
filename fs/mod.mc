@@ -429,18 +429,19 @@ static size_t fs_buf_cap(size_t cap) {
 static size_t utf8_complete_prefix(const char *p, size_t n) {
 	size_t trail = 0;
 	size_t need = 0;
-	if (n == 0) {
+	if (n == 0 || p == NULL) {
 		return 0;
 	}
+	const char[..] s = ranged(p, n);
 	size_t i = n;
-	while (i > 0 && trail < 3 && (p[i - 1] & 0xc0) == 0x80) {
+	while (i > 0 && trail < 3 && (s[i - 1] & 0xc0) == 0x80) {
 		trail = trail + 1;
 		i = i - 1;
 	}
 	if (i == 0) {
 		return 0;
 	}
-	char c = p[i - 1];
+	char c = s[i - 1];
 	if (c < 0x80) {
 		need = 1;
 	} else if ((c & 0xe0) == 0xc0) {
@@ -932,10 +933,14 @@ struct FsDir {
 };
 
 static int fs_dotname(char* name, size_t n) {
-	if (n == 1 && name[0] == '.') {
+	if (name == NULL || n == 0) {
+		return 0;
+	}
+	const char[..] s = ranged(name, n);
+	if (n == 1 && s[0] == '.') {
 		return 1;
 	}
-	if (n == 2 && name[0] == '.' && name[1] == '.') {
+	if (n == 2 && s[0] == '.' && s[1] == '.') {
 		return 1;
 	}
 	return 0;

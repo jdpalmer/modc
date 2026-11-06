@@ -48,9 +48,7 @@ int modc_vsum(int n, ...) {
 }
 
 int modc_calls_host() {
-	Pair p = { 0 };
-	Quad q = { 0 };
-	p = host_pair(3, 4);
+	Pair p = host_pair(3, 4);
 	if (host_pair_sum(p) != 7) {
 		return 1;
 	}
@@ -58,7 +56,7 @@ int modc_calls_host() {
 	if (p.a != 3 || p.b != 4) {
 		return 2;
 	}
-	q = host_quad(1, 2, 3, 4);
+	Quad q = host_quad(1, 2, 3, 4);
 	if (host_quad_sum(q) != 10) {
 		return 3;
 	}

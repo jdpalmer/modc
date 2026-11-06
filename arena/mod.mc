@@ -126,6 +126,7 @@ void ([[consumes]] Arena* a).reset() {
 // Join parts with sep into the arena.
 (bool, char[..]) ([[region]] Arena* a).join(const char[..] sep, const char[..]* parts, size_t nparts) {
 	char[..] out = str_empty();
+	const char[..][..] ps = ranged(parts, nparts);
 	for (size_t i = 0; i < nparts; i++) {
 		if (i != 0) {
 			auto (ok, next) = a.append(out, sep);
@@ -135,7 +136,7 @@ void ([[consumes]] Arena* a).reset() {
 			out = next;
 		}
 		{
-			auto (ok, next) = a.append(out, parts[i]);
+			auto (ok, next) = a.append(out, ps[i]);
 			if (!ok) {
 				return (false, str_empty());
 			}
@@ -192,6 +193,9 @@ char* ([[region]] Arena* a).z(const char[..] s) {
 	if (n != 0) {
 		memcpy(p, ptr(s), n);
 	}
-	p[n] = '\0';
+	{
+		char[..] room = ranged(p, n + 1);
+		room[n] = '\0';
+	}
 	return p;
 }

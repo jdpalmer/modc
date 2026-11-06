@@ -30,7 +30,9 @@ int const_ok() {
 	}
 	w = ranged(buf, 0, 4);
 	char *m = buf;
-	m[0] = 'z';
+	char[..] room = ranged(m, 4);
+
+	room[0] = 'z';
 	/* explicit discard */
 	m = (char *)p;
 	(void)m;

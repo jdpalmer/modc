@@ -7,7 +7,7 @@ int main() {
 	char vt = '\v';
 	char hex = '\x07';
 	char oct = '\007';
-	const char *s = "\a\b\f\v";
+	const char s[5] = "\a\b\f\v";
 
 	if (bel != 7) {
 		return 1;

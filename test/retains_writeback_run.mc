@@ -9,7 +9,7 @@ static void adv(Cur* c) {
 	c.p = c.p + 1;
 }
 
-static void swap_adj(int* a, size_t i, size_t j) {
+static void swap_adj(int[..] a, size_t i, size_t j) {
 	int t = a[i];
 	a[i] = a[j];
 	a[j] = t;
@@ -22,7 +22,7 @@ int main() {
 
 	cur.p = buf;
 	adv(&cur);
-	if (cur.p[0] != 'b') {
+	if (*cur.p != 'b') {
 		return 1;
 	}
 	swap_adj(arr, 0, 1);

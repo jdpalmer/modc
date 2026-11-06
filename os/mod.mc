@@ -46,13 +46,16 @@ static char[..] os_empty() {
 
 static int os_zcopy(const char[..] s, char* buf, size_t cap) {
 	size_t n = len(s);
-	if (n + 1 > cap || (n > 0 && ptr(s) == NULL)) {
+	if (buf == NULL || n + 1 > cap || (n > 0 && ptr(s) == NULL)) {
 		return 0;
 	}
 	if (n > 0) {
 		memcpy(buf, ptr(s), n);
 	}
-	buf[n] = 0;
+	{
+		char[..] room = ranged(buf, cap);
+		room[n] = 0;
+	}
 	return 1;
 }
 
@@ -147,7 +150,8 @@ bool os_set_env(const char[..] key, const char[..] val) {
 	unsigned n = GetCurrentDirectoryA(OsCap, host);
 	if (n == 0 || n >= OsCap) {
 		if (cap(dst) > 0) {
-			ptr(dst)[0] = 0;
+			char[..] room = ranged(ptr(dst), cap(dst));
+			room[0] = 0;
 		}
 		return (ranged((char*)0, 0), false);
 	}
@@ -158,7 +162,8 @@ bool os_set_env(const char[..] key, const char[..] val) {
 	}
 	if (getcwd(ptr(dst), cap(dst)) == NULL) {
 		if (cap(dst) > 0) {
-			ptr(dst)[0] = 0;
+			char[..] room = ranged(ptr(dst), cap(dst));
+			room[0] = 0;
 		}
 		return (ranged((char*)0, 0), false);
 	}
@@ -259,7 +264,8 @@ void os_exit(int code) {
 	}
 	memcpy(ptr(dst), host, n);
 	if (cap(dst) > n) {
-		ptr(dst)[n] = 0;
+		char[..] room = ranged(ptr(dst), cap(dst));
+		room[n] = 0;
 	}
 	return (ranged(ptr(dst), n, cap(dst)), true);
 }
@@ -283,9 +289,10 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 		ocmd_free(blob);
 		return;
 	}
+	const char[..][..] as = ranged(args, nargs);
 	size_t i = 0;
 	for (; i < nargs; i++) {
-		const char[..] a = args[i];
+		const char[..] a = as[i];
 		if (!ocmd_add_arg(blob, ptr(a), len(a))) {
 			ocmd_free(blob);
 			return;

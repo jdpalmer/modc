@@ -209,9 +209,17 @@ int test_heap() {
 		str_free(&s);
 		return 7;
 	}
-	if (!str_ensure_z(&s) || ptr(s)[len(s)] != 0 || len(s) != 1) {
+	if (!str_ensure_z(&s) || len(s) != 1) {
 		str_free(&s);
 		return 8;
+	}
+	{
+		char[..] room = ranged(ptr(s), len(s) + 1);
+
+		if (room[len(s)] != 0) {
+			str_free(&s);
+			return 8;
+		}
 	}
 	str_free(&s);
 	if (ptr(s) != NULL || len(s) != 0) {

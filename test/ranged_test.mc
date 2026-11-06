@@ -27,7 +27,7 @@ int from_array() {
 	if (len(s) != 4 || cap(s) != 4) {
 		return 0;
 	}
-	if (ptr(s)[0] != 1) {
+	if (s[0] != 1) {
 		return 0;
 	}
 	return sum_elems(s);

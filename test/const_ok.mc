@@ -15,7 +15,7 @@ int const_ok() {
 	const char *p = "hi";
 	const char[..] v = "ab";
 	char buf[4] = { 0 };
-	char[..] w = { 0 };
+	char[..] w = ranged(buf, 0, 4);
 	char *m = buf;
 
 	if (sink("hi") != 2) {
@@ -27,8 +27,7 @@ int const_ok() {
 	if (view_len(v) != 2) {
 		return 3;
 	}
-	w = ranged(buf, 0, 4);
-	m[0] = 'z';
+	*m = 'z';
 	/* explicit discard */
 	m = (char *)p;
 	(void)m;

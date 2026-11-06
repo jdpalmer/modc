@@ -28,10 +28,11 @@ int localpt() {
 }
 
 int sumarr(int* a, int n) {
+	int[..] view = ranged(a, n);
 	int i = { 0 };
 	int s = { 0 };
 	for (; i < n; i++) {
-		s = s + a[i];
+		s = s + view[i];
 	}
 	return s;
 }

@@ -2790,6 +2790,18 @@ Node* type_expr(Compiler* c, Node* n) {
 			return type_poison(c, n);
 		lt = n->a ? decay(c, n->a->type) : NULL;
 		if (lt && is_ptr(lt)) {
+			/* Ban *(p+i) / *(i+p) in .mc; bare *p stays allowed. */
+			if (n->type == NULL && user_source(c, n->span) && n->a &&
+			    n->a->kind == NdBin &&
+			    (n->a->op == PnPlus || n->a->op == PnMinus)) {
+				Type *ta = n->a->a ? decay(c, n->a->a->type) : NULL;
+				Type *tb = n->a->b ? decay(c, n->a->b->type) : NULL;
+				int ptr_int = (is_ptr(ta) && is_int(tb)) ||
+					      (n->a->op == PnPlus && is_int(ta) && is_ptr(tb));
+				if (ptr_int)
+					error_at(c, n->span,
+						 "cannot form *(p + i) on a raw pointer; use T[N], T[..], or ranged(p, n)");
+			}
 			n->type = lt->base;
 			n->is_lvalue = 1;
 		} else {
@@ -2876,12 +2888,22 @@ Node* type_expr(Compiler* c, Node* n) {
 				reject_void_ptr_arith(c, n->span, decay(c, lt));
 			if (nk && n->b && !is_int(n->b->type))
 				error_at(c, n->b->span, "array subscript must be an integer");
+			/* .mc: index only T[N] / T[..]; raw T* and open T[] are banned. */
+			if (nk && user_source(c, n->span) &&
+			    (is_ptr(lt) || (is_array(lt) && lt->len < 0)))
+				error_at(c, n->span,
+					 "cannot index a raw pointer; use T[N], T[..], or ranged(p, n)");
 			n->type = ptr_base(lt);
 		} else if (n->b && n->b->type && (is_array(n->b->type) || is_ptr(n->b->type))) {
 			if (nk)
 				reject_void_ptr_arith(c, n->span, decay(c, n->b->type));
 			if (nk && lt && !is_int(lt))
 				error_at(c, n->a->span, "array subscript must be an integer");
+			if (nk && user_source(c, n->span) &&
+			    (is_ptr(n->b->type) ||
+			     (is_array(n->b->type) && n->b->type->len < 0)))
+				error_at(c, n->span,
+					 "cannot index a raw pointer; use T[N], T[..], or ranged(p, n)");
 			n->type = ptr_base(n->b->type);
 		} else {
 			error_at(c, n->span, "subscripted value is not an array or pointer");

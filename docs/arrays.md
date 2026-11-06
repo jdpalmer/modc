@@ -64,7 +64,7 @@ Open arrays represent C-compatible parameters that intentionally omit size metad
 void legacy(int a[]);   /* same as int * at the ABI */
 ```
 
-Open arrays should be reserved for external C headers and foreign function boundaries where length is not enforced by the parameter contract. In user source code, evaluating `sizeof` on an open array parameter is a compile-time error because the parameter behaves as a raw pointer.
+Open arrays should be reserved for external C headers and foreign function boundaries where length is not enforced by the parameter contract. In user source code, evaluating `sizeof` on an open array parameter is a compile-time error because the parameter behaves as a raw pointer, and indexing an open `T[]` parameter is rejected for the same reason — wrap with `ranged(p, n)` or take `T[N]` / `T[..]`.
 
 ## Ranged Arrays `T[..]`
 
@@ -118,13 +118,15 @@ By default, `modc build` / `run` / `test` / `emit` insert traps via the `crash`
 package (message, cleanups, abort). Pass `--release` to omit them (production):
 
 - `a[i]` / `s[i]` — require `i < N` or `i < len(s)` (`__modc_bounds_fail`)
-- `void f(int a[N])` — `a[i]` uses the parameter’s fixed `N` (open `T[]` / raw
-  `T*` stay unchecked)
+- `void f(int a[N])` — `a[i]` uses the parameter’s fixed `N`
 - `a[lo..hi]` / `s[lo..hi]` — require `lo <= hi` and `hi <=` parent length
   (end exclusive; `a[2..]` checks `2 <= len`)
 - method entry — pointer receiver must be non-null (`__modc_null_fail`)
 
-Raw `T*` indexing is never checked.
+In `.mc` sources, indexing a raw `T*` (or open `T[]`) is a compile-time error;
+use `T[N]`, `T[..]`, or `ranged(p, n)` first. Forming `*(p + i)` / `*(i + p)`
+on a raw pointer is likewise rejected (`*p` alone remains allowed). Headers
+and C still allow unchecked pointer subscripting.
 
 Closed windows (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set
 `len == cap`. Writable scratch over a block is `ranged(p, 0, n)` — length

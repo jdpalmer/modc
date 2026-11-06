@@ -30,6 +30,12 @@ overload size_t range_count(Triple t, int** out_ptr) {
 	return 3;
 }
 
+overload int range_at(MyBuf b, size_t i) {
+	int[..] s = ranged(b.data, b.n);
+
+	return s[(int)i];
+}
+
 overload int range_at(Triple t, size_t i) {
 	if (i == 0) {
 		return t.a;

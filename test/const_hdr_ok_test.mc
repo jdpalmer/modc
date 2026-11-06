@@ -16,7 +16,9 @@ int const_hdr_ok() {
 	buf[0] = 'x';
 	buf[1] = 0;
 	char *p = buf;
-	p[0] = 'y';
+	char[..] room = ranged(p, 8);
+
+	room[0] = 'y';
 	(void)hdr_sink;
 	return 0;
 }
