@@ -472,7 +472,8 @@ check_dead_init_func(Compiler* c, Node* fn) {
 		if (s && s->name)
 			error_at(c, s->span,
 				 "initializer of '%s' is never used; every path assigns "
-				 "before reading it",
+				 "before reading it (initialize at the first assignment "
+				 "instead of a placeholder)",
 				 s->name);
 	}
 	da_release(&st);
