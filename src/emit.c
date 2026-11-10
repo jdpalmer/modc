@@ -1881,12 +1881,24 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 			w = storewidth(c, n->type);
 			slot = vtmp('l', n->type);
 			fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, w);
+			/* Evaluate args before opening call — locals emit loads. */
+			for (ai = 0; ai < na; ai++) {
+				Node* arg = n->children[ai];
+
+				if (arg == NULL) {
+					args[ai].text[0] = '0';
+					args[ai].text[1] = 0;
+					args[ai].cls = 'l';
+					continue;
+				}
+				args[ai] = emitexpr(c, arg);
+				if (args[ai].cls != 'l')
+					args[ai] = coerce(args[ai], 'l', c->types.type_ullong);
+			}
 			fprintf(outf, "\tcall %s(", tgt.text);
 			if (strcmp(bn, "__modc_pool_alloc_slice") == 0) {
 				/* (pool, out, elemsz, n, align) — children: pool,esz,n,align */
 				for (ai = 0; ai < na; ai++) {
-					Val a;
-
 					if (ai)
 						fputs(", ", outf);
 					if (ai == 1) {
@@ -1894,25 +1906,17 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 						fputs(slot.text, outf);
 						fputs(", ", outf);
 					}
-					a = emitexpr(c, n->children[ai]);
-					if (a.cls != 'l')
-						a = coerce(a, 'l', c->types.type_ullong);
 					fputs("l ", outf);
-					fputs(a.text, outf);
+					fputs(args[ai].text, outf);
 				}
 			} else {
 				/* (out, elemsz, n) — children: esz, n */
 				fputs("l ", outf);
 				fputs(slot.text, outf);
 				for (ai = 0; ai < na; ai++) {
-					Val a;
-
 					fputs(", ", outf);
-					a = emitexpr(c, n->children[ai]);
-					if (a.cls != 'l')
-						a = coerce(a, 'l', c->types.type_ullong);
 					fputs("l ", outf);
-					fputs(a.text, outf);
+					fputs(args[ai].text, outf);
 				}
 			}
 			fputs(")\n", outf);
