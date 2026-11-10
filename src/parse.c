@@ -443,6 +443,13 @@ parse_struct(Compiler* c, int kind, int outer_storage) {
 		for (uf = t->fields; uf; uf = uf->next) {
 			if (uf->type == NULL)
 				continue;
+			/* Struct/union overlays can recreate pointer↔primitive punning
+			 * at field offsets; ban in .mc (headers/FFI keep SDL-style unions). */
+			if (is_aggr(uf->type)) {
+				error_at(c, sp,
+					 "union must not contain struct or union members in %%C user code (allowed in headers)");
+				break;
+			}
 			if (is_ptr(uf->type))
 				saw_ptr = 1;
 			else

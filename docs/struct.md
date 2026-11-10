@@ -21,6 +21,15 @@ sources. Headers may still use C's tag/ordinary homonyms (for example
 `struct if_nameindex` beside `if_nameindex()`); see [interop.md](interop.md).
 The same idea applies to `union` and `enum` tags.
 
+## Unions in `.mc`
+
+User `.mc` unions may hold scalars and/or pointers, but:
+
+- must not mix pointers with non-pointer members
+- must not contain struct or union members (aggregate overlays)
+
+Those patterns remain legal in C headers for FFI (for example `SDL_Event`). Prefer a tagged struct with a scalar/pointer `union` payload, or separate types, in `%C` code.
+
 ## Field Access: Unified Dot Notation
 
 In user translation units (`.mc` files), use the dot operator (`.`) for accessing fields on both values and pointers. The arrow operator (`->`) is restricted to header files ([interop.md](interop.md)).

@@ -38,7 +38,7 @@
 
 * **Multiple return values** for more consistent data/control flow
 
-* **Common C antipatterns are rejected in user code** including pointer-primitive unions, `void *` arithmetic, implicit narrowing, unrelated pointer conversions, unsequenced `i = i++`, assignments in conditionals, and other classic C traps
+* **Common C antipatterns are rejected in user code** including pointer-primitive unions, unions that overlay structs, `void *` arithmetic, implicit narrowing, unrelated pointer conversions, unsequenced `i = i++`, assignments in conditionals, and other classic C traps
 
 * **Defined behavior** for things that are often undefined in standard C (including `char`'s definition as an unsigned value and widths for numeric types)
 

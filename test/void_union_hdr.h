@@ -1,8 +1,14 @@
-/* Headers may mix pointers with non-pointers in unions, and use void* arithmetic. */
+/* Headers may mix pointers with non-pointers, overlay structs, and use void* arithmetic. */
+
+struct HdrPt {
+	int x;
+	int y;
+};
 
 union HdrSlot {
 	void *p;
 	int x;
+	struct HdrPt pt;
 };
 
 static int

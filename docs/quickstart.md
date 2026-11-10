@@ -325,7 +325,7 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Straight-line releases**: After an immediate `free(p)` / `fclose(f)` / `[[releases]]` call (not merely `defer`), later uses of that local/param in the function are errors (`*p`, `p[i]`, passing `p` again). Reassignment (`p = malloc(...)`) clears the kill. Fail-branch `free` + `return` does not poison the success path. Local/param pointer and `T[..]` copies (`q = p` / `char *q = p`) join an alias group so `free(p); *q` is diagnosed; `&local`, field stores, and ternary picks are not. Call arguments are checked in every rvalue position (statement, `auto`/`=` initializer, `return`), not only as expression statements.
 
-- **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts.
+- **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts. In `.mc` sources, unions must not mix pointers with non-pointers or contain struct/union members (scalar and pointer-only unions are fine); C headers may still use SDL-style overlay unions.
 
 - **No Unnecessary Casts**: A cast is a compile-time error when removing it preserves the value and %C would perform the same conversion at an assignment, initializer, return, or fixed-parameter boundary. Same-type arithmetic casts are rejected, as are narrow integer casts of literals that already fit (e.g. `(char)0x80` in comparisons — `char` is unsigned and promotes back to `int`). Casts that control arithmetic width, signedness, enum operations, overload selection, vararg ABI, pointer provenance, or intentional `(void)` discards remain valid.
 

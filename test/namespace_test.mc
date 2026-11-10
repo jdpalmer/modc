@@ -12,7 +12,7 @@ struct Rect {
 
 union U {
 	int i;
-	Point p;
+	float f;
 };
 
 enum Color {
