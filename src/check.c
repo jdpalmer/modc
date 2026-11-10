@@ -2080,6 +2080,26 @@ expr_consumed_sym(EscapeState* st, Node* n) {
 	return NULL;
 }
 
+static Symbol*
+prefer_user_sym(EscapeState* st, Symbol* s) {
+	int i, j, g;
+
+	if (s == NULL || s->name == NULL || !is_compiler_temp_name(s->name))
+		return s;
+	i = esc_find(st, s);
+	if (i < 0)
+		return s;
+	g = st->alias_gid[i];
+	if (g == 0)
+		return s;
+	for (j = 0; j < st->n; j++) {
+		if (st->alias_gid[j] == g && st->syms[j] && st->syms[j]->name &&
+		    !is_compiler_temp_name(st->syms[j]->name))
+			return st->syms[j];
+	}
+	return s;
+}
+
 static void
 report_consumed_use(Compiler* c, EscapeState* st, Node* n) {
 	Symbol* s;
@@ -2089,7 +2109,8 @@ report_consumed_use(Compiler* c, EscapeState* st, Node* n) {
 	s = expr_consumed_sym(st, n);
 	if (s == NULL && n->kind == NdName)
 		s = n->symbol;
-	if (s && s->name)
+	s = prefer_user_sym(st, s);
+	if (s && s->name && !is_compiler_temp_name(s->name))
 		error_at(c, n->span, "use of consumed value '%s'", s->name);
 	else
 		error_at(c, n->span, "use of consumed value");
@@ -2156,8 +2177,13 @@ expr_may_already_consumed(EscapeState* st, Node* n) {
 	}
 	if (n->kind == NdCast || n->kind == NdComma)
 		return expr_may_already_consumed(st, n->kind == NdComma ? n->b : n->a);
-	if (n->kind == NdAddr)
+	if (n->kind == NdAddr) {
+		/* &header for T[..] out-params (pool.copy dst) overwrites the local;
+		 * not a read of the old view. Pointer locals still count (&p after free). */
+		if (n->a && is_ranged(n->a->type))
+			return 0;
 		return expr_may_already_consumed(st, n->a);
+	}
 	if (n->kind == NdCond)
 		return expr_may_already_consumed(st, n->b) ||
 		       expr_may_already_consumed(st, n->c);
@@ -2759,6 +2785,59 @@ esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
 	}
 }
 
+/* Calls in any rvalue position: same arg use-check + consume apply as stmt calls. */
+static void
+esc_walk_rvalue(Compiler* c, EscapeState* st, Node* n) {
+	int i;
+
+	if (n == NULL)
+		return;
+	if (n->kind == NdCall) {
+		esc_check_call(c, st, n);
+		for (i = 0; i < n->children_len; i++) {
+			esc_check_expr_use(c, st, n->children[i]);
+			esc_walk_rvalue(c, st, n->children[i]);
+		}
+		esc_walk_rvalue(c, st, n->a);
+		esc_apply_consumes(st, n);
+		return;
+	}
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++)
+			esc_walk_rvalue(c, st, n->children[i]);
+		return;
+	}
+	if (n->kind == NdCast || n->kind == NdDeref || n->kind == NdAddr ||
+	    n->kind == NdUn || n->kind == NdPost) {
+		esc_walk_rvalue(c, st, n->a);
+		return;
+	}
+	if (n->kind == NdComma) {
+		esc_walk_rvalue(c, st, n->a);
+		esc_walk_rvalue(c, st, n->b);
+		return;
+	}
+	if (n->kind == NdCond) {
+		esc_walk_rvalue(c, st, n->a);
+		esc_walk_rvalue(c, st, n->b);
+		esc_walk_rvalue(c, st, n->c);
+		return;
+	}
+	if (n->kind == NdBin || n->kind == NdDot || n->kind == NdArrow ||
+	    n->kind == NdIndex) {
+		esc_walk_rvalue(c, st, n->a);
+		esc_walk_rvalue(c, st, n->b);
+		return;
+	}
+	if (n->kind == NdAssign) {
+		esc_walk_rvalue(c, st, n->b);
+		esc_walk_rvalue(c, st, n->a);
+		return;
+	}
+	for (i = 0; i < n->children_len; i++)
+		esc_walk_rvalue(c, st, n->children[i]);
+}
+
 static void
 esc_walk_init(Compiler* c, EscapeState* st, Initializer* in, Symbol* dest) {
 	int i;
@@ -2766,6 +2845,8 @@ esc_walk_init(Compiler* c, EscapeState* st, Initializer* in, Symbol* dest) {
 	if (in == NULL)
 		return;
 	if (in->expr) {
+		esc_walk_rvalue(c, st, in->expr);
+		esc_check_expr_use(c, st, in->expr);
 		if (dest && (dest->storage == StLocal || dest->storage == StParam))
 			esc_propagate_to(st, dest, in->expr);
 		else if (dest && dest->storage != StLocal && dest->storage != StParam)
@@ -2783,6 +2864,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 	if (n == NULL)
 		return;
 	if (n->kind == NdReturn) {
+		esc_walk_rvalue(c, st, n->a);
 		esc_on_escape_value(c, st, n->a, 1);
 		return;
 	}
@@ -2790,6 +2872,8 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		/* Reassignment to a plain local/param is not a use of its old value. */
 		if (!(n->a->kind == NdName && lhs_taint_target(n->a)))
 			esc_check_expr_use(c, st, n->a);
+		/* Rvalue first so consume apply lands before propagate. */
+		esc_walk_rvalue(c, st, n->b);
 		esc_check_expr_use(c, st, n->b);
 		if (lhs_is_escape_dest(n->a)) {
 			/* Write-back into the object reached through param P is not
@@ -2808,12 +2892,12 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		dst = lhs_taint_target(n->a);
 		if (dst)
 			esc_propagate_to(st, dst, n->b);
-		esc_walk_stmt(c, st, n->a);
-		esc_walk_stmt(c, st, n->b);
+		esc_walk_rvalue(c, st, n->a);
 		return;
 	}
 	if (n->kind == NdDecl) {
 		if (n->init && n->init->expr) {
+			esc_walk_rvalue(c, st, n->init->expr);
 			esc_check_expr_use(c, st, n->init->expr);
 			if (n->symbol)
 				esc_propagate_to(st, n->symbol, n->init->expr);
@@ -2827,13 +2911,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		return;
 	}
 	if (n->kind == NdCall) {
-		esc_check_call(c, st, n);
-		for (i = 0; i < n->children_len; i++)
-			esc_check_expr_use(c, st, n->children[i]);
-		esc_walk_stmt(c, st, n->a);
-		for (i = 0; i < n->children_len; i++)
-			esc_walk_stmt(c, st, n->children[i]);
-		esc_apply_consumes(st, n);
+		esc_walk_rvalue(c, st, n);
 		return;
 	}
 	switch (n->kind) {

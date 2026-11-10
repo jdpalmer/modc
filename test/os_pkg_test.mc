@@ -89,37 +89,52 @@ int test_look_path() {
 	return 0;
 }
 
+/* Poll.add_* retains File/Cmd pointers; keep them in static storage for the test. */
+static Cmd poll_cmd;
+static File poll_out;
+
 int test_cmd_echo() {
-#ifdef _WIN32
-	Cmd c = { 0 };
 	Poll p = { 0 };
-	File out = { 0 };
 	char buf[64] = { 0 };
-	const char[..] args[2] = { 0 };
-	args[0] = "/c";
-	args[1] = "echo hello-modc";
-	c.init("cmd.exe", args, 2);
-	if (!c.stdio(StdIn, IoNull)) {
-		c.close();
+	Cmd zc = { 0 };
+	File zf = { 0 };
+	poll_cmd = zc;
+	poll_out = zf;
+#ifdef _WIN32
+	{
+		const char[..] args[2] = { 0 };
+		args[0] = "/c";
+		args[1] = "echo hello-modc";
+		poll_cmd.init("cmd.exe", args, 2);
+	}
+#else
+	{
+		const char[..] args[1] = { 0 };
+		args[0] = "hello-modc";
+		poll_cmd.init("echo", args, 1);
+	}
+#endif
+	if (!poll_cmd.stdio(StdIn, IoNull)) {
+		poll_cmd.close();
 		return 2;
 	}
 	{
-		auto (f, ok) = c.pipe(StdOut);
+		auto (f, ok) = poll_cmd.pipe(StdOut);
 		if (!ok) {
-			c.close();
+			poll_cmd.close();
 			return 3;
 		}
-		out = f;
+		poll_out = f;
 	}
-	if (!c.start()) {
-		out.close();
-		c.close();
+	if (!poll_cmd.start()) {
+		poll_out.close();
+		poll_cmd.close();
 		return 4;
 	}
 	p.init();
-	if (!p.add_file(&out, PollIn) || !p.add_cmd(&c)) {
-		out.close();
-		c.close();
+	if (!p.add_file(&poll_out, PollIn) || !p.add_cmd(&poll_cmd)) {
+		poll_out.close();
+		poll_cmd.close();
 		p.close();
 		return 5;
 	}
@@ -129,8 +144,8 @@ int test_cmd_echo() {
 		for (; i < 50; i++) {
 			auto (n, ok) = p.wait(200);
 			if (!ok) {
-				out.close();
-				c.close();
+				poll_out.close();
+				poll_cmd.close();
 				p.close();
 				return 6;
 			}
@@ -140,186 +155,84 @@ int test_cmd_echo() {
 			}
 		}
 		if (!saw) {
-			out.close();
-			c.close();
+			poll_out.close();
+			poll_cmd.close();
 			p.close();
 			return 7;
 		}
 	}
 	{
-		auto (n, ok) = out.read(buf);
+		auto (n, ok) = poll_out.read(buf);
 		if (!ok || n < 10 || !str_starts_with(ranged(buf, n), "hello-modc")) {
-			out.close();
-			c.close();
+			poll_out.close();
+			poll_cmd.close();
 			p.close();
 			return 8;
 		}
 	}
-	out.close();
+	poll_out.close();
 	{
-		auto (code, ok) = c.wait();
+		auto (code, ok) = poll_cmd.wait();
 		if (!ok || code != 0) {
-			c.close();
+			poll_cmd.close();
 			p.close();
 			return 9;
 		}
 	}
-	c.close();
+	poll_cmd.close();
 	p.close();
 	return 0;
-#else
-	Cmd c = { 0 };
-	Poll p = { 0 };
-	char buf[64] = { 0 };
-	const char[..] args[1] = { 0 };
-	args[0] = "hello-modc";
-	c.init("echo", args, 1);
-	if (!c.stdio(StdIn, IoNull)) {
-		c.close();
-		return 2;
-	}
-	auto (out, pipe_ok) = c.pipe(StdOut);
-	if (!pipe_ok) {
-		c.close();
-		return 3;
-	}
-	if (!c.start()) {
-		out.close();
-		c.close();
-		return 4;
-	}
-	p.init();
-	if (!p.add_file(&out, PollIn) || !p.add_cmd(&c)) {
-		out.close();
-		c.close();
-		p.close();
-		return 5;
-	}
-	{
-		int saw = 0;
-		int i = 0;
-		for (; i < 50; i++) {
-			auto (n, ok) = p.wait(200);
-			if (!ok) {
-				out.close();
-				c.close();
-				p.close();
-				return 6;
-			}
-			if (n > 0) {
-				saw = 1;
-				break;
-			}
-		}
-		if (!saw) {
-			out.close();
-			c.close();
-			p.close();
-			return 7;
-		}
-	}
-	{
-		auto (n, ok) = out.read(buf);
-		if (!ok || n < 10 || !str_starts_with(ranged(buf, n), "hello-modc")) {
-			out.close();
-			c.close();
-			p.close();
-			return 8;
-		}
-	}
-	out.close();
-	{
-		auto (code, ok) = c.wait();
-		if (!ok || code != 0) {
-			c.close();
-			p.close();
-			return 9;
-		}
-	}
-	c.close();
-	p.close();
-	return 0;
-#endif
 }
 
 int test_cmd_true() {
+	Poll p = { 0 };
+	Cmd zc = { 0 };
+	poll_cmd = zc;
 #ifdef _WIN32
-	Cmd c = { 0 };
-	Poll p = { 0 };
-	const char[..] args[2] = { 0 };
-	args[0] = "/c";
-	args[1] = "exit 0";
-	c.init("cmd.exe", args, 2);
-	c.stdio(StdIn, IoNull);
-	c.stdio(StdOut, IoNull);
-	c.stdio(StdErr, IoNull);
-	if (!c.start()) {
-		c.close();
-		return 2;
-	}
-	p.init();
-	if (!p.add_cmd(&c)) {
-		c.close();
-		p.close();
-		return 3;
-	}
 	{
-		auto (n, ok) = p.wait(5000);
-		if (!ok || n < 1 || p.ready_cmd(0) != &c) {
-			c.close();
-			p.close();
-			return 4;
-		}
+		const char[..] args[2] = { 0 };
+		args[0] = "/c";
+		args[1] = "exit 0";
+		poll_cmd.init("cmd.exe", args, 2);
 	}
-	{
-		auto (code, ok) = c.wait();
-		if (!ok || code != 0) {
-			c.close();
-			p.close();
-			return 5;
-		}
-	}
-	c.close();
-	p.close();
-	return 0;
 #else
-	Cmd c = { 0 };
-	Poll p = { 0 };
-	const char[..] noargs[1] = { 0 };
-	c.init("true", noargs, 0);
-	c.stdio(StdIn, IoNull);
-	c.stdio(StdOut, IoNull);
-	c.stdio(StdErr, IoNull);
-	if (!c.start()) {
-		c.close();
+	{
+		const char[..] noargs[1] = { 0 };
+		poll_cmd.init("true", noargs, 0);
+	}
+#endif
+	poll_cmd.stdio(StdIn, IoNull);
+	poll_cmd.stdio(StdOut, IoNull);
+	poll_cmd.stdio(StdErr, IoNull);
+	if (!poll_cmd.start()) {
+		poll_cmd.close();
 		return 2;
 	}
 	p.init();
-	if (!p.add_cmd(&c)) {
-		c.close();
+	if (!p.add_cmd(&poll_cmd)) {
+		poll_cmd.close();
 		p.close();
 		return 3;
 	}
 	{
 		auto (n, ok) = p.wait(5000);
-		if (!ok || n < 1 || p.ready_cmd(0) != &c) {
-			c.close();
+		if (!ok || n < 1 || p.ready_cmd(0) != &poll_cmd) {
+			poll_cmd.close();
 			p.close();
 			return 4;
 		}
 	}
 	{
-		auto (code, ok) = c.wait();
+		auto (code, ok) = poll_cmd.wait();
 		if (!ok || code != 0) {
-			c.close();
+			poll_cmd.close();
 			p.close();
 			return 5;
 		}
 	}
-	c.close();
+	poll_cmd.close();
 	p.close();
 	return 0;
-#endif
 }
 
 int os_pkg_run() {

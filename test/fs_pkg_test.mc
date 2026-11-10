@@ -515,17 +515,23 @@ int test_buf_utf8_split() {
 	return 0;
 }
 
+/* writer_from_file / reader_from_file [[retains]] the File*; use static storage. */
+static File borrow_file;
+
 int test_buf_borrow_init() {
 	const char[..] name = "fs_pkg_buf_borrow.bin";
 	char got[8] = { 0 };
 	fs_remove(name);
-	auto (f, f_ok) = file_open(name, OpenRead | OpenWrite | OpenCreate | OpenTrunc);
-	if (!f_ok) {
-		return 1;
+	{
+		auto (f, f_ok) = file_open(name, OpenRead | OpenWrite | OpenCreate | OpenTrunc);
+		if (!f_ok) {
+			return 1;
+		}
+		borrow_file = f;
 	}
-	auto (w, w_ok) = writer_from_file(&f, 8);
+	auto (w, w_ok) = writer_from_file(&borrow_file, 8);
 	if (!w_ok) {
-		f.close();
+		borrow_file.close();
 		fs_remove(name);
 		return 2;
 	}
@@ -533,24 +539,24 @@ int test_buf_borrow_init() {
 		auto (n, ok) = w.write("ab");
 		if (!ok || n != 2) {
 			w.close();
-			f.close();
+			borrow_file.close();
 			fs_remove(name);
 			return 3;
 		}
 	}
 	w.close();
 	{
-		auto (pos, sok) = f.seek(0, SeekSet);
+		auto (pos, sok) = borrow_file.seek(0, SeekSet);
 		(void)pos;
 		if (!sok) {
-			f.close();
+			borrow_file.close();
 			fs_remove(name);
 			return 4;
 		}
 	}
-	auto (r, r_ok) = reader_from_file(&f, 8);
+	auto (r, r_ok) = reader_from_file(&borrow_file, 8);
 	if (!r_ok) {
-		f.close();
+		borrow_file.close();
 		fs_remove(name);
 		return 5;
 	}
@@ -558,30 +564,30 @@ int test_buf_borrow_init() {
 		auto (n, ok) = r.read(got);
 		if (!ok || n != 2 || got[0] != 'a' || got[1] != 'b') {
 			r.close();
-			f.close();
+			borrow_file.close();
 			fs_remove(name);
 			return 6;
 		}
 	}
 	r.close();
 	{
-		auto (pos, sok) = f.seek(0, SeekSet);
+		auto (pos, sok) = borrow_file.seek(0, SeekSet);
 		(void)pos;
 		if (!sok) {
-			f.close();
+			borrow_file.close();
 			fs_remove(name);
 			return 7;
 		}
 	}
 	{
-		auto (n, rok) = f.read(got);
+		auto (n, rok) = borrow_file.read(got);
 		if (!rok || n != 2 || got[0] != 'a' || got[1] != 'b') {
-			f.close();
+			borrow_file.close();
 			fs_remove(name);
 			return 8;
 		}
 	}
-	f.close();
+	borrow_file.close();
 	fs_remove(name);
 	return 0;
 }

@@ -323,7 +323,7 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Defer Invalidation**: After `defer free(p)` / `defer fclose(f)` / `defer` of a `[[consumes]]` call, that pointer must not escape the block (`return p` is an error; aliases are tracked). Method receivers use `([[consumes]] T *r).free()`. Views minted via a `[[region]]` parameter or pool ops (e.g. `p.copy` / `p.append`) are invalidated with that region.
 
-- **Straight-line consumes**: After an immediate `free(p)` / `fclose(f)` / `[[consumes]]` call (not merely `defer`), later uses of that local/param in the function are errors (`*p`, `p[i]`, passing `p` again). Reassignment (`p = malloc(...)`) clears the kill. Fail-branch `free` + `return` does not poison the success path. Local/param pointer and `T[..]` copies (`q = p` / `char *q = p`) join an alias group so `free(p); *q` is diagnosed; `&local`, field stores, and ternary picks are not.
+- **Straight-line consumes**: After an immediate `free(p)` / `fclose(f)` / `[[consumes]]` call (not merely `defer`), later uses of that local/param in the function are errors (`*p`, `p[i]`, passing `p` again). Reassignment (`p = malloc(...)`) clears the kill. Fail-branch `free` + `return` does not poison the success path. Local/param pointer and `T[..]` copies (`q = p` / `char *q = p`) join an alias group so `free(p); *q` is diagnosed; `&local`, field stores, and ternary picks are not. Call arguments are checked in every rvalue position (statement, `auto`/`=` initializer, `return`), not only as expression statements.
 
 - **Strict Type Conversions**: Implicit narrowing conversions and conversions between unrelated pointer types require explicit casts.
 
