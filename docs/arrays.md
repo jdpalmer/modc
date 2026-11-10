@@ -170,7 +170,7 @@ At ranged-typed parameters and assignments:
 At pointer-typed parameters and assignments (C boundary):
 
 - **`T[..]` does not decay to `T *` or `void *`** — use `ptr(s)` for a counted base pointer
-- **`char[..]` does not decay to `char *`** — use `cstr(s)` / `pool.cstr(s)` for NUL C strings
+- **`char[..]` does not decay to `char *`** — use `cstr(s)` / `pool.cstr(s)` for NUL C strings (`cstr` on a dynamic slice heap-allocates and is `[[provides]]` — `free` it; literals / `char[N]` do not allocate; `pool.cstr` is region-minted)
 - Explicit `(void*)s` / `(T*)s` still extract `.ptr` (except `char[..]` → `char *`, which stays banned)
 
 There is no implicit conversion from `T *` to `T[..]`. You must supply a length with

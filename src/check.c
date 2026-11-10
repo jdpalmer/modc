@@ -2082,7 +2082,7 @@ call_provides_result(Node* call) {
 	if (call == NULL || call->kind != NdCall)
 		return 0;
 	if (call_name_is(call, "__modc_alloc") || call_name_is(call, "__modc_alloc_slice") ||
-	    call_name_is(call, "alloc"))
+	    call_name_is(call, "alloc") || call_name_is(call, "__modc_cstr"))
 		return 1;
 	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
 	n = callee && callee->name ? callee->name : NULL;
