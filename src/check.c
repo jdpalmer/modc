@@ -2452,6 +2452,12 @@ expr_may_already_released(EscapeState* st, Node* n) {
 		       expr_may_already_released(st, n->b);
 	if (n->kind == NdUn || n->kind == NdPost)
 		return expr_may_already_released(st, n->a);
+	if (n->kind == NdDot && n->is_synth && n->s && strcmp(n->s, "ptr") == 0)
+		return expr_may_already_released(st, n->a);
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s && !n->a->symbol &&
+	    n->children_len >= 1 &&
+	    (strcmp(n->a->s, "ptr") == 0 || strcmp(n->a->s, "ranged") == 0))
+		return expr_may_already_released(st, n->children[0]);
 	return 0;
 }
 
@@ -2912,7 +2918,12 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 		st->stack_taint[i] = 1;
 	else if (src->kind == NdName || expr_stack_addr_root(src) == NULL)
 		st->stack_taint[i] = 0; /* strong update on clear */
-	if (expr_may_dead(st, src))
+	/*
+	 * Only already-released (free/reset), not defer-scheduled. Defer still
+	 * blocks escapes; copying ptr(s) into a local must remain usable until
+	 * the deferred release runs (or the region is invalidated).
+	 */
+	if (expr_may_already_released(st, src))
 		st->dead_taint[i] = 1;
 	else
 		st->dead_taint[i] = 0;
