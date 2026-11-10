@@ -19,7 +19,6 @@ int dot_nested(DotOuter* o) {
 int main() {
 	DotPt p = { 0 };
 	DotInner in = { 0 };
-	DotOuter o = { 0 };
 
 	if (dot_set(&p, 10, 32) != 42) {
 		return 1;
@@ -32,7 +31,7 @@ int main() {
 	}
 	in.p.x = 3;
 	in.p.y = 4;
-	o.inner = &in;
+	DotOuter o = { &in };
 	if (dot_nested(&o) != 7) {
 		return 4;
 	}

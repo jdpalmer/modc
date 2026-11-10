@@ -23,9 +23,8 @@ void attr_gnu_noreturn() {
 }
 
 int use_attrs() {
-	AttrAligned a = { 0 };
 	int(*fp)(int) = attr_stdcall_fn;
-	a.x = fp(7);
+	AttrAligned a = { fp(7) };
 	return attr_dllimport_fn() + attr_dllexport_fn(2) + attr_cdecl_fn(3) + a.x;
 }
 

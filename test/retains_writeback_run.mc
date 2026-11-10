@@ -17,10 +17,9 @@ static void swap_adj(int[..] a, size_t i, size_t j) {
 
 int main() {
 	char buf[4] = { 'a', 'b', 'c', 0 };
-	Cur cur = { 0 };
+	Cur cur = { buf };
 	int arr[2] = { 1, 2 };
 
-	cur.p = buf;
 	adv(&cur);
 	if (*cur.p != 'b') {
 		return 1;

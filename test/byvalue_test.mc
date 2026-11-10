@@ -23,9 +23,7 @@ void set(Point* p, Point v) {
 }
 
 Point add(Point a, Point b) {
-	Point r = { 0 };
-	r.x = a.x + b.x;
-	r.y = a.y + b.y;
+	Point r = { a.x + b.x, a.y + b.y };
 	return r;
 }
 
@@ -34,9 +32,7 @@ Rect idr(Rect r) {
 }
 
 int local_copy() {
-	Point a = { 0 };
-	a.x = 1;
-	a.y = 2;
+	Point a = { 1, 2 };
 	Point b = a;
 	return b.x + b.y;
 }
@@ -52,11 +48,7 @@ int nested() {
 }
 
 int main() {
-	Point a = { 0 };
-	Rect r = { 0 };
-
-	a.x = 3;
-	a.y = 4;
+	Point a = { 3, 4 };
 	if (sum(a) != 7) {
 		return 1;
 	}
@@ -78,8 +70,7 @@ int main() {
 	if (nested() != 5) {
 		return 6;
 	}
-	r.min = a;
-	r.max = b;
+	Rect r = { a, b };
 	Rect r2 = idr(r);
 	if (r2.min.x != 6 || r2.max.y != 4) {
 		return 7;

@@ -1,11 +1,8 @@
 import "pkg_order";
 
 int main() {
-	Point pt = { 0 };
-	Outer o = { 0 };
-	pt.x = 20;
-	pt.y = 22;
-	o.p = pt;
+	Point pt = { 20, 22 };
+	Outer o = { pt };
 	if (pt.sum() != 42) {
 		return 1;
 	}

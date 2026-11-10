@@ -160,15 +160,14 @@ void tty_reapply_editor_mode(File* f) {
 (WinSize, bool) tty_size(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
 	CONSOLE_SCREEN_BUFFER_INFO info = { 0 };
-	WinSize out = { 0 };
 	if (!tty_is_console(h)) {
 		return (tty_wsz0(), false);
 	}
 	if (!GetConsoleScreenBufferInfo(h, &info)) {
 		return (tty_wsz0(), false);
 	}
-	out.rows = info.srWindow.Bottom - info.srWindow.Top + 1;
-	out.cols = info.srWindow.Right - info.srWindow.Left + 1;
+	WinSize out = { info.srWindow.Bottom - info.srWindow.Top + 1,
+			info.srWindow.Right - info.srWindow.Left + 1 };
 	return (out, true);
 }
 

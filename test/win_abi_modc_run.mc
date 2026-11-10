@@ -3,9 +3,7 @@
 #include "stdarg.h"
 
 Pair modc_pair(int a, int b) {
-	Pair p = { 0 };
-	p.a = a;
-	p.b = b;
+	Pair p = { a, b };
 	return p;
 }
 
@@ -18,11 +16,7 @@ Pair modc_pair_id(Pair p) {
 }
 
 Quad modc_quad(int a, int b, int c, int d) {
-	Quad q = { 0 };
-	q.a = a;
-	q.b = b;
-	q.c = c;
-	q.d = d;
+	Quad q = { a, b, c, d };
 	return q;
 }
 

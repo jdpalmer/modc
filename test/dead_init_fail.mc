@@ -40,6 +40,26 @@ int aggr_straight() {
 	return q.x;
 }
 
+/* Every named field overwritten before any read of remaining init. */
+int field_both() {
+	Point p = { 0 };
+	p.x = 3;
+	p.y = 4;
+	return p.x + p.y;
+}
+
+int field_both_branch(int c) {
+	Point p = { 0 };
+	if (c) {
+		p.x = 1;
+		p.y = 2;
+	} else {
+		p.x = 3;
+		p.y = 4;
+	}
+	return p.x;
+}
+
 int ranged_rebind() {
 	int a[2] = { 0 };
 	int[..] s = { 0 };

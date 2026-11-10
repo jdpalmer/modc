@@ -55,23 +55,14 @@ int sum_buf(MyBuf b) {
 }
 
 int sum_buf_local() {
-	int a[4] = { 0 };
-	MyBuf b = { 0 };
-	a[0] = 1;
-	a[1] = 2;
-	a[2] = 3;
-	a[3] = 4;
-	b.data = a;
-	b.n = 4;
+	int a[4] = { 1, 2, 3, 4 };
+	MyBuf b = { a, 4 };
 	return sum_buf(b);
 }
 
 int sum_triple() {
-	Triple t = { 0 };
+	Triple t = { 10, 20, 30 };
 	int s = { 0 };
-	t.a = 10;
-	t.b = 20;
-	t.c = 30;
 	for (auto x: t) {
 		s = s + x;
 	}

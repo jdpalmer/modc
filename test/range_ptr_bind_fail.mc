@@ -29,10 +29,7 @@ overload int range_at(Triple t, size_t i) {
 }
 
 int main() {
-	Triple t = { 0 };
-	t.a = 1;
-	t.b = 2;
-	t.c = 3;
+	Triple t = { 1, 2, 3 };
 	for (auto* p: t) {
 		(void)p;
 	}

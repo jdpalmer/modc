@@ -13,13 +13,9 @@ typedef struct JsonValue {
 JsonValue;
 
 int self_ref_ptr_run() {
-	JsonValue v = { 0 };
+	JsonValue v = { 1, 0, 0, 0 };
 	JsonValue* kids[1] = { 0 };
 
-	v.kind = 1;
-	v.child = 0;
-	v.items = 0;
-	v.n = 0;
 	kids[0] = &v;
 	v.items = kids;
 	v.n = 1;

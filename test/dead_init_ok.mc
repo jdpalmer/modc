@@ -32,11 +32,10 @@ struct Point {
 	int y;
 };
 
-/* Field stores do not kill the whole-object initializer. */
+/* Field store kills only that field; unread fields keep the decl init live. */
 int field_writes() {
 	Point p = { 0 };
 	p.x = 3;
-	p.y = 4;
 	return p.x + p.y;
 }
 

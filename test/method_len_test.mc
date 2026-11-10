@@ -16,9 +16,8 @@ int len(int n) {
 }
 
 int method_len_run() {
-	S s = { 0 };
+	S s = { 4 };
 	int a[3] = { 0 };
-	s.n = 4;
 	if (s.len() != 4) {
 		return 1;
 	}

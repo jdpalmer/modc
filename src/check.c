@@ -15,9 +15,12 @@
  * Prefix da_ — dead/unused initializer on scalar and aggregate locals.
  * Required init at decl already rules out uninit reads in .mc; this pass
  * flags initializers that are always overwritten before any read
- * (placeholder init). Aggregates are whole-object only: `p = q` kills,
- * `p.x = …` / `p[i] = …` do not. Joins union "init still reaching"; loops
- * keep pre-loop reach (body may not run). Skipped for headers and for
+ * (placeholder init). Scalars and whole-object assigns (`p = q`) kill;
+ * top-level struct field stores (`p.x = …`) kill that field only — when
+ * every named field is overwritten with no intervening read of remaining
+ * init, the decl init is dead. Unions / ranged / tuples / nested paths
+ * stay whole-object. Joins union "init still reaching"; loops keep
+ * pre-loop reach (body may not run). Skipped for headers and for
  * functions that contain goto. Growable — no silent cap drop.
  */
 typedef struct DAState DAState;
@@ -25,6 +28,7 @@ struct DAState {
 	Symbol** symbols;
 	unsigned char* init_reach; /* decl init may still reach here */
 	unsigned char* init_used;  /* init value observed on some path (sticky OR) */
+	uint64_t* field_reach;     /* bits of fields still holding decl init */
 	int n;
 	int cap;
 };
@@ -36,9 +40,11 @@ da_release(DAState* st) {
 	free(st->symbols);
 	free(st->init_reach);
 	free(st->init_used);
+	free(st->field_reach);
 	st->symbols = NULL;
 	st->init_reach = NULL;
 	st->init_used = NULL;
+	st->field_reach = NULL;
 	st->n = 0;
 	st->cap = 0;
 }
@@ -55,11 +61,61 @@ da_grow(DAState* st, int need) {
 	st->symbols = xrealloc(st->symbols, (size_t)ncap * sizeof(Symbol*));
 	st->init_reach = xrealloc(st->init_reach, (size_t)ncap);
 	st->init_used = xrealloc(st->init_used, (size_t)ncap);
+	st->field_reach = xrealloc(st->field_reach, (size_t)ncap * sizeof(uint64_t));
 	for (i = st->cap; i < ncap; i++) {
 		st->init_reach[i] = 0;
 		st->init_used[i] = 0;
+		st->field_reach[i] = 0;
 	}
 	st->cap = ncap;
+}
+
+/* Named struct fields eligible for per-field kill; 0 = whole-object mode.
+ * Anonymous embeds stay whole-object (promoted field stores are not top-level). */
+static int
+da_field_count(Type* t) {
+	Field* f;
+	int n;
+
+	if (t == NULL || t->kind != TyStruct || is_ranged(t) || is_tuple(t))
+		return 0;
+	n = 0;
+	for (f = t->fields; f; f = f->next) {
+		if (f->name == NULL)
+			return 0;
+		n++;
+		if (n > 64)
+			return 0;
+	}
+	return n;
+}
+
+static uint64_t
+da_all_fields_mask(Type* t) {
+	int n;
+
+	n = da_field_count(t);
+	if (n <= 0)
+		return 1ULL;
+	return (1ULL << n) - 1ULL;
+}
+
+static int
+da_field_index(Type* t, const char* name) {
+	Field* f;
+	int i;
+
+	if (name == NULL || da_field_count(t) <= 0)
+		return -1;
+	i = 0;
+	for (f = t->fields; f; f = f->next) {
+		if (f->name == NULL)
+			continue;
+		if (strcmp(f->name, name) == 0)
+			return i;
+		i++;
+	}
+	return -1;
 }
 
 static int
@@ -101,7 +157,7 @@ da_find(DAState* st, Symbol* s) {
 	return -1;
 }
 
-/* Begin tracking a scalar local whose decl initializer may reach uses. */
+/* Begin tracking a scalar/aggregate local whose decl initializer may reach uses. */
 static void
 da_track(DAState* st, Symbol* s) {
 	int i;
@@ -110,12 +166,14 @@ da_track(DAState* st, Symbol* s) {
 		return;
 	i = da_find(st, s);
 	if (i >= 0) {
+		st->field_reach[i] = da_all_fields_mask(s->type);
 		st->init_reach[i] = 1;
 		return;
 	}
 	da_grow(st, st->n + 1);
 	i = st->n++;
 	st->symbols[i] = s;
+	st->field_reach[i] = da_all_fields_mask(s->type);
 	st->init_reach[i] = 1;
 	st->init_used[i] = 0;
 }
@@ -125,8 +183,29 @@ da_kill(DAState* st, Symbol* s) {
 	int i;
 
 	i = da_find(st, s);
-	if (i >= 0)
-		st->init_reach[i] = 0;
+	if (i < 0)
+		return;
+	st->field_reach[i] = 0;
+	st->init_reach[i] = 0;
+}
+
+static void
+da_kill_field(DAState* st, Symbol* s, const char* fname) {
+	int i, idx;
+
+	i = da_find(st, s);
+	if (i < 0 || s == NULL)
+		return;
+	/* Unions share storage — any field store kills the whole init. */
+	if (s->type && s->type->kind == TyUnion) {
+		da_kill(st, s);
+		return;
+	}
+	idx = da_field_index(s->type, fname);
+	if (idx < 0)
+		return; /* nested / unknown field — leave reach alone */
+	st->field_reach[i] &= ~(1ULL << idx);
+	st->init_reach[i] = st->field_reach[i] != 0;
 }
 
 static void
@@ -137,6 +216,7 @@ da_copy(DAState* dst, DAState* src) {
 	if (src->n > 0) {
 		memcpy(dst->symbols, src->symbols, (size_t)src->n * sizeof(Symbol*));
 		memcpy(dst->init_reach, src->init_reach, (size_t)src->n);
+		memcpy(dst->field_reach, src->field_reach, (size_t)src->n * sizeof(uint64_t));
 	}
 	dst->n = src->n;
 	/* Branch-local used bits start clear; OR into parent at join. */
@@ -158,10 +238,11 @@ da_absorb(DAState* dst, DAState* src, int si) {
 		dst->symbols[i] = s;
 		dst->init_reach[i] = src->init_reach[si];
 		dst->init_used[i] = src->init_used[si];
+		dst->field_reach[i] = src->field_reach[si];
 		return;
 	}
-	dst->init_reach[i] =
-		(unsigned char)(dst->init_reach[i] | src->init_reach[si]);
+	dst->field_reach[i] |= src->field_reach[si];
+	dst->init_reach[i] = dst->field_reach[i] != 0;
 	dst->init_used[i] =
 		(unsigned char)(dst->init_used[i] | src->init_used[si]);
 }
@@ -172,14 +253,17 @@ da_absorb(DAState* dst, DAState* src, int si) {
  */
 static void
 da_join(DAState* dst, DAState* a, DAState* b) {
-	int i, j;
+	int i;
+	uint64_t fa, fb;
 
 	for (i = 0; i < dst->n; i++) {
 		int ja = da_find(a, dst->symbols[i]);
 		int jb = da_find(b, dst->symbols[i]);
 
-		dst->init_reach[i] = (unsigned char)((ja >= 0 && a->init_reach[ja]) ||
-						     (jb >= 0 && b->init_reach[jb]));
+		fa = ja >= 0 ? a->field_reach[ja] : 0;
+		fb = jb >= 0 ? b->field_reach[jb] : 0;
+		dst->field_reach[i] = fa | fb;
+		dst->init_reach[i] = dst->field_reach[i] != 0;
 		dst->init_used[i] = (unsigned char)(
 			dst->init_used[i] | (ja >= 0 ? a->init_used[ja] : 0) |
 			(jb >= 0 ? b->init_used[jb] : 0));
@@ -209,7 +293,7 @@ static void da_expr(Compiler* c, Node* n, DAState* st, int as_lval);
 static void da_stmt(Compiler* c, Node* n, DAState* st);
 static void da_init(Compiler* c, Initializer* in, DAState* st);
 
-/* Read of x: if decl init still reaches, it was observed. */
+/* Read of x: if any decl-init field still reaches, it was observed. */
 static void
 da_use(DAState* st, Node* n) {
 	int i;
@@ -217,7 +301,7 @@ da_use(DAState* st, Node* n) {
 	if (n == NULL || n->kind != NdName || n->symbol == NULL)
 		return;
 	i = da_find(st, n->symbol);
-	if (i >= 0 && st->init_reach[i])
+	if (i >= 0 && st->field_reach[i])
 		st->init_used[i] = 1;
 }
 
@@ -229,6 +313,9 @@ da_mark_lhs(DAState* st, Node* n) {
 		da_kill(st, n->symbol);
 		return;
 	}
+	/* p.x = … — kill only field x when p is a tracked local Name. */
+	if (n->kind == NdDot && n->a && n->a->kind == NdName && n->s)
+		da_kill_field(st, n->a->symbol, n->s);
 	if (n->kind == NdComma)
 		da_mark_lhs(st, n->b);
 }
@@ -1640,42 +1727,105 @@ type_is_aliasable(Type* t) {
 	return t != NULL && (is_ptr(t) || is_ranged(t));
 }
 
-/* Local/param Name (through cast/comma) used as a pointer/T[..] copy source. */
+/* Local/param that can share an alias group (ptr/T[..] or aggregate with pointers). */
+static int
+sym_can_alias(Symbol* s) {
+	return s && sym_is_stack_object(s) &&
+	       (type_is_aliasable(s->type) || type_may_carry_ptr(s->type));
+}
+
+/* Local/param Name (through cast/comma) or local.aggr.ptr field used as copy source. */
 static Symbol*
 alias_copy_src(Node* n) {
+	Type* bt;
+
 	if (n == NULL)
 		return NULL;
 	if (n->kind == NdCast)
 		return alias_copy_src(n->a);
 	if (n->kind == NdComma)
 		return alias_copy_src(n->b);
-	if (n->kind == NdName && n->symbol && sym_is_stack_object(n->symbol) &&
+	if (n->kind == NdName && n->symbol && sym_can_alias(n->symbol) &&
 	    type_is_aliasable(n->symbol->type))
 		return n->symbol;
+	/* b.p / b->p: alias with the local aggregate root when field is ptr/T[..]. */
+	if ((n->kind == NdDot || n->kind == NdArrow) && n->a &&
+	    type_is_aliasable(n->type)) {
+		bt = n->a->type;
+		if (n->a->kind == NdName && n->a->symbol && sym_can_alias(n->a->symbol) &&
+		    bt && !is_ptr(bt) && type_may_carry_ptr(bt))
+			return n->a->symbol;
+	}
 	return NULL;
+}
+
+/* Merge two symbols into one alias group; union dead bits (UAF). Owned bits
+ * stay per-symbol — esc_mark_owned / propagate set them; do not paint borrows. */
+static void
+esc_alias_merge_syms(EscapeState* st, Symbol* a, Symbol* b) {
+	int ia, ib, ga, gb, j;
+	unsigned char dead;
+
+	if (a == NULL || b == NULL || a == b)
+		return;
+	ia = esc_index(st, a);
+	ib = esc_index(st, b);
+	if (ia < 0 || ib < 0)
+		return;
+	ga = st->alias_gid[ia];
+	gb = st->alias_gid[ib];
+	if (ga == 0)
+		st->alias_gid[ia] = ga = ++st->alias_gen;
+	if (gb == 0)
+		st->alias_gid[ib] = gb = ++st->alias_gen;
+	if (ga == gb)
+		return;
+	dead = 0;
+	for (j = 0; j < st->n; j++) {
+		if ((st->alias_gid[j] == ga || st->alias_gid[j] == gb) && st->dead_taint[j])
+			dead = 1;
+	}
+	for (j = 0; j < st->n; j++) {
+		if (st->alias_gid[j] == gb)
+			st->alias_gid[j] = ga;
+		if (dead && st->alias_gid[j] == ga)
+			st->dead_taint[j] = 1;
+	}
 }
 
 static void
 esc_alias_join(EscapeState* st, Symbol* dst, Node* src) {
-	Symbol* from;
-	int di, si;
+	Symbol *from, *tarm, *earm;
+	int di;
 
-	if (dst == NULL || !type_is_aliasable(dst->type))
+	if (dst == NULL || !sym_can_alias(dst))
 		return;
 	di = esc_index(st, dst);
 	if (di < 0)
 		return;
+	/* q = cond ? a : b — merge both arms, then join q. */
+	if (src && src->kind == NdCond) {
+		tarm = alias_copy_src(src->b);
+		earm = alias_copy_src(src->c);
+		if (tarm && earm)
+			esc_alias_merge_syms(st, tarm, earm);
+		from = tarm ? tarm : earm;
+		if (from == NULL || from == dst) {
+			st->alias_gid[di] = ++st->alias_gen;
+			return;
+		}
+		esc_alias_merge_syms(st, dst, from);
+		return;
+	}
 	from = alias_copy_src(src);
 	if (from == NULL || from == dst) {
-		st->alias_gid[di] = ++st->alias_gen;
+		/* Keep existing group when dst is an aggregate already joined
+		 * via field store; only refresh for ptr/T[..] strong updates. */
+		if (type_is_aliasable(dst->type))
+			st->alias_gid[di] = ++st->alias_gen;
 		return;
 	}
-	si = esc_index(st, from);
-	if (si < 0) {
-		st->alias_gid[di] = ++st->alias_gen;
-		return;
-	}
-	st->alias_gid[di] = st->alias_gid[si];
+	esc_alias_merge_syms(st, dst, from);
 }
 
 static void
@@ -2768,7 +2918,6 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 	esc_alias_join(st, dst, src);
 	if (expr_carries_owned(st, src)) {
 		Symbol* rs = ranged_owned_ptr_sym(st, src);
-		Symbol* from = alias_copy_src(src);
 
 		esc_mark_owned(st, dst);
 		if (rs)
@@ -2777,12 +2926,16 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 		if ((src->kind == NdDot || src->kind == NdArrow) && src->a &&
 		    src->a->kind == NdName && src->a->symbol && src->a->symbol != dst)
 			esc_clear_owned(st, src->a->symbol);
-		/* Owning aggregate move (File f = opened): not pointer-aliasable. */
+		/* Owning aggregate move (File f = opened), not ptr field store. */
 		else if (src->kind == NdName && src->symbol && src->symbol != dst &&
-			 dst->type && !is_ptr(dst->type) && !is_ranged(dst->type))
+			 dst->type && !is_ptr(dst->type) && !is_ranged(dst->type) &&
+			 src->symbol->type && !is_ptr(src->symbol->type) &&
+			 !is_ranged(src->symbol->type))
 			esc_clear_owned(st, src->symbol);
-	} else
+	} else if (type_is_aliasable(dst->type)) {
+		/* Ptr/T[..] rebind clears ownership; aggregate field stores do not. */
 		st->owned_taint[i] = 0;
+	}
 	esc_clear_region_deps(st, i);
 	esc_add_region_deps_from_expr(st, dst, src);
 	esc_add_param_bits(st, dst, expr_param_bits(st, src));
@@ -3185,18 +3338,15 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 						 dst->name ? dst->name : "");
 			}
 			esc_propagate_to(st, dst, n->b);
-			/* Local aggregate.field = owned_ptr: ownership moves into the
-			 * aggregate (not Name→Name aliasable). */
+			/* Local aggregate.field = ptr: join alias groups (b.p = z). */
 			if ((n->a->kind == NdDot || n->a->kind == NdArrow) &&
-			    dst->type && !is_ptr(dst->type) && !is_ranged(dst->type) &&
-			    expr_carries_owned(st, n->b)) {
+			    dst->type && !is_ptr(dst->type) && type_may_carry_ptr(dst->type)) {
 				Symbol* from = alias_copy_src(n->b);
 
 				if (from == NULL)
 					from = consume_target_sym(n->b);
 				if (from && from != dst)
-					esc_clear_owned(st, from);
-				esc_mark_owned(st, dst);
+					esc_alias_merge_syms(st, dst, from);
 			}
 		}
 		esc_walk_rvalue(c, st, n->a);

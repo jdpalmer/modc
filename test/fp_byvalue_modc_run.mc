@@ -2,9 +2,7 @@
 #include "fp_byvalue.h"
 
 Vec2 modc_make(double x, double y) {
-	Vec2 v = { 0 };
-	v.x = x;
-	v.y = y;
+	Vec2 v = { x, y };
 	return v;
 }
 
@@ -17,9 +15,7 @@ Vec2 modc_id(Vec2 v) {
 }
 
 Mixed modc_mixed(int tag, double val) {
-	Mixed m = { 0 };
-	m.tag = tag;
-	m.val = val;
+	Mixed m = { tag, val };
 	return m;
 }
 

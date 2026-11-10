@@ -13,7 +13,6 @@ int (Priv* p).value() {
 }
 
 int pkg_priv_cross(int x) {
-	Priv p = { 0 };
-	p.n = priv_add(x, 1);
+	Priv p = { priv_add(x, 1) };
 	return p.value();
 }

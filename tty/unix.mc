@@ -89,15 +89,13 @@ bool tty_set_cooked(File* f) {
 (WinSize, bool) tty_size(File* f) {
 	int fd = file_fd(f);
 	struct winsize ws = { 0 };
-	WinSize out = { 0 };
 	if (fd < 0 || isatty(fd) == 0) {
 		return (tty_wsz0(), false);
 	}
 	if (ioctl(fd, TIOCGWINSZ, &ws) != 0) {
 		return (tty_wsz0(), false);
 	}
-	out.rows = ws.ws_row;
-	out.cols = ws.ws_col;
+	WinSize out = { ws.ws_row, ws.ws_col };
 	return (out, true);
 }
 

@@ -51,18 +51,14 @@ int compat_enum(enum Color c) {
 
 int typedef_ok() {
 	typedef struct Point Point;
-	Point p = { 0 };
-	p.x = 1;
-	p.y = 2;
+	Point p = { 1, 2 };
 	return p.x + p.y;
 }
 
 int main() {
-	Point p = { 0 };
+	Point p = { 3, 4 };
 	Rect r = { 0 };
-	union U u = { 0 };
-	p.x = 3;
-	p.y = 4;
+	union U u = { 42 };
 	if (point_sum(p) != 7) {
 		return 1;
 	}
@@ -71,7 +67,6 @@ int main() {
 	if (rect_w(r) != 4) {
 		return 2;
 	}
-	u.i = 42;
 	if (union_i(u) != 42) {
 		return 3;
 	}

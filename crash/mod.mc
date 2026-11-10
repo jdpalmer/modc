@@ -546,10 +546,7 @@ bool __modc_pool_push(__modc_pool* p, __modc_slice* s, size_t elemsz, void* elem
 	if (elem == NULL) {
 		return false;
 	}
-	__modc_slice one = { 0 };
-	one.ptr = elem;
-	one.len = 1;
-	one.cap = 1;
+	__modc_slice one = { elem, 1, 1 };
 	return __modc_pool_append(p, s, elemsz, &one);
 }
 
@@ -596,13 +593,12 @@ bool __modc_pool_join(__modc_pool* p, __modc_slice* dst, __modc_slice* sep, __mo
 		ps = ranged(parts, nparts);
 	}
 	for (size_t i = 0; i < nparts; i++) {
-		__modc_slice one = { 0 };
 		if (i != 0) {
 			if (!__modc_pool_append(p, dst, 1, sep)) {
 				return false;
 			}
 		}
-		one = ps[i];
+		__modc_slice one = ps[i];
 		if (!__modc_pool_append(p, dst, 1, &one)) {
 			return false;
 		}
@@ -639,17 +635,11 @@ bool __modc_pool_replace(__modc_pool* p, __modc_slice* dst, __modc_slice* src, _
 			}
 		}
 		if (!found) {
-			__modc_slice tail = { 0 };
-			tail.ptr = base;
-			tail.len = rem;
-			tail.cap = rem;
+			__modc_slice tail = { base, rem, rem };
 			return __modc_pool_append(p, dst, 1, &tail);
 		}
 		{
-			__modc_slice pre = { 0 };
-			pre.ptr = base;
-			pre.len = hit;
-			pre.cap = hit;
+			__modc_slice pre = { base, hit, hit };
 			if (!__modc_pool_append(p, dst, 1, &pre)) {
 				return false;
 			}
@@ -733,14 +723,8 @@ int __modc_strncmp_slice(__modc_slice* a, __modc_slice* b, size_t n) {
 		bn = n;
 	}
 	{
-		__modc_slice aa = { 0 };
-		__modc_slice bb = { 0 };
-		aa.ptr = a ? a.ptr : NULL;
-		aa.len = an;
-		aa.cap = an;
-		bb.ptr = b ? b.ptr : NULL;
-		bb.len = bn;
-		bb.cap = bn;
+		__modc_slice aa = { a ? a.ptr : NULL, an, an };
+		__modc_slice bb = { b ? b.ptr : NULL, bn, bn };
 		return __modc_strcmp_slice(&aa, &bb);
 	}
 }

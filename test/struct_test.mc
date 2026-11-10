@@ -21,9 +21,7 @@ int setpt(Point* p, int x, int y) {
 }
 
 int localpt() {
-	Point p = { 0 };
-	p.x = 3;
-	p.y = 4;
+	Point p = { 3, 4 };
 	return p.x + p.y;
 }
 

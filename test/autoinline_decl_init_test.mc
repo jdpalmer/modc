@@ -31,11 +31,8 @@ void put_cell(Screen* s, int row, int col, int ch) {
 }
 
 int autoinline_decl_init_run() {
-	Screen scr = { 0 };
 	Cell cells[4] = { 0 };
-	scr.cells = cells;
-	scr.rows = 1;
-	scr.cols = 4;
+	Screen scr = { 1, 4, cells };
 	int col = 1;
 	put_cell(&scr, 0, col, 42);
 	return cells[1].ch == 42 ? 0: 1;

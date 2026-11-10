@@ -6,10 +6,8 @@ union Ptrs {
 };
 
 int ptr_union_ok() {
-	union Ptrs u = { 0 };
 	char buf[4] = { 0 };
-	u.s = buf;
-	u.any = u.s;
+	union Ptrs u = { buf };
 	{
 		char* p = (char*)u.any;
 		p = p + 1;
