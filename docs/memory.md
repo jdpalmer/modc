@@ -185,6 +185,10 @@ On every path, an owned local must do one of these:
 2. Pass it to a `[[retains]]` parameter
 3. Return it from a `[[provides]]` function
 
+`[[provides]]` results may be null (as with `malloc`). A null value has no
+release obligation: after `if (!p)`, `if (p == NULL)`, or `if (ptr(s) == NULL)`
+on the failure path, the checker drops the obligation for that name.
+
 ```c
 struct Widget {
 	int id;

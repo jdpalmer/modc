@@ -3117,28 +3117,48 @@ expr_is_null_const(Node* n) {
 	return 0;
 }
 
-/* if (!p) / if (p == NULL) / if (NULL == p) → p */
+/* p / (T*)p / ptr(p) / synthetic p.ptr → owned local, else NULL. */
+static Symbol*
+cond_null_checked_operand_sym(Node* n) {
+	if (n == NULL)
+		return NULL;
+	if (n->kind == NdCast)
+		return cond_null_checked_operand_sym(n->a);
+	if (n->kind == NdName && n->symbol)
+		return n->symbol;
+	/* ptr(s) builtin call before/without synth rewrite. */
+	if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s &&
+	    !n->a->symbol && strcmp(n->a->s, "ptr") == 0 && n->children_len >= 1)
+		return cond_null_checked_operand_sym(n->children[0]);
+	/* Typed ptr(s) → synthetic s.ptr field. */
+	if (n->kind == NdDot && n->is_synth && n->s && strcmp(n->s, "ptr") == 0)
+		return cond_null_checked_operand_sym(n->a);
+	return NULL;
+}
+
+/* if (!p) / if (p == NULL) / if (ptr(p) == NULL) / … → owned local */
 static Symbol*
 cond_null_checked_sym(Node* cond) {
 	Node *a, *b;
+	Symbol* s;
 
 	if (cond == NULL)
 		return NULL;
-	if (cond->kind == NdUn && cond->op == PnBang) {
-		a = cond->a;
-		if (a && a->kind == NdCast)
-			a = a->a;
-		if (a && a->kind == NdName && a->symbol)
-			return a->symbol;
-		return NULL;
-	}
+	if (cond->kind == NdUn && cond->op == PnBang)
+		return cond_null_checked_operand_sym(cond->a);
 	if (cond->kind == NdBin && cond->op == PnEqEq) {
 		a = cond->a;
 		b = cond->b;
-		if (a && a->kind == NdName && a->symbol && expr_is_null_const(b))
-			return a->symbol;
-		if (b && b->kind == NdName && b->symbol && expr_is_null_const(a))
-			return b->symbol;
+		if (expr_is_null_const(b)) {
+			s = cond_null_checked_operand_sym(a);
+			if (s)
+				return s;
+		}
+		if (expr_is_null_const(a)) {
+			s = cond_null_checked_operand_sym(b);
+			if (s)
+				return s;
+		}
 	}
 	return NULL;
 }
