@@ -50,7 +50,7 @@ static int os_zcopy(const char[..] s, char* buf, size_t cap) {
 		return 0;
 	}
 	if (n > 0) {
-		memcpy(buf, s, n);
+		memcpy(buf, ptr(s), n);
 	}
 	{
 		char[..] room = ranged(buf, cap);
@@ -262,7 +262,7 @@ void os_exit(int code) {
 	if (n >= cap(dst)) {
 		return (os_empty(), false);
 	}
-	memcpy(dst, host, n);
+	memcpy(ptr(dst), host, n);
 	if (cap(dst) > n) {
 		char[..] room = ranged(dst, cap(dst));
 		room[n] = 0;

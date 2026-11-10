@@ -87,7 +87,7 @@ char[..] str_from_cstr(const char* p) {
 	if (p == NULL) {
 		return (false, str_empty());
 	}
-	memcpy(p, src, n);
+	memcpy(p, ptr(src), n);
 	return (true, ranged(p, n));
 }
 
@@ -119,7 +119,7 @@ bool str_set(char[..]* s, const char[..] src) {
 		return false;
 	}
 	size_t n = len(src);
-	void* base = *s;
+	void* base = ptr(*s);
 	if (n == 0) {
 		if (base != NULL) {
 			*s = ranged(*s, 0, cap(*s));
@@ -129,7 +129,7 @@ bool str_set(char[..]* s, const char[..] src) {
 		return true;
 	}
 	if (base != NULL && n <= cap(*s)) {
-		memmove(*s, src, n);
+		memmove(ptr(*s), ptr(src), n);
 		*s = ranged(*s, n, cap(*s));
 		return true;
 	}
@@ -137,7 +137,7 @@ bool str_set(char[..]* s, const char[..] src) {
 	if (p == NULL) {
 		return false;
 	}
-	memcpy(p, src, n);
+	memcpy(p, ptr(src), n);
 	if (base != NULL) {
 		free(base);
 	}
@@ -156,7 +156,7 @@ bool str_eq(const char[..] a, const char[..] b) {
 	if (n != len(b)) {
 		return false;
 	}
-	return memcmp(a, b, n) == 0;
+	return memcmp(ptr(a), ptr(b), n) == 0;
 }
 
 // Equality against a NUL-terminated C string.
@@ -168,7 +168,7 @@ bool str_eq_cstr(const char[..] a, const char* z) {
 	if (n != len(a)) {
 		return false;
 	}
-	return memcmp(a, z, n) == 0;
+	return memcmp(ptr(a), z, n) == 0;
 }
 
 // memcmp-style ordering; shorter view sorts first when prefixes match.
@@ -178,7 +178,7 @@ int str_cmp(const char[..] a, const char[..] b) {
 		n = len(b);
 	}
 	if (n != 0) {
-		int r = memcmp(a, b, n);
+		int r = memcmp(ptr(a), ptr(b), n);
 		if (r != 0) {
 			return r;
 		}
@@ -220,7 +220,7 @@ bool str_starts_with(const char[..] s, const char[..] prefix) {
 	if (n > len(s)) {
 		return false;
 	}
-	return memcmp(s, prefix, n) == 0;
+	return memcmp(ptr(s), ptr(prefix), n) == 0;
 }
 
 // str_starts_with against a C string.
@@ -234,7 +234,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 	if (n > len(s)) {
 		return false;
 	}
-	return memcmp(s[(len(s) - n) ..], suffix, n) == 0;
+	return memcmp(ptr(s[(len(s) - n) ..]), ptr(suffix), n) == 0;
 }
 
 // First occurrence of needle in hay; (false, empty) when missing.
@@ -248,7 +248,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 		return (false, str_empty());
 	}
 	for (size_t i = 0; i + nlen <= hlen; i++) {
-		if (memcmp(hay[i ..], needle, nlen) == 0) {
+		if (memcmp(ptr(hay[i ..]), ptr(needle), nlen) == 0) {
 			return (true, hay[i .. i + nlen]);
 		}
 	}
@@ -269,7 +269,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 		return (false, str_empty());
 	}
 	for (size_t i = hlen - nlen;; i--) {
-		if (memcmp(hay[i ..], needle, nlen) == 0) {
+		if (memcmp(ptr(hay[i ..]), ptr(needle), nlen) == 0) {
 			return (true, hay[i .. i + nlen]);
 		}
 		if (i == 0) {
@@ -350,8 +350,7 @@ overload void cstr_reset(char dst[], size_t cap) {
 
 // cstr_reset on fixed char[N] / char[..] buffer.
 overload void cstr_reset(char[..] dst) {
-	void* p = dst;
-	cstr_reset((char*)p, cap(dst));
+	cstr_reset(ptr(dst), cap(dst));
 }
 
 // Length of the filled prefix before the first NUL (capped by cap).
@@ -369,8 +368,7 @@ overload size_t cstr_zlen(char dst[], size_t cap) {
 
 // cstr_zlen on fixed char[N] / char[..] buffer.
 overload size_t cstr_zlen(char[..] dst) {
-	void* p = dst;
-	return cstr_zlen((char*)p, cap(dst));
+	return cstr_zlen(ptr(dst), cap(dst));
 }
 
 // Write view into dst (strlcpy-style). Always NUL-terminates when cap > 0.
@@ -382,12 +380,12 @@ overload size_t cstr_write(char dst[], const char[..] src, size_t cap) {
 	}
 	char[..] room = ranged(dst, cap);
 	if (n >= cap) {
-		memcpy(dst, src, cap - 1);
+		memcpy(dst, ptr(src), cap - 1);
 		room[cap - 1] = '\0';
 		return n;
 	}
 	if (n != 0) {
-		memcpy(dst, src, n);
+		memcpy(dst, ptr(src), n);
 	}
 	room[n] = '\0';
 	return n;
@@ -395,8 +393,7 @@ overload size_t cstr_write(char dst[], const char[..] src, size_t cap) {
 
 // Write view into fixed char[N] / char[..]; room is cap(dst).
 overload size_t cstr_write(char[..] dst, const char[..] src) {
-	void* p = dst;
-	return cstr_write((char*)p, src, cap(dst));
+	return cstr_write(ptr(dst), src, cap(dst));
 }
 
 // Split at the first byte in delims; no delimiter → (s, empty).

@@ -35,7 +35,7 @@ static(char[..], bool) path_put(char[..] dst, const char *src, size_t n) {
 		return (path_empty(), false);
 	}
 	if (n > 0) {
-		memcpy(dst, src, n);
+		memcpy(ptr(dst), src, n);
 	}
 	if (cap(dst) > n) {
 		char[..] room = ranged(dst, cap(dst));
@@ -130,7 +130,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 		if (an > PathMax) {
 			return (path_empty(), false);
 		}
-		memcpy(tmp, a, an);
+		memcpy(tmp, ptr(a), an);
 		n = an;
 	}
 	if (bt == 0) {
@@ -147,7 +147,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 	if (bt > PathMax - n) {
 		return (path_empty(), false);
 	}
-	memcpy(tmp + n, b[bi ..], bt);
+	memcpy(tmp + n, ptr(b[bi ..]), bt);
 	n += bt;
 	return path_put(dst, tmp, n);
 }
@@ -203,7 +203,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 		if (clen > PathMax - n) {
 			return (path_empty(), false);
 		}
-		memcpy(tmp + n, p[start ..], clen);
+		memcpy(tmp + n, ptr(p[start ..]), clen);
 		n += clen;
 	}
 	return path_put(dst, tmp, n);
@@ -237,8 +237,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 	if (len(p) > PathMax) {
 		return (path_empty(), false);
 	}
-	void* pp = p;
-	return path_put(dst, (const char*)pp, len(p));
+	return path_put(dst, (const char*)ptr(p), len(p));
 #endif
 }
 

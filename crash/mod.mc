@@ -260,7 +260,7 @@ static const char* crash_zmsg(const char[..] msg, char* buf, size_t cap) {
 		n = cap - 1;
 	}
 	{
-		void* p = msg;
+		void* p = ptr(msg);
 		if (n > 0 && p != NULL) {
 			memcpy(buf, p, n);
 		}

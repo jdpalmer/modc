@@ -2014,7 +2014,8 @@ parse_primary(Compiler* c) {
 		/* Builtins may be undeclared; user defs still bind. */
 		if (t->s &&
 		    (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0 ||
-		     strcmp(t->s, "cap") == 0 || strcmp(t->s, "cstr") == 0 ||
+		     strcmp(t->s, "cap") == 0 || strcmp(t->s, "ptr") == 0 ||
+		     strcmp(t->s, "cstr") == 0 ||
 		     strcmp(t->s, "alloc") == 0 || strcmp(t->s, "reserve") == 0 ||
 		     strcmp(t->s, "push") == 0 || strcmp(t->s, "append") == 0 ||
 		     strcmp(t->s, "release") == 0) &&

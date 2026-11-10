@@ -1137,18 +1137,9 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 			return 0;
 		return 1;
 	}
-	if (is_ptr(to) && is_ranged(from) && from->base &&
-	    (type_eq(to->base, from->base) || to->base->kind == TyVoid)) {
-		/* char[..] → char* is never implicit (cstr / pool.cstr). */
-		if (to->base->kind != TyVoid && is_char_elem(from->base) &&
-		    is_char_elem(to->base))
-			return 0;
-		if (to->is_poly)
-			return 1;
-		if (from->is_readonly && !to->is_readonly && to->base->kind != TyVoid)
-			return 0;
-		return 1;
-	}
+	/* T[..] → T* / void* is never implicit; use ptr() (or cstr for NUL C strings). */
+	if (is_ptr(to) && is_ranged(from))
+		return 0;
 	if (is_arith(to) && is_arith(from)) {
 		if (to->kind == TyDouble)
 			return 1;
@@ -1364,7 +1355,7 @@ maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 	return src;
 }
 
-/* Synthetic .ptr for internal lowering (user ptr() builtin is removed). */
+/* Synthetic .ptr for ptr() / explicit casts / internal lowering. */
 static Node*
 synth_ranged_ptr(Compiler* c, Node* src) {
 	Node* d;
@@ -1383,10 +1374,9 @@ synth_ranged_ptr(Compiler* c, Node* src) {
 	return d;
 }
 
-// Take .ptr when a ranged value is used where T* or void* is expected.
-// char[..] / uchar[..] do NOT decay to char* (use cstr / pool.cstr); void* OK.
+/* Explicit cast only: (T*)/(void*)slice → .ptr. char[..]→char* still banned. */
 static Node*
-maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
+maybe_ranged_cast_ptr(Compiler* c, Type* dst, Node* src) {
 	Node* d;
 
 	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
@@ -1395,10 +1385,9 @@ maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 		return src;
 	if (!is_ranged(src->type) || !src->type->base)
 		return src;
-	/* Element pointer or void* (memcpy/memcmp). */
 	if (!type_eq(dst->base, src->type->base) && dst->base->kind != TyVoid)
 		return src;
-	/* Ban char[..] → char* — C-string sinks need cstr / pool.cstr. */
+	/* char[..] → char* needs cstr / pool.cstr even under an explicit cast. */
 	if (dst->base->kind != TyVoid && is_char_elem(src->type->base) &&
 	    is_char_elem(dst->base))
 		return src;
@@ -1419,7 +1408,6 @@ apply_implicit_conversions_impl(Compiler* c, Type* dst, Node* src, int check_cas
 	src = maybe_embed_project(c, dst, src);
 	src = maybe_embed_upcast(c, dst, src);
 	src = maybe_ranged_conv(c, dst, src);
-	src = maybe_ranged_decay(c, dst, src);
 	return src;
 }
 
@@ -1493,11 +1481,15 @@ void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src) {
 	}
 	if (from && conv_implicit_ok(c, dst, from, src))
 		return;
-	if (src->type && is_ranged(src->type) && is_char_elem(src->type->base) &&
-	    is_ptr(dst) && is_char_elem(dst->base)) {
-		error_at(c, sp,
-			 "cannot pass char[..] to %s; use cstr() or pool.cstr() for a NUL C string",
-			 type_name(dst));
+	if (src->type && is_ranged(src->type) && is_ptr(dst)) {
+		if (is_char_elem(src->type->base) && dst->base && is_char_elem(dst->base))
+			error_at(c, sp,
+				 "cannot pass char[..] to %s; use cstr() or pool.cstr() for a NUL C string",
+				 type_name(dst));
+		else
+			error_at(c, sp,
+				 "cannot pass %s to %s; use ptr() for a counted base pointer",
+				 type_name(src->type), type_name(dst));
 		return;
 	}
 	error_at(c, sp, "implicit conversion from %s to %s requires a cast",
@@ -2666,7 +2658,7 @@ type_expr_call(Compiler* c, Node* n) {
 		call->type = c->types.type_bool;
 		return call;
 	}
-	/* User funcs/methods named len/cap/ranged win over the builtins. */
+	/* User funcs/methods named len/cap/ranged/ptr/cstr win over the builtins. */
 	if (bn && strcmp(bn, "ranged") == 0 && !(n->a && n->a->symbol)) {
 		Node *x, *y, *z;
 		Type *et, *pt;
@@ -2819,6 +2811,25 @@ type_expr_call(Compiler* c, Node* n) {
 		error_at(c, n->span, "cap() requires a fixed or ranged array");
 		n->type = c->types.type_ullong;
 		return n;
+	}
+	/* ptr(s) → T* base of a T[..] header (counted FFI; no length). */
+	if (bn && strcmp(bn, "ptr") == 0 && !(n->a && n->a->symbol)) {
+		Node* x;
+		Type* lt;
+
+		if (n->children_len != 1)
+			error_at(c, n->span, "ptr() takes one argument");
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i])
+				n->children[i] = type_expr(c, n->children[i]);
+		x = n->children_len > 0 ? n->children[0] : NULL;
+		lt = x ? x->type : NULL;
+		if (!is_ranged(lt) || !lt->base) {
+			error_at(c, n->span, "ptr() requires T[..]");
+			n->type = c->types.type_void_ptr;
+			return n;
+		}
+		return synth_ranged_ptr(c, x);
 	}
 	/* Heap cstr(s) → char* (NUL C string). Literals lower to the backing address. */
 	if (bn && strcmp(bn, "cstr") == 0 && !(n->a && n->a->symbol)) {
@@ -3245,7 +3256,7 @@ type_expr_field(Compiler* c, Node* n) {
 	    (strcmp(n->s, "ptr") == 0 || strcmp(n->s, "len") == 0 || strcmp(n->s, "cap") == 0) &&
 	    user_source(c, n->span)) {
 		error_at(c, n->span,
-			 "T[..] is opaque; use len(), cap(), or ranged() (not .%s)",
+			 "T[..] is opaque; use ptr(), len(), cap(), or ranged() (not .%s)",
 			 n->s);
 		n->type = c->types.type_void_ptr;
 		return n;
@@ -3313,9 +3324,9 @@ Node* type_expr(Compiler* c, Node* n) {
 		check_unnecessary_cast(c, NULL, n);
 		if (n->type && is_ranged(n->type))
 			n->a = apply_implicit_conversions(c, n->type, n->a);
-		/* (void*)slice / (T*)(void*)slice: extract .ptr (char[..]→char* still banned). */
+		/* Explicit (void*)/(T*)slice: extract .ptr (char[..]→char* still banned). */
 		if (n->type && is_ptr(n->type) && n->a)
-			n->a = maybe_ranged_decay(c, n->type, n->a);
+			n->a = maybe_ranged_cast_ptr(c, n->type, n->a);
 		if (n->type && n->type->kind == TyVoid)
 			return n;
 		return n;

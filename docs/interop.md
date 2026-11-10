@@ -117,9 +117,10 @@ real length when the buffer is only partially filled.
 Simple lowers: `printf("…\n")` → `puts`, `printf("%c", x)` → `putchar`.
 
 Hosted `strlen` / `strcmp` / `strncmp` / `puts` are likewise length-aware when
-every string argument is `char[..]` (or a string literal). Foreign APIs that
-still need a NUL C string take `cstr(s)` or `pool.cstr(s)` — `char[..]` does
-not implicitly convert to `char *`.
+every string argument is `char[..]` (or a string literal). `T[..]` never decays
+to a pointer: use `ptr(s)` for a counted base (`memcpy`, `read`, …). Foreign
+APIs that need a NUL C string take `cstr(s)` or `pool.cstr(s)` — `char[..]`
+does not implicitly convert to `char *`.
 
 ### Caveats
 

@@ -8,12 +8,12 @@ overload size_t write_cap(char dst[], const char[..] src, size_t cap) {
 		return n;
 	}
 	if (n >= cap) {
-		memcpy(dst, src, cap - 1);
+		memcpy(dst, ptr(src), cap - 1);
 		dst[cap - 1] = '\0';
 		return n;
 	}
 	if (n != 0) {
-		memcpy(dst, src, n);
+		memcpy(dst, ptr(src), n);
 	}
 	dst[n] = '\0';
 	return n;

@@ -70,10 +70,10 @@ Open arrays should be reserved for external C headers and foreign function bound
 
 A ranged array is an opaque `{ T *ptr; size_t len; size_t cap }` header
 (interned per element type). User code does not name those fields; use
-`len(s)`, `cap(s)`, and `ranged(s, …)` to rebind length/capacity on the same
-base. Rebind the header by assignment (`s = …`); element writes through `s[i]`
-are fine. The language does not allocate or `free` through the header — same
-as `T *`.
+`len(s)`, `cap(s)`, `ptr(s)` for the counted base pointer, and `ranged(s, …)`
+to rebind length/capacity on the same base. Rebind the header by assignment
+(`s = …`); element writes through `s[i]` are fine. The language does not
+allocate or `free` through the header — same as `T *`.
 
 **Ownership is convention, like `char *`.** The type is not “view-only” and
 not an owning container. A `char[..]` (or `T[..]`) field or local may be:
@@ -169,9 +169,9 @@ At ranged-typed parameters and assignments:
 
 At pointer-typed parameters and assignments (C boundary):
 
-- Non-char `T[..]` → `T *` or `void *` (counted FFI)
-- `char[..]` → `void *` (bytes for `memcpy` / `read` / `write`)
+- **`T[..]` does not decay to `T *` or `void *`** — use `ptr(s)` for a counted base pointer
 - **`char[..]` does not decay to `char *`** — use `cstr(s)` / `pool.cstr(s)` for NUL C strings
+- Explicit `(void*)s` / `(T*)s` still extract `.ptr` (except `char[..]` → `char *`, which stays banned)
 
 There is no implicit conversion from `T *` to `T[..]`. You must supply a length with
 `ranged(p, n)`.

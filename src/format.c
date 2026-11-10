@@ -178,7 +178,7 @@ synth_ptr(Compiler* c, Span sp, Node* arg) {
 	if (arg == NULL)
 		return arg;
 	t = arg->type;
-	/* User ptr() was removed; synthesize opaque-header .ptr for format %s. */
+	/* Format %s on T[..]: synthesize .ptr (same as ptr()). */
 	if (t && is_ranged(t) && t->base) {
 		d = node(NdDot, sp);
 		d->a = arg;
