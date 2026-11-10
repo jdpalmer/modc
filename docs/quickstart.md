@@ -295,7 +295,7 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Unified Field Access**: The dot operator (`.`) accesses members through both direct values and pointers (`p.x`). The arrow operator (`->`) is reserved for foreign C headers.
 
-- **First-Class Struct Tags**: Struct, union, and enum tags act directly as type names in user code (`Point p = {0};`), eliminating the need for `struct` prefixes.
+- **First-Class Struct Tags**: Struct, union, and enum tags act directly as type names in user code (`Point p = {0};`), eliminating the need for `struct` prefixes. C99 compound literals (`(Point){0}`, `(Point){ .x = 1 }`) are supported as expression-scope temps.
 
 - **Empty Parameter Lists**: Write `foo()` for a function or method with no parameters. The legacy C spelling `foo(void)` is rejected in user source, while imported C headers retain standard C semantics.
 

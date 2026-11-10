@@ -435,12 +435,17 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 		for (i = 0; i < n->children_len; i++)
 			da_expr(c, n->children[i], st, 0);
 		return;
+	case NdInit:
+		da_init(c, n->init, st);
+		return;
 	default:
 		da_expr(c, n->a, st, 0);
 		da_expr(c, n->b, st, 0);
 		da_expr(c, n->c, st, 0);
 		for (i = 0; i < n->children_len; i++)
 			da_expr(c, n->children[i], st, 0);
+		if (n->init)
+			da_init(c, n->init, st);
 		return;
 	}
 }
@@ -2462,6 +2467,20 @@ expr_may_already_released(EscapeState* st, Node* n) {
 	return 0;
 }
 
+static void esc_check_expr_use(Compiler* c, EscapeState* st, Node* n);
+
+static void
+esc_check_init_use(Compiler* c, EscapeState* st, Initializer* in) {
+	int i;
+
+	if (in == NULL)
+		return;
+	if (in->expr)
+		esc_check_expr_use(c, st, in->expr);
+	for (i = 0; i < in->items_len; i++)
+		esc_check_init_use(c, st, &in->items[i]);
+}
+
 static void
 esc_check_expr_use(Compiler* c, EscapeState* st, Node* n) {
 	int i;
@@ -2471,6 +2490,10 @@ esc_check_expr_use(Compiler* c, EscapeState* st, Node* n) {
 	if (n->kind == NdTupleLit) {
 		for (i = 0; i < n->children_len; i++)
 			esc_check_expr_use(c, st, n->children[i]);
+		return;
+	}
+	if (n->kind == NdInit) {
+		esc_check_init_use(c, st, n->init);
 		return;
 	}
 	if (expr_may_already_released(st, n))
@@ -3297,6 +3320,8 @@ esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
 	}
 }
 
+static void esc_walk_init(Compiler* c, EscapeState* st, Initializer* in, Symbol* dest);
+
 /* Calls in any rvalue position: same arg use-check + consume apply as stmt calls. */
 static void
 esc_walk_rvalue(Compiler* c, EscapeState* st, Node* n) {
@@ -3317,6 +3342,10 @@ esc_walk_rvalue(Compiler* c, EscapeState* st, Node* n) {
 	if (n->kind == NdTupleLit) {
 		for (i = 0; i < n->children_len; i++)
 			esc_walk_rvalue(c, st, n->children[i]);
+		return;
+	}
+	if (n->kind == NdInit) {
+		esc_walk_init(c, st, n->init, NULL);
 		return;
 	}
 	if (n->kind == NdCast || n->kind == NdDeref || n->kind == NdAddr ||

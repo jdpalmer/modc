@@ -155,7 +155,10 @@ aggregate_name(Type* t) {
 	if (t && t->tag && t->tag[0])
 		return t->tag;
 	if (t) {
-		snprintf(buf, sizeof(buf), "su%d", t->emit_id >= 0 ? t->emit_id : 0);
+		/* emit_id is negated after emitsuall prints the type; names stay stable. */
+		int id = t->emit_id < 0 ? -t->emit_id : t->emit_id;
+
+		snprintf(buf, sizeof(buf), "su%d", id);
 		return buf;
 	}
 	return "su";
@@ -533,7 +536,7 @@ collect(Compiler* c, Node* n) {
 		addlocal(n->symbol, n->type, n->symbol->storage == StParam);
 	if (n->kind == NdDecl && n->symbol)
 		addlocal(n->symbol, n->type, n->symbol->storage == StParam);
-	if (n->kind == NdDecl && n->init)
+	if (n->init)
 		collect_init(c, n->init);
 	collect(c, n->a);
 	collect(c, n->b);
@@ -576,7 +579,7 @@ inline_body_walk(Node* n, int* nnodes) {
 	default:
 		break;
 	}
-	if (n->kind == NdDecl && n->init && !inline_body_walk_init(n->init, nnodes))
+	if (n->init && !inline_body_walk_init(n->init, nnodes))
 		return 0;
 	if (!inline_body_walk(n->a, nnodes))
 		return 0;
@@ -719,7 +722,7 @@ inl_collect_map(Compiler* c, InlineSite* site, Node* n, int id) {
 		inl_add_map(c, site, n->symbol, id);
 	if (n->kind == NdDecl && n->symbol)
 		inl_add_map(c, site, n->symbol, id);
-	if (n->kind == NdDecl && n->init)
+	if (n->init)
 		inl_collect_map_init(c, site, n->init, id);
 	inl_collect_map(c, site, n->a, id);
 	inl_collect_map(c, site, n->b, id);
@@ -752,7 +755,7 @@ inl_find_param_symbol(Node* n, const char* name) {
 		return NULL;
 	if (n->kind == NdName && n->symbol && n->symbol->name && strcmp(n->symbol->name, name) == 0 && (n->symbol->storage == StParam || n->symbol->kind == SkVar))
 		return n->symbol;
-	if (n->kind == NdDecl && n->init) {
+	if (n->init) {
 		s = inl_find_param_in_init(n->init, name);
 		if (s)
 			return s;
@@ -879,7 +882,7 @@ register_inline_sites(Compiler* c, Node* n) {
 				register_inline_site(c, n, cal);
 		}
 	}
-	if (n->kind == NdDecl && n->init)
+	if (n->init)
 		register_inline_sites_init(c, n->init);
 	register_inline_sites(c, n->a);
 	register_inline_sites(c, n->b);
@@ -1303,6 +1306,9 @@ emitlval(Compiler* c, Node* n) {
 		return emitgaddr(c, n);
 	if (n->kind == NdStr)
 		return emitgaddr(c, n);
+	/* Compound literal: emitexpr materializes the temp and returns its address. */
+	if (n->kind == NdInit)
+		return emitexpr(c, n);
 	if (n->kind == NdDeref)
 		return emitexpr(c, n->a);
 	if (n->kind == NdDot || n->kind == NdArrow) {
@@ -2195,6 +2201,10 @@ emitexpr_bin(Compiler* c, Node* n) {
 }
 
 // Tuple literal: alloc aggregate on stack and store each field.
+static void emit_zero_mem(Val addr, int n);
+static void emit_local_init(Compiler* c, Val base, Type* t, Initializer* in, int off);
+static void emit_local_string_init(Compiler* c, Val dest, Type* t, Node* str);
+
 static Val
 emitexpr_tuple(Compiler* c, Node* n) {
 	Val v, slot, r, off;
@@ -2221,6 +2231,60 @@ emitexpr_tuple(Compiler* c, Node* n) {
 	v.cls = '@';
 	v.type = n->type;
 	snprintf(v.text, sizeof(v.text), "%s", slot.text);
+	return v;
+}
+
+// C99 compound literal (T){…}: stack temp, same init path as a local decl.
+static Val
+emitexpr_compound(Compiler* c, Node* n) {
+	Val slot, r, v;
+	int w;
+	char cls;
+
+	if (n->type == NULL || n->init == NULL) {
+		strcpy(v.text, "0");
+		v.cls = 'w';
+		v.type = n->type;
+		return v;
+	}
+	if (is_aggr(n->type) || is_array(n->type))
+		ensure_aggregate(n->type);
+	w = storewidth(c, n->type);
+	slot = vtmp('l', n->type);
+	fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, w);
+	if (n->init->expr && !n->init->is_list) {
+		if (is_array(n->type) && n->init->expr->kind == NdStr &&
+		    n->type->base && type_size(c, n->type->base) == 1)
+			emit_local_string_init(c, slot, n->type, n->init->expr);
+		else if (is_aggr(n->type) || is_array(n->type)) {
+			r = emitexpr(c, n->init->expr);
+			emitblit(slot, r, w);
+		} else {
+			r = emitexpr(c, n->init->expr);
+			cls = qbe_class(n->type);
+			if (r.cls != cls)
+				r = coerce(r, cls, n->type);
+			fprintf(outf, "\t%s %s, %s\n", storeop(c, n->type), r.text, slot.text);
+		}
+	} else {
+		emit_zero_mem(slot, w);
+		emit_local_init(c, slot, n->type, n->init, 0);
+	}
+	if (is_aggr(n->type)) {
+		v.cls = '@';
+		v.type = n->type;
+		snprintf(v.text, sizeof(v.text), "%s", slot.text);
+		return v;
+	}
+	if (is_array(n->type)) {
+		v.cls = 'l';
+		v.type = n->type;
+		snprintf(v.text, sizeof(v.text), "%s", slot.text);
+		return v;
+	}
+	cls = qbe_class(n->type);
+	v = vtmp(cls, n->type);
+	fprintf(outf, "\t%s =%c %s %s\n", v.text, cls, loadop(n->type), slot.text);
 	return v;
 }
 
@@ -2441,6 +2505,8 @@ emitexpr(Compiler* c, Node* n) {
 	}
 	case NdTupleLit:
 		return emitexpr_tuple(c, n);
+	case NdInit:
+		return emitexpr_compound(c, n);
 	case NdAssign:
 		return emitexpr_assign(c, n);
 	case NdUn:

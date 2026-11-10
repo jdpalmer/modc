@@ -471,6 +471,7 @@ struct Initializer {
 //   NdCase                                a=low, b=high (range); children unused
 //   NdDefault/NdBreak/NdContinue/…        mostly leaf; NdLabel/NdDefer/NdReturn a=…
 //   NdDecl                                init=Initializer*; symbol set; optional a=…
+//   NdInit                                compound literal (T){…}; type=T, init=Initializer*
 //   NdFunc                                a=body; symbol=function
 //   NdTupleLit                            children[]=elements
 // Statement walkers still recurse into for-init/step (a/c) when those hold exprs.
@@ -501,7 +502,7 @@ struct Node {
 	Node** children;
 	// Length of children.
 	int children_len;
-	// Initializer for NdDecl / related.
+	// Initializer for NdDecl / NdInit (compound literal).
 	Initializer* init;
 	// Expression is an lvalue.
 	int is_lvalue;

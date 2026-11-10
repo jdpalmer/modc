@@ -14,6 +14,7 @@ struct Point {
 
 Point p = {0};           // Clean type usage in user code
 struct Point q = {0};    // Allowed for header/C compatibility
+p = (Point){0};          // C99 compound literal (rvalue / assign / call arg)
 ```
 
 A tag and another symbol may not share a name in the same scope in user `.mc`

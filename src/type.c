@@ -3283,7 +3283,7 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	if (n->type && is_error(n->type))
 		return n;
-	if (n->type && n->kind != NdCast && n->kind != NdSizeof && n->kind != NdSizeofT && n->kind != NdBin && n->kind != NdUn && n->kind != NdPost && n->kind != NdCall && n->kind != NdIndex && n->kind != NdAddr && n->kind != NdDeref && n->kind != NdAssign && n->kind != NdCond && n->kind != NdComma && n->kind != NdDot && n->kind != NdArrow && n->kind != NdTupleLit)
+	if (n->type && n->kind != NdCast && n->kind != NdSizeof && n->kind != NdSizeofT && n->kind != NdBin && n->kind != NdUn && n->kind != NdPost && n->kind != NdCall && n->kind != NdIndex && n->kind != NdAddr && n->kind != NdDeref && n->kind != NdAssign && n->kind != NdCond && n->kind != NdComma && n->kind != NdDot && n->kind != NdArrow && n->kind != NdTupleLit && n->kind != NdInit)
 		return n;
 
 	switch (n->kind) {
@@ -3546,6 +3546,12 @@ Node* type_expr(Compiler* c, Node* n) {
 				check_implicit_conv(c, n->span, f->type, n->children[i]);
 			}
 		}
+		return n;
+	case NdInit:
+		/* Typed and validated in parse_cast; compound literals are lvalues. */
+		if (is_error(n->type))
+			return type_poison(c, n);
+		n->is_lvalue = 1;
 		return n;
 	case NdCall:
 		return type_expr_call(c, n);

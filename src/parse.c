@@ -2276,7 +2276,7 @@ parse_unary(Compiler* c) {
 	return parse_postfix(c, parse_primary(c));
 }
 
-// Cast expressions and delegate to unary when no leading (typename).
+// Cast expressions, C99 compound literals (T){…}, or unary.
 static Node*
 parse_cast(Compiler* c) {
 	Tok* t;
@@ -2287,6 +2287,16 @@ parse_cast(Compiler* c) {
 		t = take(c);
 		ty = parse_typename(c);
 		expect(c, PnRparen, "')'");
+		/* (T){ … } — C99 compound literal (lvalue temporary). */
+		if (at(c, PnLbrace)) {
+			n = node(NdInit, t->span);
+			n->type = ty;
+			n->init = parse_init(c);
+			finish_array_from_init(c, &n->type, n->init);
+			validate_initializer(c, n->type, n->init, n->span);
+			n->is_lvalue = 1;
+			return n;
+		}
 		n = node1(NdCast, t->span, parse_cast(c));
 		n->type = ty;
 		return type_expr(c, n);
