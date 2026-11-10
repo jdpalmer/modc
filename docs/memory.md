@@ -2,10 +2,15 @@
 
 Memory management in %C is built around three **kinds of allocation** (stack,
 pool, and heap) plus **compile-time contracts** that check ownership, bounds,
-and escapes on top of those. There is no garbage collector, no hidden runtime,
-and no borrow checker.
+and escapes on top of those. Where C leaves leaks uncaught and treats
+use-after-free and dangling stack or pool pointers as undefined behavior, %C’s
+contracts reject those mistakes at compile time, without a garbage collector,
+hidden runtime, or borrow checker.
 
 ## Rules of thumb
+
+The three kinds of allocation used in %C differ mainly in how long values 
+live and who frees them. Prefer the shortest lifetime that still fits:
 
 - **Stack** for local, fixed-size data tied to the current scope.
 - **Pool** for short-lived scratch where per-object `free` would cost more than
@@ -434,7 +439,8 @@ See [arrays.md](arrays.md) and [methods.md](methods.md).
 
 ## The foreign C boundary
 
-Safety checking stops at the C ABI:
+Compile-time contracts apply to `.mc` code. Once a call crosses into foreign C,
+the checker trusts the declarations and does not look inside the callee:
 
 - **`.mc` code** is checked for escapes and ownership.
 - **Host C / libc** declarations are trusted; there is no retain, release, or
