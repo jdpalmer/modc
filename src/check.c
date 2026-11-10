@@ -21,7 +21,8 @@
  * init, the decl init is dead. Unions / ranged / tuples / nested paths
  * stay whole-object. Joins union "init still reaching"; loops keep
  * pre-loop reach (body may not run). Skipped for headers and for
- * functions that contain goto. Growable — no silent cap drop.
+ * functions that contain goto (by design; goto-over-decl is separate).
+ * Growable — no silent cap drop.
  */
 typedef struct DAState DAState;
 struct DAState {
