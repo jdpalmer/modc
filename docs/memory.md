@@ -1,4 +1,4 @@
-# Memory and lifetimes in %C
+# Memory management in %C
 
 Memory management in %C is built around three **kinds of allocation** (stack,
 pool, and heap) plus **compile-time contracts** that check ownership, bounds,
@@ -11,15 +11,6 @@ and no borrow checker.
 - **Pool** for short-lived scratch where per-object `free` would cost more than
   it is worth (tight loops, multi-step work).
 - **Heap** for data that must outlive the creating scope, or grow dynamically.
-
-| | Syntax | Backing | Freed | Escape |
-| :--- | :--- | :--- | :--- | :--- |
-| **Stack** | `T x = {0};`<br>`T arr[N];` | Current frame | Block exit | Must not outlive the frame ([Escapes](#escapes)) |
-| **Pool** | `pool p { … }` | Lexical bump slab | Block end / `p.free()` / `p.reset()` | Views stay inside the block ([Escapes](#escapes)) |
-| **Heap** | `alloc(T)` / `alloc(T, n)`<br>`cstr(s)` / `malloc` | `malloc` | `free` / `release` / `[[releases]]` / `defer` | [Ownership attributes](#ownership-attributes-provides--releases--retains) |
-
-Grow a heap `T[..]` with `reserve` / `push` / `append`, and free it with
-`release(&s)`.
 
 ---
 
