@@ -254,10 +254,12 @@ struct Type {
 	char* param_retains;
 	// Per-param: value may be returned (stack args OK; caller tracks result).
 	char* param_returned;
-	// Per-param: [[consumes]] — callee ends the lifetime of this pointer/view.
-	char* param_consumes;
+	// Per-param: [[releases]] — callee ends the lifetime of this pointer/view.
+	char* param_releases;
 	// Per-param: [[region]] — pointer/view results are allocated from this arg.
 	char* param_region;
+	/* TyFunc: [[provides]] — callee hands the caller an owning pointer/T[..]. */
+	int provides;
 	// Tag name for struct/union/enum.
 	char* tag;
 	// Struct/union fields (or enum members as fields in some paths).
@@ -355,6 +357,8 @@ struct Symbol {
 	int maybe_unused;
 	// [[nodiscard]] — discarding a non-void call result is an error.
 	int nodiscard;
+	// [[provides]] — call result is an owning pointer/T[..] (also Type.provides).
+	int provides;
 	// Definition / declaration source location.
 	Span span;
 	// Enclosing function, if any.
@@ -896,7 +900,7 @@ int vendor_cmd(int argc, char** argv);
 /* 0 if vendor/NAME/.modc-vendor-rev matches that package's modc.lock rev. */
 int vendor_pkg_rev_matches(const char* projroot, const char* pkg_dir);
 /* Single on-disk cache/export schema; bump when layout or export format changes. */
-enum { ModcCacheSchema = 5 };
+enum { ModcCacheSchema = 6 };
 
 uint64_t cache_hash_str(const char* s);
 uint64_t cache_hash_file(const char* path);

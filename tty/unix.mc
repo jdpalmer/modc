@@ -101,15 +101,15 @@ bool tty_set_cooked(File* f) {
 	return (out, true);
 }
 
-(File, bool) tty_stdin() {
+[[provides]] (File, bool) tty_stdin() {
 	return file_from_fd_borrow(STDIN_FILENO);
 }
 
-(File, bool) tty_stdout() {
+[[provides]] (File, bool) tty_stdout() {
 	return file_from_fd_borrow(STDOUT_FILENO);
 }
 
-(File, bool) tty_stderr() {
+[[provides]] (File, bool) tty_stderr() {
 	return file_from_fd_borrow(STDERR_FILENO);
 }
 

@@ -35,7 +35,7 @@ int* ret_param_ptr(int* p) {
 	return p;
 }
 
-int* ret_heap() {
+[[provides]] int* ret_heap() {
 	int* p = malloc(sizeof(int));
 	return p;
 }

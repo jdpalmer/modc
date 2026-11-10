@@ -10,7 +10,7 @@ int* ([[region]] Reg* r).bump() {
 	return r.base;
 }
 
-void ([[consumes]] Reg* r).reset() {
+void ([[releases]] Reg* r).reset() {
 	(void)r;
 }
 

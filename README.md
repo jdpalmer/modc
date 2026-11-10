@@ -24,7 +24,7 @@
 
 * **`defer`** keyword that supports block-scoped LIFO cleanup
 
-* **`[[retains]]`**, **`[[consumes]]`**, and **`[[region]]`** attributes for stack-escape, use-after-free, and pool-view checking
+* **`[[retains]]`**, **`[[releases]]`**, **`[[provides]]`**, and **`[[region]]`** attributes for stack-escape, ownership, use-after-free, and pool-view checking
 * **`pool p { }`** bump regions and heap `T[..]` builtins (`reserve` / `push` / `append` / `release`)
 
 * A **`for`** construct providing ranged iteration — `for (auto x : expr)` by

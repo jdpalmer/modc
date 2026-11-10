@@ -63,7 +63,7 @@ void ocmd_clear_stdio(OsCmd* c) {
 	}
 }
 
-OsCmd* ocmd_new() {
+[[provides]] OsCmd* ocmd_new() {
 	OsCmd* c = (OsCmd *)malloc(sizeof(*c));
 	int i = 0;
 	if (c == 0) {
@@ -99,7 +99,7 @@ void ocmd_free_env(OsCmd* c) {
 	c.nenv = 0;
 }
 
-void ocmd_free(OsCmd* c) {
+void ocmd_free([[releases]] OsCmd* c) {
 	if (c == 0) {
 		return;
 	}
@@ -116,7 +116,7 @@ void ocmd_free(OsCmd* c) {
 	free(c);
 }
 
-char* ocmd_strdup(const char *s, size_t n) {
+[[provides]] char* ocmd_strdup(const char *s, size_t n) {
 	char* p = (char*)malloc(n + 1);
 	if (p == 0) {
 		return 0;

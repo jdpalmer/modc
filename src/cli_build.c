@@ -2306,7 +2306,7 @@ pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState
  *
  * Uses parse_only: decls + signatures (skip function bodies). That matches
  * FPC's interface parse — enough for API/export/cascade; body diagnostics
- * (dead-init, consumes, bounds of locals, …) run on build. Selftest still
+ * (dead-init, releases, bounds of locals, …) run on build. Selftest still
  * uses compile_file (full parse). Do not treat check as a full safety gate.
  */
 int

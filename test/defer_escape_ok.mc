@@ -12,7 +12,7 @@ char* ok_use_then_defer() {
 	return NULL;
 }
 
-char* ok_no_defer() {
+[[provides]] char* ok_no_defer() {
 	char* p = malloc(16);
 	return p;
 }
@@ -28,7 +28,11 @@ void ok_fclose() {
 
 int main() {
 	(void)ok_use_then_defer();
-	(void)ok_no_defer();
+	{
+		char* heap = ok_no_defer();
+
+		free(heap);
+	}
 	ok_fclose();
 	return 0;
 }

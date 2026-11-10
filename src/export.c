@@ -490,7 +490,8 @@ write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id, const char* self_pkg) {
 			t->is_readonly);
 		break;
 	case TyFunc:
-		fprintf(f, "func %d %d %d", tytab_id(tab, t->base), t->params_len, t->is_varargs);
+		fprintf(f, "func %d %d %d %d", tytab_id(tab, t->base), t->params_len, t->is_varargs,
+			t->provides ? 1 : 0);
 		for (i = 0; i < t->params_len; i++)
 			fprintf(f, " %d", tytab_id(tab, t->params[i]));
 		for (i = 0; i < t->params_len; i++)
@@ -507,7 +508,7 @@ write_type(FILE* f, TypeTab* tab, TypeEnt* ent, int id, const char* self_pkg) {
 				t->param_returned ? (unsigned char)t->param_returned[i] : 0);
 		for (i = 0; i < t->params_len; i++)
 			fprintf(f, " %d",
-				t->param_consumes ? (unsigned char)t->param_consumes[i] : 0);
+				t->param_releases ? (unsigned char)t->param_releases[i] : 0);
 		for (i = 0; i < t->params_len; i++)
 			fprintf(f, " %d",
 				t->param_region ? (unsigned char)t->param_region[i] : 0);
@@ -981,6 +982,8 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* p
 		nparams = tok ? atoi(tok) : 0;
 		tok = read_tok(&p);
 		va = tok ? atoi(tok) : 0;
+		tok = read_tok(&p);
+		t->provides = tok ? atoi(tok) : 0;
 		if (nparams < 0 || nparams > MaxParams)
 			return 1;
 		t->kind = TyFunc;
@@ -999,7 +1002,7 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* p
 			t->param_maybe_unused = xmalloc((size_t)nparams);
 			t->param_retains = xmalloc((size_t)nparams);
 			t->param_returned = xmalloc((size_t)nparams);
-			t->param_consumes = xmalloc((size_t)nparams);
+			t->param_releases = xmalloc((size_t)nparams);
 			t->param_region = xmalloc((size_t)nparams);
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
@@ -1026,7 +1029,7 @@ fill_type_payload(Compiler* c, Type** map, int max_id, LoadTy* lt, const char* p
 			}
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
-				t->param_consumes[i] = (char)(tok ? atoi(tok) : 0);
+				t->param_releases[i] = (char)(tok ? atoi(tok) : 0);
 			}
 			for (i = 0; i < nparams; i++) {
 				tok = read_tok(&p);
@@ -1187,6 +1190,8 @@ finish_sym(Symbol* s, const char* home, LoadSym* ls) {
 		s->recv_tag = xstrdup(ls->recv_tag);
 	}
 	s->is_overload = ls->is_overload;
+	if (s->type && is_func(s->type) && s->type->provides)
+		s->provides = 1;
 }
 
 static int

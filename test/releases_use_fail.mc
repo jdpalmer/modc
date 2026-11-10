@@ -1,4 +1,4 @@
-// fail: F:use of consumed value
+// fail: F:use of released value
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -7,7 +7,7 @@ struct Cur {
 	char* p;
 };
 
-void take([[consumes]] char* p) {
+void take([[releases]] char* p) {
 	free(p);
 }
 

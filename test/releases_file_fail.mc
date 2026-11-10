@@ -1,4 +1,4 @@
-// fail: F:use of consumed value
+// fail: F:use of released value
 
 import "fs";
 

@@ -1,4 +1,4 @@
-// fail: F:use of consumed value
+// fail: F:use of released value
 
 #include <stdlib.h>
 
@@ -6,7 +6,7 @@ struct Reg {
 	int* base;
 };
 
-void ([[consumes]] Reg* r).reset() {
+void ([[releases]] Reg* r).reset() {
 	(void)r;
 }
 
@@ -42,7 +42,7 @@ int bad_assign_method_after_reset() {
 	return r.val();
 }
 
-char* take([[consumes]] char* p) {
+char* take([[releases]] char* p) {
 	return p;
 }
 

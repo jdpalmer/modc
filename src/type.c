@@ -354,7 +354,7 @@ Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va) {
 		t->param_maybe_unused = xmalloc(n);
 		t->param_retains = xmalloc(n);
 		t->param_returned = xmalloc(n);
-		t->param_consumes = xmalloc(n);
+		t->param_releases = xmalloc(n);
 		t->param_region = xmalloc(n);
 		for (i = 0; i < n; i++) {
 			t->params[i] = params[i];
@@ -364,7 +364,7 @@ Type* type_func(Compiler* c, Type* ret, Type** params, int n, int va) {
 			t->param_maybe_unused[i] = 0;
 			t->param_retains[i] = 0;
 			t->param_returned[i] = 0;
-			t->param_consumes[i] = 0;
+			t->param_releases[i] = 0;
 			t->param_region[i] = 0;
 		}
 	}

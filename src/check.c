@@ -1390,7 +1390,8 @@ typedef struct EscapeState EscapeState;
 struct EscapeState {
 	Symbol** syms;
 	unsigned char* stack_taint;
-	unsigned char* dead_taint; /* may hold a value a defer will consume */
+	unsigned char* dead_taint; /* may hold a value a defer will release */
+	unsigned char* owned_taint; /* still owes release / retain / provides-return */
 	int* alias_gid; /* Name→Name pointer/T[..] copy groups; 0 = unset */
 	int alias_gen; /* next fresh group id */
 	Symbol** region_deps; /* n * MaxRegionDeps: views into [[region]] objects */
@@ -1401,6 +1402,8 @@ struct EscapeState {
 	Symbol* params[MaxParams];
 	int nparams;
 	Type* fnty;
+	Symbol* fnsym;
+	int fn_provides;
 	int infer;
 	int diag;
 	int changed;
@@ -1520,6 +1523,7 @@ esc_release(EscapeState* st) {
 	free(st->syms);
 	free(st->stack_taint);
 	free(st->dead_taint);
+	free(st->owned_taint);
 	free(st->alias_gid);
 	free(st->region_deps);
 	free(st->region_dep_n);
@@ -1527,6 +1531,7 @@ esc_release(EscapeState* st) {
 	st->syms = NULL;
 	st->stack_taint = NULL;
 	st->dead_taint = NULL;
+	st->owned_taint = NULL;
 	st->alias_gid = NULL;
 	st->region_deps = NULL;
 	st->region_dep_n = NULL;
@@ -1548,6 +1553,7 @@ esc_grow(EscapeState* st, int need) {
 	st->syms = xrealloc(st->syms, (size_t)ncap * sizeof(Symbol*));
 	st->stack_taint = xrealloc(st->stack_taint, (size_t)ncap);
 	st->dead_taint = xrealloc(st->dead_taint, (size_t)ncap);
+	st->owned_taint = xrealloc(st->owned_taint, (size_t)ncap);
 	st->alias_gid = xrealloc(st->alias_gid, (size_t)ncap * sizeof(int));
 	st->region_deps =
 		xrealloc(st->region_deps, (size_t)ncap * MaxRegionDeps * sizeof(Symbol*));
@@ -1555,6 +1561,7 @@ esc_grow(EscapeState* st, int need) {
 	st->param_bits = xrealloc(st->param_bits, (size_t)ncap * sizeof(uint64_t));
 	for (i = st->cap; i < ncap; i++) {
 		st->dead_taint[i] = 0;
+		st->owned_taint[i] = 0;
 		st->alias_gid[i] = 0;
 		st->region_dep_n[i] = 0;
 		for (j = 0; j < MaxRegionDeps; j++)
@@ -1590,6 +1597,7 @@ esc_index(EscapeState* st, Symbol* s) {
 	st->syms[i] = s;
 	st->stack_taint[i] = 0;
 	st->dead_taint[i] = 0;
+	st->owned_taint[i] = 0;
 	st->alias_gid[i] = ++st->alias_gen;
 	st->region_dep_n[i] = 0;
 	st->param_bits[i] = 0;
@@ -1671,6 +1679,52 @@ esc_alias_join(EscapeState* st, Symbol* dst, Node* src) {
 }
 
 static void
+esc_clear_owned(EscapeState* st, Symbol* s) {
+	int i, j, g;
+
+	i = esc_find(st, s);
+	if (i < 0)
+		return;
+	g = st->alias_gid[i];
+	st->owned_taint[i] = 0;
+	if (g == 0)
+		return;
+	for (j = 0; j < st->n; j++) {
+		if (st->alias_gid[j] == g)
+			st->owned_taint[j] = 0;
+	}
+}
+
+static void
+esc_mark_owned(EscapeState* st, Symbol* s) {
+	int i;
+
+	i = esc_index(st, s);
+	if (i < 0)
+		return;
+	st->owned_taint[i] = 1;
+}
+
+static int
+esc_owned_tainted(EscapeState* st, Symbol* s) {
+	int i, j, g;
+
+	i = esc_find(st, s);
+	if (i < 0)
+		return 0;
+	g = st->alias_gid[i];
+	for (j = 0; j < st->n; j++) {
+		if (g != 0 && st->alias_gid[j] != g)
+			continue;
+		if (g == 0 && j != i)
+			continue;
+		if (st->owned_taint[j])
+			return 1;
+	}
+	return 0;
+}
+
+static void
 esc_mark_dead(EscapeState* st, Symbol* s) {
 	int i, j, g;
 
@@ -1679,11 +1733,14 @@ esc_mark_dead(EscapeState* st, Symbol* s) {
 		return;
 	g = st->alias_gid[i];
 	st->dead_taint[i] = 1;
+	st->owned_taint[i] = 0; /* release discharges ownership */
 	if (g == 0)
 		return;
 	for (j = 0; j < st->n; j++) {
-		if (st->alias_gid[j] == g)
+		if (st->alias_gid[j] == g) {
 			st->dead_taint[j] = 1;
+			st->owned_taint[j] = 0;
+		}
 	}
 }
 
@@ -1705,7 +1762,7 @@ esc_invalidate_region_views(EscapeState* st, Symbol* region) {
 	}
 }
 
-/* After free/consumes of region R: R and views minted from R are dead. */
+/* After free/releases of region R: R and views minted from R are dead. */
 static void
 esc_invalidate_region(EscapeState* st, Symbol* region) {
 	if (region == NULL)
@@ -1779,6 +1836,7 @@ esc_add_kill(EscapeState* st, Symbol* s) {
 			return;
 	}
 	st->kill[d][st->kill_n[d]++] = s;
+	esc_clear_owned(st, s); /* defer release discharges ownership */
 }
 
 /* Region R is scheduled for free/reset by a defer — views must not escape. */
@@ -1819,12 +1877,15 @@ sym_region_already_dead(EscapeState* st, Symbol* s) {
 
 static Type* call_func_type(Node* call);
 static int param_is_region(Type* ft, int i);
+static int call_provides_result(Node* call);
+static int expr_carries_owned(EscapeState* st, Node* n);
+static Symbol* alias_copy_src(Node* n);
 
 static int
-param_is_consumes(Type* ft, int i) {
-	if (ft == NULL || ft->param_consumes == NULL || i < 0 || i >= ft->params_len)
+param_is_releases(Type* ft, int i) {
+	if (ft == NULL || ft->param_releases == NULL || i < 0 || i >= ft->params_len)
 		return 0;
-	return ft->param_consumes[i] != 0;
+	return ft->param_releases[i] != 0;
 }
 
 static int
@@ -1834,24 +1895,53 @@ param_is_region(Type* ft, int i) {
 	return ft->param_region[i] != 0;
 }
 
-/* libc-shaped consumptions when the callee is not a %C [[consumes]] API. */
-static int
-builtin_arg_consumes(Symbol* callee, int i) {
-	const char* n;
-
-	if (i != 0)
-		return 0;
-	n = callee && callee->name ? callee->name : NULL;
-	if (n && (strcmp(n, "free") == 0 || strcmp(n, "fclose") == 0))
-		return 1;
-	return 0;
-}
-
 static int
 call_name_is(Node* call, const char* want) {
 	if (call == NULL || call->a == NULL || call->a->kind != NdName || call->a->s == NULL)
 		return 0;
 	return strcmp(call->a->s, want) == 0;
+}
+
+/* libc-shaped / builtin releases when the callee is not a %C [[releases]] API. */
+static int
+builtin_arg_releases(Symbol* callee, int i) {
+	const char* n;
+
+	if (i != 0)
+		return 0;
+	n = callee && callee->name ? callee->name : NULL;
+	if (n && (strcmp(n, "free") == 0 || strcmp(n, "fclose") == 0 ||
+		  strcmp(n, "__modc_release") == 0 || strcmp(n, "realloc") == 0))
+		return 1;
+	return 0;
+}
+
+static int
+call_is_builtin_release(Node* call) {
+	return call_name_is(call, "__modc_release") || call_name_is(call, "free") ||
+	       call_name_is(call, "fclose");
+}
+
+static int
+call_provides_result(Node* call) {
+	Symbol* callee;
+	Type* ft;
+	const char* n;
+
+	if (call == NULL || call->kind != NdCall)
+		return 0;
+	if (call_name_is(call, "__modc_alloc") || call_name_is(call, "__modc_alloc_slice") ||
+	    call_name_is(call, "alloc"))
+		return 1;
+	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
+	n = callee && callee->name ? callee->name : NULL;
+	if (n && (strcmp(n, "malloc") == 0 || strcmp(n, "calloc") == 0 ||
+		  strcmp(n, "realloc") == 0 || strcmp(n, "strdup") == 0))
+		return 1;
+	if (callee && callee->provides)
+		return 1;
+	ft = call_func_type(call);
+	return ft && is_func(ft) && ft->provides;
 }
 
 static int
@@ -1910,15 +2000,17 @@ consume_target_sym(Node* arg) {
 }
 
 static int
-call_arg_consumes(Node* call, int i) {
+call_arg_releases(Node* call, int i) {
 	Type* ft;
 	Symbol* callee;
 
 	ft = call_func_type(call);
 	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
-	if (ft && param_is_consumes(ft, i))
+	if (ft && param_is_releases(ft, i))
 		return 1;
-	if (builtin_arg_consumes(callee, i))
+	if (builtin_arg_releases(callee, i))
+		return 1;
+	if (i == 0 && call_is_builtin_release(call))
 		return 1;
 	if (i == 0 && call_is_pool_consume(call))
 		return 1;
@@ -1926,19 +2018,19 @@ call_arg_consumes(Node* call, int i) {
 }
 
 static void
-defer_register_consumes(EscapeState* st, Node* n) {
+defer_register_releases(EscapeState* st, Node* n) {
 	int i;
 
 	if (n == NULL)
 		return;
 	if (n->kind == NdBlock) {
 		for (i = 0; i < n->children_len; i++)
-			defer_register_consumes(st, n->children[i]);
+			defer_register_releases(st, n->children[i]);
 		return;
 	}
 	if (n->kind == NdCall) {
 		for (i = 0; i < n->children_len; i++) {
-			if (!call_arg_consumes(n, i))
+			if (!call_arg_releases(n, i))
 				continue;
 			esc_add_kill(st, consume_target_sym(n->children[i]));
 		}
@@ -1946,14 +2038,14 @@ defer_register_consumes(EscapeState* st, Node* n) {
 	}
 	/* Comma / cast wrappers around a call. */
 	if (n->kind == NdCast || n->kind == NdComma)
-		defer_register_consumes(st, n->kind == NdComma ? n->b : n->a);
+		defer_register_releases(st, n->kind == NdComma ? n->b : n->a);
 }
 
 static uint64_t
 expr_param_bits(EscapeState* st, Node* n);
 
 static int
-sym_is_consumed(EscapeState* st, Symbol* s) {
+sym_is_released(EscapeState* st, Symbol* s) {
 	int i, j, g;
 
 	if (s == NULL)
@@ -2000,20 +2092,20 @@ expr_may_dead(EscapeState* st, Node* n) {
 	if (n->kind == NdCond)
 		return expr_may_dead(st, n->b) || expr_may_dead(st, n->c);
 	if (n->kind == NdName && n->symbol)
-		return sym_is_consumed(st, n->symbol);
+		return sym_is_released(st, n->symbol);
 	if (n->kind == NdDeref)
 		return expr_may_dead(st, n->a);
 	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
-		/* Any access through a consumed pointer is a use (including p[0] / p.x). */
+		/* Any access through a released pointer is a use (including p[0] / p.x). */
 		bt = n->a->type;
 		if (bt && is_ptr(bt) && expr_may_dead(st, n->a))
 			return 1;
 		if (!type_may_carry_ptr(n->type) && !is_array(n->type))
 			return 0;
 		s = lvalue_stack_object(n->a);
-		if (sym_is_consumed(st, s))
+		if (sym_is_released(st, s))
 			return 1;
-		if (n->a->kind == NdName && sym_is_consumed(st, n->a->symbol))
+		if (n->a->kind == NdName && sym_is_released(st, n->a->symbol))
 			return 1;
 	}
 	if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus)) {
@@ -2032,7 +2124,7 @@ expr_may_dead(EscapeState* st, Node* n) {
 			for (j = 0; j < lim; j++) {
 				if (param_is_region(ft, j)) {
 					s = consume_target_sym(n->children[j]);
-					if (sym_is_consumed(st, s))
+					if (sym_is_released(st, s))
 						return 1;
 				}
 				if (ft->param_returned && ft->param_returned[j] &&
@@ -2051,31 +2143,31 @@ expr_may_dead(EscapeState* st, Node* n) {
 }
 
 static Symbol*
-expr_consumed_sym(EscapeState* st, Node* n) {
+expr_released_sym(EscapeState* st, Node* n) {
 	Symbol* s;
 
 	if (n == NULL)
 		return NULL;
 	if (n->kind == NdCast || n->kind == NdComma)
-		return expr_consumed_sym(st, n->kind == NdComma ? n->b : n->a);
+		return expr_released_sym(st, n->kind == NdComma ? n->b : n->a);
 	if (n->kind == NdAddr)
-		return expr_consumed_sym(st, n->a);
+		return expr_released_sym(st, n->a);
 	if (n->kind == NdName && n->symbol &&
-	    (sym_is_consumed(st, n->symbol) || esc_dead_tainted(st, n->symbol) ||
+	    (sym_is_released(st, n->symbol) || esc_dead_tainted(st, n->symbol) ||
 	     sym_region_killed(st, n->symbol)))
 		return n->symbol;
 	if (n->kind == NdDeref || n->kind == NdUn || n->kind == NdPost)
-		return expr_consumed_sym(st, n->a);
+		return expr_released_sym(st, n->a);
 	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
-		s = expr_consumed_sym(st, n->a);
+		s = expr_released_sym(st, n->a);
 		if (s)
 			return s;
 	}
 	if (n->kind == NdBin) {
-		s = expr_consumed_sym(st, n->a);
+		s = expr_released_sym(st, n->a);
 		if (s)
 			return s;
-		return expr_consumed_sym(st, n->b);
+		return expr_released_sym(st, n->b);
 	}
 	return NULL;
 }
@@ -2101,19 +2193,19 @@ prefer_user_sym(EscapeState* st, Symbol* s) {
 }
 
 static void
-report_consumed_use(Compiler* c, EscapeState* st, Node* n) {
+report_released_use(Compiler* c, EscapeState* st, Node* n) {
 	Symbol* s;
 
 	if (n == NULL)
 		return;
-	s = expr_consumed_sym(st, n);
+	s = expr_released_sym(st, n);
 	if (s == NULL && n->kind == NdName)
 		s = n->symbol;
 	s = prefer_user_sym(st, s);
 	if (s && s->name && !is_compiler_temp_name(s->name))
-		error_at(c, n->span, "use of consumed value '%s'", s->name);
+		error_at(c, n->span, "use of released value '%s'", s->name);
 	else
-		error_at(c, n->span, "use of consumed value");
+		error_at(c, n->span, "use of released value");
 }
 
 static int
@@ -2143,7 +2235,7 @@ report_defer_escape(Compiler* c, EscapeState* st, Node* n) {
 
 	if (n == NULL)
 		return;
-	s = expr_consumed_sym(st, n);
+	s = expr_released_sym(st, n);
 	if (s == NULL && n->kind == NdName)
 		s = n->symbol;
 	if (s && s->name && sym_defer_kill_alias(st, s))
@@ -2151,17 +2243,17 @@ report_defer_escape(Compiler* c, EscapeState* st, Node* n) {
 			 "'%s' is invalidated by a defer in this block and cannot escape",
 			 s->name);
 	else if (s && s->name)
-		error_at(c, n->span, "consumed value '%s' cannot escape", s->name);
+		error_at(c, n->span, "released value '%s' cannot escape", s->name);
 	else if (s && sym_defer_kill_alias(st, s))
 		error_at(c, n->span,
 			 "value invalidated by a defer in this block cannot escape");
 	else
-		error_at(c, n->span, "consumed value cannot escape");
+		error_at(c, n->span, "released value cannot escape");
 }
 
-/* Already consumed (free/[[consumes]]), not merely scheduled by defer. */
+/* Already released (free/[[releases]]), not merely scheduled by defer. */
 static int
-expr_may_already_consumed(EscapeState* st, Node* n) {
+expr_may_already_released(EscapeState* st, Node* n) {
 	Symbol* s;
 	Type* bt;
 	int i;
@@ -2170,31 +2262,31 @@ expr_may_already_consumed(EscapeState* st, Node* n) {
 		return 0;
 	if (n->kind == NdTupleLit) {
 		for (i = 0; i < n->children_len; i++) {
-			if (expr_may_already_consumed(st, n->children[i]))
+			if (expr_may_already_released(st, n->children[i]))
 				return 1;
 		}
 		return 0;
 	}
 	if (n->kind == NdCast || n->kind == NdComma)
-		return expr_may_already_consumed(st, n->kind == NdComma ? n->b : n->a);
+		return expr_may_already_released(st, n->kind == NdComma ? n->b : n->a);
 	if (n->kind == NdAddr) {
 		/* &header for T[..] out-params (pool.copy dst) overwrites the local;
 		 * not a read of the old view. Pointer locals still count (&p after free). */
 		if (n->a && is_ranged(n->a->type))
 			return 0;
-		return expr_may_already_consumed(st, n->a);
+		return expr_may_already_released(st, n->a);
 	}
 	if (n->kind == NdCond)
-		return expr_may_already_consumed(st, n->b) ||
-		       expr_may_already_consumed(st, n->c);
+		return expr_may_already_released(st, n->b) ||
+		       expr_may_already_released(st, n->c);
 	if (n->kind == NdName && n->symbol)
 		return esc_dead_tainted(st, n->symbol) ||
 		       sym_region_already_dead(st, n->symbol);
 	if (n->kind == NdDeref)
-		return expr_may_already_consumed(st, n->a);
+		return expr_may_already_released(st, n->a);
 	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
 		bt = n->a->type;
-		if (bt && is_ptr(bt) && expr_may_already_consumed(st, n->a))
+		if (bt && is_ptr(bt) && expr_may_already_released(st, n->a))
 			return 1;
 		s = lvalue_stack_object(n->a);
 		if (s && (esc_dead_tainted(st, s) || sym_region_already_dead(st, s)))
@@ -2205,10 +2297,10 @@ expr_may_already_consumed(EscapeState* st, Node* n) {
 			return 1;
 	}
 	if (n->kind == NdBin)
-		return expr_may_already_consumed(st, n->a) ||
-		       expr_may_already_consumed(st, n->b);
+		return expr_may_already_released(st, n->a) ||
+		       expr_may_already_released(st, n->b);
 	if (n->kind == NdUn || n->kind == NdPost)
-		return expr_may_already_consumed(st, n->a);
+		return expr_may_already_released(st, n->a);
 	return 0;
 }
 
@@ -2223,8 +2315,8 @@ esc_check_expr_use(Compiler* c, EscapeState* st, Node* n) {
 			esc_check_expr_use(c, st, n->children[i]);
 		return;
 	}
-	if (expr_may_already_consumed(st, n))
-		report_consumed_use(c, st, n);
+	if (expr_may_already_released(st, n))
+		report_released_use(c, st, n);
 }
 
 static int
@@ -2602,6 +2694,58 @@ esc_add_region_deps_from_expr(EscapeState* st, Symbol* dst, Node* src) {
 	}
 }
 
+/* ranged(p, …) takes ownership of owned pointer p into the T[..] value. */
+static Symbol*
+ranged_owned_ptr_sym(EscapeState* st, Node* n) {
+	Node* a;
+
+	if (n == NULL || n->kind != NdCall || !call_name_is(n, "ranged") ||
+	    n->children_len < 1)
+		return NULL;
+	a = n->children[0];
+	if (a && a->kind == NdCast)
+		a = a->a;
+	if (a && a->kind == NdName && a->symbol && esc_owned_tainted(st, a->symbol))
+		return a->symbol;
+	return NULL;
+}
+
+static int
+expr_carries_owned(EscapeState* st, Node* n) {
+	int i;
+
+	if (n == NULL || st == NULL)
+		return 0;
+	if (n->kind == NdCall) {
+		if (call_provides_result(n))
+			return 1;
+		if (ranged_owned_ptr_sym(st, n))
+			return 1;
+		return 0;
+	}
+	if (n->kind == NdName && n->symbol)
+		return esc_owned_tainted(st, n->symbol);
+	if (n->kind == NdDot || n->kind == NdArrow) {
+		/* Owned aggregate → ptr/T[..]/owning-struct field (destructure). */
+		if (n->a && n->a->kind == NdName && n->a->symbol &&
+		    esc_owned_tainted(st, n->a->symbol) && n->type &&
+		    (is_ptr(n->type) || is_ranged(n->type) || is_aggr(n->type)))
+			return 1;
+		return 0;
+	}
+	if (n->kind == NdCast || n->kind == NdComma)
+		return expr_carries_owned(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdCond)
+		return expr_carries_owned(st, n->b) || expr_carries_owned(st, n->c);
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++) {
+			if (expr_carries_owned(st, n->children[i]))
+				return 1;
+		}
+	}
+	return 0;
+}
+
 static void
 esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 	int i;
@@ -2622,20 +2766,37 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 	else
 		st->dead_taint[i] = 0;
 	esc_alias_join(st, dst, src);
+	if (expr_carries_owned(st, src)) {
+		Symbol* rs = ranged_owned_ptr_sym(st, src);
+		Symbol* from = alias_copy_src(src);
+
+		esc_mark_owned(st, dst);
+		if (rs)
+			esc_clear_owned(st, rs);
+		/* Destructure: move ownership out of the temporary aggregate. */
+		if ((src->kind == NdDot || src->kind == NdArrow) && src->a &&
+		    src->a->kind == NdName && src->a->symbol && src->a->symbol != dst)
+			esc_clear_owned(st, src->a->symbol);
+		/* Owning aggregate move (File f = opened): not pointer-aliasable. */
+		else if (src->kind == NdName && src->symbol && src->symbol != dst &&
+			 dst->type && !is_ptr(dst->type) && !is_ranged(dst->type))
+			esc_clear_owned(st, src->symbol);
+	} else
+		st->owned_taint[i] = 0;
 	esc_clear_region_deps(st, i);
 	esc_add_region_deps_from_expr(st, dst, src);
 	esc_add_param_bits(st, dst, expr_param_bits(st, src));
 }
 
 static void
-esc_apply_consumes(EscapeState* st, Node* call) {
+esc_apply_releases(EscapeState* st, Node* call) {
 	int i;
 	Symbol *pool, *slice;
 
 	if (call == NULL || call->kind != NdCall)
 		return;
 	for (i = 0; i < call->children_len; i++) {
-		if (!call_arg_consumes(call, i))
+		if (!call_arg_releases(call, i))
 			continue;
 		/* reset: invalidate views only; pool stays reusable. */
 		if (i == 0 && call_is_pool_reset(call))
@@ -2685,6 +2846,7 @@ esc_check_call(Compiler* c, EscapeState* st, Node* call) {
 		if (!param_is_retains(ft, i))
 			continue;
 		note_retains_param_bits(st, expr_param_bits(st, arg));
+		esc_clear_owned(st, consume_target_sym(arg));
 		if (st->diag && expr_may_stack(st, arg)) {
 			pname = (ft->param_names && ft->param_names[i]) ? ft->param_names[i]
 								       : "";
@@ -2728,38 +2890,131 @@ stmt_always_exits(Node* n) {
 }
 
 static unsigned char*
-esc_snapshot_dead(EscapeState* st, int* out_n) {
+esc_snapshot_bits(unsigned char* src, int n, int* out_n) {
 	unsigned char* copy;
-	int n;
 
-	n = st->n;
 	*out_n = n;
-	if (n <= 0)
+	if (n <= 0 || src == NULL)
 		return NULL;
 	copy = xmalloc((size_t)n);
-	memcpy(copy, st->dead_taint, (size_t)n);
+	memcpy(copy, src, (size_t)n);
 	return copy;
+}
+
+static unsigned char*
+esc_snapshot_dead(EscapeState* st, int* out_n) {
+	return esc_snapshot_bits(st->dead_taint, st->n, out_n);
+}
+
+static unsigned char*
+esc_snapshot_owned(EscapeState* st, int* out_n) {
+	return esc_snapshot_bits(st->owned_taint, st->n, out_n);
+}
+
+static void
+esc_restore_bits(unsigned char* dst, int dst_n, unsigned char* snap, int snap_n) {
+	int i;
+
+	if (snap_n > 0 && snap != NULL && dst != NULL)
+		memcpy(dst, snap, (size_t)snap_n);
+	for (i = snap_n; i < dst_n; i++)
+		dst[i] = 0;
 }
 
 static void
 esc_restore_dead(EscapeState* st, unsigned char* snap, int snap_n) {
+	esc_restore_bits(st->dead_taint, st->n, snap, snap_n);
+}
+
+static void
+esc_restore_owned(EscapeState* st, unsigned char* snap, int snap_n) {
+	esc_restore_bits(st->owned_taint, st->n, snap, snap_n);
+}
+
+static void
+esc_union_bits(unsigned char* dst, int n, unsigned char* a, int an, unsigned char* b, int bn) {
 	int i;
 
-	if (snap_n > 0 && snap != NULL)
-		memcpy(st->dead_taint, snap, (size_t)snap_n);
-	for (i = snap_n; i < st->n; i++)
-		st->dead_taint[i] = 0;
+	for (i = 0; i < n; i++) {
+		unsigned char av = (i < an && a) ? a[i] : 0;
+		unsigned char bv = (i < bn && b) ? b[i] : 0;
+		dst[i] = (unsigned char)(av | bv);
+	}
 }
 
 static void
 esc_union_dead(EscapeState* st, unsigned char* a, int an, unsigned char* b, int bn) {
-	int i, n;
+	esc_union_bits(st->dead_taint, st->n, a, an, b, bn);
+}
 
-	n = st->n;
-	for (i = 0; i < n; i++) {
-		unsigned char av = (i < an && a) ? a[i] : 0;
-		unsigned char bv = (i < bn && b) ? b[i] : 0;
-		st->dead_taint[i] = (unsigned char)(av | bv);
+static void
+esc_union_owned(EscapeState* st, unsigned char* a, int an, unsigned char* b, int bn) {
+	esc_union_bits(st->owned_taint, st->n, a, an, b, bn);
+}
+
+static int
+expr_is_null_const(Node* n) {
+	if (n == NULL)
+		return 0;
+	if (n->kind == NdCast)
+		return expr_is_null_const(n->a);
+	if (n->kind == NdLit && n->int_val == 0)
+		return 1;
+	return 0;
+}
+
+/* if (!p) / if (p == NULL) / if (NULL == p) → p */
+static Symbol*
+cond_null_checked_sym(Node* cond) {
+	Node *a, *b;
+
+	if (cond == NULL)
+		return NULL;
+	if (cond->kind == NdUn && cond->op == PnBang) {
+		a = cond->a;
+		if (a && a->kind == NdCast)
+			a = a->a;
+		if (a && a->kind == NdName && a->symbol)
+			return a->symbol;
+		return NULL;
+	}
+	if (cond->kind == NdBin && cond->op == PnEqEq) {
+		a = cond->a;
+		b = cond->b;
+		if (a && a->kind == NdName && a->symbol && expr_is_null_const(b))
+			return a->symbol;
+		if (b && b->kind == NdName && b->symbol && expr_is_null_const(a))
+			return b->symbol;
+	}
+	return NULL;
+}
+
+static void
+esc_clear_owned_in_expr(EscapeState* st, Node* n) {
+	Symbol* rs;
+	int i;
+
+	if (n == NULL)
+		return;
+	if (n->kind == NdName && n->symbol) {
+		esc_clear_owned(st, n->symbol);
+		return;
+	}
+	if (n->kind == NdTupleLit) {
+		for (i = 0; i < n->children_len; i++)
+			esc_clear_owned_in_expr(st, n->children[i]);
+		return;
+	}
+	if (n->kind == NdCast || n->kind == NdComma)
+		esc_clear_owned_in_expr(st, n->kind == NdComma ? n->b : n->a);
+	else if (n->kind == NdCond) {
+		esc_clear_owned_in_expr(st, n->b);
+		esc_clear_owned_in_expr(st, n->c);
+	} else if (n->kind == NdCall) {
+		rs = ranged_owned_ptr_sym(st, n);
+		if (rs)
+			esc_clear_owned(st, rs);
+		/* Fresh provide call transfers ownership out — no local to clear. */
 	}
 }
 
@@ -2774,10 +3029,21 @@ esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
 			esc_on_escape_value(c, st, n->children[i], via_return);
 		return;
 	}
-	if (via_return)
+	if (via_return) {
 		note_returned_param_bits(st, expr_param_bits(st, n));
-	else
+		if (expr_carries_owned(st, n)) {
+			if (!st->fn_provides) {
+				if (st->diag)
+					error_at(c, n->span,
+						 "returning owned value requires [[provides]] on the function");
+			} else
+				esc_clear_owned_in_expr(st, n);
+		}
+	} else {
 		note_retains_param_bits(st, expr_param_bits(st, n));
+		if (expr_carries_owned(st, n))
+			esc_clear_owned_in_expr(st, n);
+	}
 	if (st->diag) {
 		report_may_stack_escape(c, st, n);
 		if (expr_may_dead(st, n))
@@ -2799,7 +3065,7 @@ esc_walk_rvalue(Compiler* c, EscapeState* st, Node* n) {
 			esc_walk_rvalue(c, st, n->children[i]);
 		}
 		esc_walk_rvalue(c, st, n->a);
-		esc_apply_consumes(st, n);
+		esc_apply_releases(st, n);
 		return;
 	}
 	if (n->kind == NdTupleLit) {
@@ -2872,7 +3138,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		/* Reassignment to a plain local/param is not a use of its old value. */
 		if (!(n->a->kind == NdName && lhs_taint_target(n->a)))
 			esc_check_expr_use(c, st, n->a);
-		/* Rvalue first so consume apply lands before propagate. */
+		/* Rvalue first so release apply lands before propagate. */
 		esc_walk_rvalue(c, st, n->b);
 		esc_check_expr_use(c, st, n->b);
 		if (lhs_is_escape_dest(n->a)) {
@@ -2883,6 +3149,8 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 			rhs_bits = expr_param_bits(st, n->b);
 			through_bits = expr_param_bits(st, lhs_store_through(n->a));
 			note_retains_param_bits(st, rhs_bits & ~through_bits);
+			if (expr_carries_owned(st, n->b))
+				esc_clear_owned_in_expr(st, n->b);
 			if (st->diag) {
 				report_may_stack_escape(c, st, n->b);
 				if (expr_may_dead(st, n->b))
@@ -2890,8 +3158,47 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 			}
 		}
 		dst = lhs_taint_target(n->a);
-		if (dst)
+		if (dst) {
+			if (st->diag && esc_owned_tainted(st, dst) &&
+			    expr_carries_owned(st, n->b)) {
+				Symbol* from = alias_copy_src(n->b);
+				int di = esc_find(st, dst);
+				int si = from ? esc_find(st, from) : -1;
+				int same = (di >= 0 && si >= 0 &&
+					    st->alias_gid[di] == st->alias_gid[si]);
+				int others = 0;
+				int j, g;
+
+				if (di >= 0 && !same) {
+					g = st->alias_gid[di];
+					for (j = 0; j < st->n; j++) {
+						if (j != di && g != 0 && st->alias_gid[j] == g &&
+						    st->owned_taint[j])
+							others = 1;
+					}
+				}
+				/* Peeling an aliased owner (q = p; p = alloc()) keeps
+				 * ownership on the remaining aliases — not a leak. */
+				if (!same && !others)
+					error_at(c, n->span,
+						 "owned value '%s' overwritten without release",
+						 dst->name ? dst->name : "");
+			}
 			esc_propagate_to(st, dst, n->b);
+			/* Local aggregate.field = owned_ptr: ownership moves into the
+			 * aggregate (not Name→Name aliasable). */
+			if ((n->a->kind == NdDot || n->a->kind == NdArrow) &&
+			    dst->type && !is_ptr(dst->type) && !is_ranged(dst->type) &&
+			    expr_carries_owned(st, n->b)) {
+				Symbol* from = alias_copy_src(n->b);
+
+				if (from == NULL)
+					from = consume_target_sym(n->b);
+				if (from && from != dst)
+					esc_clear_owned(st, from);
+				esc_mark_owned(st, dst);
+			}
+		}
 		esc_walk_rvalue(c, st, n->a);
 		return;
 	}
@@ -2907,7 +3214,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		return;
 	}
 	if (n->kind == NdDefer) {
-		defer_register_consumes(st, n->a);
+		defer_register_releases(st, n->a);
 		return;
 	}
 	if (n->kind == NdCall) {
@@ -2929,46 +3236,60 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		}
 		break;
 	case NdIf: {
-		/* Path-sensitive dead_taint: free/consumes in a returning branch
+		/* Path-sensitive dead/owned: free/releases in a returning branch
 		 * must not poison the fall-through path (common fail/return ladders). */
 		unsigned char *save = NULL, *then_dead = NULL, *else_dead = NULL;
+		unsigned char *save_o = NULL, *then_o = NULL, *else_o = NULL;
 		int save_n = 0, then_n = 0, else_n = 0;
+		int save_on = 0, then_on = 0, else_on = 0;
 		int then_exits, else_exits;
+		Symbol* nullsym;
 
 		esc_check_expr_use(c, st, n->a);
 		esc_walk_stmt(c, st, n->a);
 		save = esc_snapshot_dead(st, &save_n);
+		save_o = esc_snapshot_owned(st, &save_on);
+		nullsym = cond_null_checked_sym(n->a);
+		if (nullsym)
+			esc_clear_owned(st, nullsym);
 		esc_walk_stmt(c, st, n->b);
 		then_exits = stmt_always_exits(n->b);
 		then_dead = esc_snapshot_dead(st, &then_n);
+		then_o = esc_snapshot_owned(st, &then_on);
 		esc_restore_dead(st, save, save_n);
+		esc_restore_owned(st, save_o, save_on);
 		esc_walk_stmt(c, st, n->c);
 		else_exits = stmt_always_exits(n->c);
 		else_dead = esc_snapshot_dead(st, &else_n);
+		else_o = esc_snapshot_owned(st, &else_on);
 		if (then_exits && (else_exits || n->c == NULL)) {
-			/* then exits; else exits or absent → fall-through is pre-if */
 			esc_restore_dead(st, save, save_n);
+			esc_restore_owned(st, save_o, save_on);
 		} else if (then_exits) {
-			/* only else falls through */
 			esc_restore_dead(st, else_dead, else_n);
+			esc_restore_owned(st, else_o, else_on);
 		} else if (else_exits) {
-			/* only then falls through */
 			esc_restore_dead(st, then_dead, then_n);
+			esc_restore_owned(st, then_o, then_on);
 		} else if (n->c == NULL) {
-			/* no else: join pre-if with then */
 			esc_union_dead(st, save, save_n, then_dead, then_n);
+			esc_union_owned(st, save_o, save_on, then_o, then_on);
 		} else {
 			esc_union_dead(st, then_dead, then_n, else_dead, else_n);
+			esc_union_owned(st, then_o, then_on, else_o, else_on);
 		}
 		free(save);
 		free(then_dead);
 		free(else_dead);
+		free(save_o);
+		free(then_o);
+		free(else_o);
 		break;
 	}
 	case NdWhile:
 	case NdDo:
 	case NdFor:
-		/* Conditions / for-iter expressions may read consumed pointers. */
+		/* Conditions / for-iter expressions may read released pointers. */
 		esc_check_expr_use(c, st, n->a);
 		esc_check_expr_use(c, st, n->b);
 		esc_check_expr_use(c, st, n->c);
@@ -3015,6 +3336,8 @@ escape_analyze_func(Compiler* c, Node* fn, int infer, int diag) {
 	owner = fn->symbol;
 	ty = owner->type;
 	st.fnty = ty;
+	st.fnsym = owner;
+	st.fn_provides = owner->provides || (ty && is_func(ty) && ty->provides);
 	st.infer = infer;
 	st.diag = diag;
 	st.nparams = 0;
@@ -3036,6 +3359,18 @@ escape_analyze_func(Compiler* c, Node* fn, int infer, int diag) {
 		}
 	}
 	esc_walk_stmt(c, &st, fn->a);
+	if (diag) {
+		for (i = 0; i < st.n; i++) {
+			s = st.syms[i];
+			if (s == NULL || s->storage != StLocal)
+				continue;
+			if (!st.owned_taint[i])
+				continue;
+			error_at(c, s->span,
+				 "owned value '%s' never released or retained",
+				 s->name ? s->name : "");
+		}
+	}
 	i = st.changed;
 	esc_release(&st);
 	return i;

@@ -4,7 +4,7 @@ struct Reg {
 	int* base;
 };
 
-void ([[consumes]] Reg* r).reset() {
+void ([[releases]] Reg* r).reset() {
 	(void)r;
 }
 

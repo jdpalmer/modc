@@ -172,15 +172,15 @@ void tty_reapply_editor_mode(File* f) {
 	return (out, true);
 }
 
-(File, bool) tty_stdin() {
+[[provides]] (File, bool) tty_stdin() {
 	return file_from_handle_borrow(GetStdHandle(STD_INPUT_HANDLE));
 }
 
-(File, bool) tty_stdout() {
+[[provides]] (File, bool) tty_stdout() {
 	return file_from_handle_borrow(GetStdHandle(STD_OUTPUT_HANDLE));
 }
 
-(File, bool) tty_stderr() {
+[[provides]] (File, bool) tty_stderr() {
 	return file_from_handle_borrow(GetStdHandle(STD_ERROR_HANDLE));
 }
 

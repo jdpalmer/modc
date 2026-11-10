@@ -78,7 +78,7 @@ char[..] str_from_cstr(const char* p) {
 // Malloc a copy of src (len == cap). Empty src → empty (no alloc).
 // Caller owns the result: str_free when done. Do not str_free views into
 // literals, stack, pool, or subslices.
-(bool, char[..]) str_dup(const char[..] src) {
+[[provides]] (bool, char[..]) str_dup(const char[..] src) {
 	size_t n = len(src);
 	if (n == 0) {
 		return (true, str_empty());
@@ -93,7 +93,7 @@ char[..] str_from_cstr(const char* p) {
 
 // release(*s). NULL s is a no-op.
 // Only for malloc-owned headers (str_dup / str_reserve growth / hand-owned).
-void str_free(char[..]* s) {
+void str_free([[releases]] char[..]* s) {
 	release(s);
 }
 

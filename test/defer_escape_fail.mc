@@ -15,7 +15,7 @@ char* bad_taint() {
 	return q;
 }
 
-void take([[consumes]] char* p) {
+void take([[releases]] char* p) {
 	free(p);
 }
 

@@ -1,11 +1,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void take([[consumes]] char* p) {
+void take([[releases]] char* p) {
 	free(p);
 }
 
-char* reassign_after_free() {
+[[provides]] char* reassign_after_free() {
 	char* p = malloc(16);
 	if (p == NULL) {
 		return NULL;
@@ -19,7 +19,7 @@ char* reassign_after_free() {
 	return p;
 }
 
-char* fail_branch_free(int ok) {
+[[provides]] char* fail_branch_free(int ok) {
 	char* p = malloc(16);
 	if (p == NULL) {
 		return NULL;
@@ -49,8 +49,10 @@ int main() {
 	free(a);
 	free(b);
 	if (c != NULL) {
+		free(c);
 		return 1;
 	}
+	free(c);
 	take(malloc(8));
 	printf("ok\n");
 	return 0;

@@ -280,14 +280,15 @@ int test_stat_dir() {
 	f.close();
 	{
 		auto (opened, good) = dir_open(file);
-		(void)opened;
 		if (good) {
+			opened.close();
 			fs_remove(file);
 			fs_remove(fa);
 			fs_remove(fb);
 			fs_remove(dir);
 			return 14;
 		}
+		opened.close();
 	}
 	{
 		auto (info, sok) = fs_stat("fs_pkg_missing");

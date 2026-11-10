@@ -218,14 +218,13 @@ int test_heap() {
 		free(z);
 	}
 	str_free(&s);
-	if ((void*)s != NULL || len(s) != 0) {
-		return 9;
-	}
 	{
 		auto (ok, n) = str_dup(str_empty());
 		if (!ok || (void*)n != NULL) {
+			str_free(&n);
 			return 10;
 		}
+		str_free(&n);
 	}
 	if (!str_set(&t, "hi") || !str_set(&t, t[1 .. 2]) || !str_eq(t, "i")) {
 		str_free(&t);

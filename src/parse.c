@@ -263,7 +263,7 @@ static Type* parse_declarator(Compiler* c, Type* base, char** name, int abstract
 static int eat_vendor_attr(Compiler* c);
 static int eat_attr_specifier(Compiler* c, unsigned* flags);
 static unsigned parse_attr_seq(Compiler* c);
-static void apply_decl_attrs(Symbol* s, unsigned flags);
+static void apply_decl_attrs(Compiler* c, Symbol* s, unsigned flags);
 static int eat_pragma_op(Compiler* c);
 
 /* C23 standard attribute flags collected from [[...]] sequences. */
@@ -272,8 +272,9 @@ enum {
 	AtMaybeUnused = 1u << 1,
 	AtNodiscard = 1u << 2,
 	AtRetains = 1u << 3,
-	AtConsumes = 1u << 4,
-	AtRegion = 1u << 5
+	AtReleases = 1u << 4,
+	AtRegion = 1u << 5,
+	AtProvides = 1u << 6
 };
 static Initializer* parse_init(Compiler* c);
 static void parse_decl_or_def(Compiler* c, int in_func);
@@ -674,10 +675,12 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 					*flags |= AtNodiscard;
 				else if (strcmp(a, "retains") == 0)
 					*flags |= AtRetains;
-				else if (strcmp(a, "consumes") == 0)
-					*flags |= AtConsumes;
+				else if (strcmp(a, "releases") == 0)
+					*flags |= AtReleases;
 				else if (strcmp(a, "region") == 0)
 					*flags |= AtRegion;
+				else if (strcmp(a, "provides") == 0)
+					*flags |= AtProvides;
 				/* unsequenced / reproducible / unknown: ignore */
 			}
 			continue;
@@ -703,13 +706,39 @@ parse_attr_seq(Compiler* c) {
 
 // Apply declaration attributes to a symbol (OR onto existing flags).
 static void
-apply_decl_attrs(Symbol* s, unsigned flags) {
+apply_decl_attrs(Compiler* c, Symbol* s, unsigned flags) {
 	if (s == NULL)
 		return;
 	if ((flags & AtMaybeUnused) && s->kind == SkVar)
 		s->maybe_unused = 1;
 	if ((flags & AtNodiscard) && s->kind == SkFunc)
 		s->nodiscard = 1;
+	if ((flags & AtProvides) && s->kind == SkFunc) {
+		Type* ret;
+		Field* f;
+		int ok;
+
+		s->provides = 1;
+		if (s->type && is_func(s->type)) {
+			s->type->provides = 1;
+			ret = s->type->base;
+			ok = 0;
+			if (ret && (is_ptr(ret) || is_ranged(ret) || is_aggr(ret)))
+				ok = 1;
+			else if (ret && is_tuple(ret)) {
+				for (f = ret->fields; f; f = f->next) {
+					if (f->type && (is_ptr(f->type) || is_ranged(f->type) ||
+							is_aggr(f->type))) {
+						ok = 1;
+						break;
+					}
+				}
+			}
+			if (ret && !ok)
+				error_at(c, s->span,
+					 "[[provides]] requires a pointer, T[..], aggregate, or tuple return");
+		}
+	}
 }
 
 // Parse declaration specifiers: storage, qualifiers, and base type.
@@ -997,7 +1026,7 @@ parse_param_list(Compiler* c, Type* ret) {
 			fixed_len[n] = -1;
 			maybe_unused[n] = (char)!!(pattrs & AtMaybeUnused);
 			retains[n] = (char)!!(pattrs & AtRetains);
-			consumes[n] = (char)!!(pattrs & AtConsumes);
+			consumes[n] = (char)!!(pattrs & AtReleases);
 			region[n] = (char)!!(pattrs & AtRegion);
 			if (is_ranged(ty)) {
 				/* ranged array parameter: pass by value */
@@ -1042,8 +1071,8 @@ parse_param_list(Compiler* c, Type* ret) {
 			ty->param_maybe_unused[i] = maybe_unused[i];
 		if (ty->param_retains)
 			ty->param_retains[i] = retains[i];
-		if (ty->param_consumes)
-			ty->param_consumes[i] = consumes[i];
+		if (ty->param_releases)
+			ty->param_releases[i] = consumes[i];
 		if (ty->param_region)
 			ty->param_region[i] = region[i];
 	}
@@ -1473,8 +1502,8 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 			fn->param_names[i] = param_names[i];
 		if (fn->param_retains)
 			fn->param_retains[0] = (char)!!(recv_attrs & AtRetains);
-		if (fn->param_consumes)
-			fn->param_consumes[0] = (char)!!(recv_attrs & AtConsumes);
+		if (fn->param_releases)
+			fn->param_releases[0] = (char)!!(recv_attrs & AtReleases);
 		if (fn->param_region)
 			fn->param_region[0] = (char)!!(recv_attrs & AtRegion);
 		for (i = 0; i < ft->params_len; i++) {
@@ -1488,8 +1517,8 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 				fn->param_retains[i + 1] = ft->param_retains[i];
 			if (ft->param_returned && fn->param_returned)
 				fn->param_returned[i + 1] = ft->param_returned[i];
-			if (ft->param_consumes && fn->param_consumes)
-				fn->param_consumes[i + 1] = ft->param_consumes[i];
+			if (ft->param_releases && fn->param_releases)
+				fn->param_releases[i + 1] = ft->param_releases[i];
 			if (ft->param_region && fn->param_region)
 				fn->param_region[i + 1] = ft->param_region[i];
 		}
@@ -3182,7 +3211,7 @@ parse_for_init_decl(Compiler* c) {
 		}
 		ty = decay(c, in->expr->type);
 		s = symbol_define(c, name, SkVar, ty, StLocal, sp);
-		apply_decl_attrs(s, attrs);
+		apply_decl_attrs(c, s, attrs);
 		d->symbol = s;
 		d->type = ty;
 		return d;
@@ -3229,7 +3258,7 @@ parse_for_init_decl(Compiler* c) {
 	else
 		storage = StLocal;
 	s = symbol_define(c, name, SkVar, ty, storage, sp);
-	apply_decl_attrs(s, attrs);
+	apply_decl_attrs(c, s, attrs);
 	d = node(NdDecl, sp);
 	d->symbol = s;
 	d->type = ty;
@@ -3822,7 +3851,7 @@ parse_auto_local(Compiler* c, Node* blk, Span sp, unsigned attrs) {
 	}
 	ty = decay(c, in->expr->type);
 	s = symbol_define(c, name, SkVar, ty, StLocal, sp);
-	apply_decl_attrs(s, attrs);
+	apply_decl_attrs(c, s, attrs);
 	d->symbol = s;
 	d->type = ty;
 	expect(c, PnSemi, "';'");
@@ -3880,7 +3909,7 @@ parse_local_decl_attrs(Compiler* c, Node* blk, unsigned attrs) {
 		} else if (is_func(ty)) {
 			reject_user_prototype(c, sp);
 			s = symbol_define_func(c, name, ty, storage == StNone ? StExtern : storage, sp, isoverload);
-			apply_decl_attrs(s, attrs);
+			apply_decl_attrs(c, s, attrs);
 		} else {
 			int st = storage == StStatic ? StStatic : StLocal;
 
@@ -3888,7 +3917,7 @@ parse_local_decl_attrs(Compiler* c, Node* blk, unsigned attrs) {
 				error_at(c, sp,
 					 "Pool variables must be created with 'pool name { ... }'");
 			s = symbol_define(c, name, SkVar, ty, st, sp);
-			apply_decl_attrs(s, attrs);
+			apply_decl_attrs(c, s, attrs);
 			d = node(NdDecl, sp);
 			d->symbol = s;
 			d->type = ty;
@@ -4105,7 +4134,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			}
 		}
 		s->defined = 1;
-		apply_decl_attrs(s, attrs);
+		apply_decl_attrs(c, s, attrs);
 		if (!in_func && c->syms.block == 0 && storage != StStatic)
 			s->doc = doc;
 		else
@@ -4168,7 +4197,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			else
 				s = symbol_define_func(c, name, ty, storage == StStatic ? StStatic : StExtern, sp,
 						    isoverload);
-			apply_decl_attrs(s, attrs);
+			apply_decl_attrs(c, s, attrs);
 			if (!in_func && c->syms.block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
@@ -4176,7 +4205,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			(void)s;
 		} else {
 			s = symbol_define(c, name, SkVar, ty, storage, sp);
-			apply_decl_attrs(s, attrs);
+			apply_decl_attrs(c, s, attrs);
 			if (!in_func && c->syms.block == 0 && storage != StStatic && doc) {
 				s->doc = doc;
 				doc = NULL;
@@ -4648,7 +4677,7 @@ prescan_toplevel(Compiler* c) {
 			s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage, sp);
 		else
 			s = symbol_define_func(c, name, ty, storage, sp, isoverload);
-		apply_decl_attrs(s, attrs);
+		apply_decl_attrs(c, s, attrs);
 		skip_braced(c);
 		(void)s;
 		return;
@@ -4658,7 +4687,7 @@ prescan_toplevel(Compiler* c) {
 		s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage == StStatic ? StStatic : StExtern, sp);
 	else
 		s = symbol_define_func(c, name, ty, storage == StStatic ? StStatic : StExtern, sp, isoverload);
-	apply_decl_attrs(s, attrs);
+	apply_decl_attrs(c, s, attrs);
 	expect(c, PnSemi, "';'");
 	(void)s;
 }

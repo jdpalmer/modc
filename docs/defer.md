@@ -49,13 +49,14 @@ void write_log(char *path) {
 
 Returning a pointer freed by a deferred cleanup is a compile-time error when the
 cleanup is recognized as consuming: `free` / `fclose`, or a `%C` parameter marked
-`[[consumes]]` (including method receivers). Pool blocks schedule `p.free()`
+`[[releases]]` (including method receivers). Pool blocks schedule `p.free()`
 like a defer; views minted via pool ops (`p.copy` / `p.append` / `p.cstr`, …) are
 tied to that pool and cannot escape past block end / `p.free()` / `p.reset()`.
-The `defer` keyword still only schedules cleanup order; `[[consumes]]` / `[[region]]`
-are what make the lifetime contract checkable. The same consume markers also reject
-straight-line use-after-free and double-free of that local after an immediate
-`free(p)` / `fclose(f)` / consuming call (uses before a deferred cleanup still run
+The `defer` keyword still only schedules cleanup order; `[[releases]]` / `[[region]]`
+are what make the lifetime contract checkable. Owned values from `alloc` /
+`[[provides]]` are discharged by a deferred release. The same release markers also
+reject straight-line use-after-free and double-free of that local after an immediate
+`free(p)` / `fclose(f)` / `[[releases]]` call (uses before a deferred cleanup still run
 are allowed; the kill is at block exit).
 
 ## Practical application patterns

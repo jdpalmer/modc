@@ -168,6 +168,7 @@ int test_heap() {
 	char[..] t = { 0 };
 	auto (ok0, s) = str_dup("ab");
 	if (!ok0 || len(s) != 2 || s[0] != 'a') {
+		str_free(&s);
 		return 1;
 	}
 	if (!str_append(&s, "cd")) {
@@ -205,14 +206,13 @@ int test_heap() {
 		free(z);
 	}
 	str_free(&s);
-	if ((void*)s != NULL || len(s) != 0) {
-		return 9;
-	}
 	{
 		auto (ok, n) = str_dup(str_empty());
 		if (!ok || (void*)n != NULL) {
+			str_free(&n);
 			return 10;
 		}
+		str_free(&n);
 	}
 	if (!str_set(&t, "hi") || !str_set(&t, t[1 .. 2]) || !str_eq(t, "i")) {
 		str_free(&t);

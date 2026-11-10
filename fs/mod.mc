@@ -145,6 +145,7 @@ static int fs_oflags(int flags) {
 }
 #endif
 
+[[provides]]
 (File, bool) file_open(const char[..] path, int flags) {
 	File f = { 0 };
 #ifdef _WIN32
@@ -182,6 +183,7 @@ static int fs_oflags(int flags) {
 }
 
 // Take ownership of an existing fd. On success, File.close closes the fd. fd < 0 fails.
+[[provides]]
 (File, bool) file_from_fd(int fd) {
 	File f = { 0 };
 #ifdef _WIN32
@@ -203,6 +205,7 @@ static int fs_oflags(int flags) {
 }
 
 // Wrap an existing fd without taking ownership. File.close frees the blob only.
+[[provides]]
 (File, bool) file_from_fd_borrow(int fd) {
 	File f = { 0 };
 #ifdef _WIN32
@@ -224,6 +227,7 @@ static int fs_oflags(int flags) {
 }
 
 // Take ownership of a Win32 HANDLE. On success, File.close closes it.
+[[provides]]
 (File, bool) file_from_handle(void* h) {
 	File f = { 0 };
 #ifdef _WIN32
@@ -244,6 +248,7 @@ static int fs_oflags(int flags) {
 }
 
 // Wrap a Win32 HANDLE without taking ownership. File.close frees the blob only.
+[[provides]]
 (File, bool) file_from_handle_borrow(void* h) {
 	File f = { 0 };
 #ifdef _WIN32
@@ -380,7 +385,7 @@ void* file_handle(File* f) {
 #endif
 }
 
-void ([[consumes]] File* f).close() {
+void ([[releases]] File* f).close() {
 #ifdef _WIN32
 	if (f.native == NULL) {
 		return;
@@ -615,6 +620,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 	return 1;
 }
 
+[[provides]]
 (Writer, bool) writer_open(const char[..] path, int flags, size_t cap) {
 	Writer w = { 0 };
 	auto (f, ok) = file_open(path, flags);
@@ -636,6 +642,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 	return (w, true);
 }
 
+[[provides]]
 (Writer, bool) writer_from_file(File* f, size_t cap) {
 	Writer w = { 0 };
 	if (f == NULL || f.native == NULL) {
@@ -745,7 +752,7 @@ bool (Writer* w).flush() {
 	return fs_bufw_flush_safe(b) != 0;
 }
 
-void ([[consumes]] Writer* w).close() {
+void ([[releases]] Writer* w).close() {
 	if (w.native == NULL) {
 		return;
 	}
@@ -759,6 +766,7 @@ void ([[consumes]] Writer* w).close() {
 	w.native = NULL;
 }
 
+[[provides]]
 (Reader, bool) reader_open(const char[..] path, int flags, size_t cap) {
 	Reader r = { 0 };
 	auto (f, ok) = file_open(path, flags);
@@ -780,6 +788,7 @@ void ([[consumes]] Writer* w).close() {
 	return (r, true);
 }
 
+[[provides]]
 (Reader, bool) reader_from_file(File* f, size_t cap) {
 	Reader r = { 0 };
 	if (f == NULL || f.native == NULL) {
@@ -841,7 +850,7 @@ void ([[consumes]] Writer* w).close() {
 	return (got, true);
 }
 
-void ([[consumes]] Reader* r).close() {
+void ([[releases]] Reader* r).close() {
 	if (r.native == NULL) {
 		return;
 	}
@@ -978,6 +987,7 @@ static int fs_dotname(char* name, size_t n) {
 #endif
 }
 
+[[provides]]
 (Dir, bool) dir_open(const char[..] path) {
 	Dir d = { 0 };
 #ifdef _WIN32
@@ -1056,7 +1066,7 @@ static int fs_dotname(char* name, size_t n) {
 #endif
 }
 
-void ([[consumes]] Dir* d).close() {
+void ([[releases]] Dir* d).close() {
 #ifdef _WIN32
 	if (d.native == NULL) {
 		return;

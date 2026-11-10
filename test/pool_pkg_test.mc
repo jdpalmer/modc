@@ -217,17 +217,17 @@ int test_typed_alloc() {
 		}
 	}
 	release(&heap);
-	if (rc == 0) {
-		if (hp == NULL) {
+	if (hp == NULL) {
+		if (rc == 0) {
 			rc = 3;
-		} else {
-			*hp = 7;
-			if (*hp != 7) {
-				rc = 4;
-			}
-			free(hp);
+		}
+	} else if (rc == 0) {
+		*hp = 7;
+		if (*hp != 7) {
+			rc = 4;
 		}
 	}
+	free(hp);
 	pool p {
 		int[..] s = p.alloc(int, 3);
 		int* q = p.alloc(int);

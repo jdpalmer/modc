@@ -353,7 +353,7 @@ static char* __modc_pool_bump_aligned(__modc_pool* a, size_t n, size_t align) {
 	return p;
 }
 
-void* __modc_alloc(size_t elemsz) {
+[[provides]] void* __modc_alloc(size_t elemsz) {
 	if (elemsz == 0) {
 		return NULL;
 	}
@@ -662,7 +662,7 @@ bool __modc_pool_replace(__modc_pool* p, __modc_slice* dst, __modc_slice* src, _
 	return true;
 }
 
-char* __modc_cstr(__modc_slice* s) {
+[[provides]] char* __modc_cstr(__modc_slice* s) {
 	size_t n = s ? s.len : 0;
 	char* mem = malloc(n + 1);
 	if (mem == NULL) {

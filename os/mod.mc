@@ -328,7 +328,7 @@ bool (Cmd* c).stdio(int which, int mode) {
 	return ocmd_stdio(blob, which, mode) != 0;
 }
 
-(File, bool) (Cmd* c).pipe(int which) {
+[[provides]] (File, bool) (Cmd* c).pipe(int which) {
 	File f = { 0 };
 	if (c.native == NULL) {
 		return (f, false);
@@ -387,7 +387,7 @@ bool (Cmd* c).start() {
 	return (code, true);
 }
 
-void ([[consumes]] Cmd* c).close() {
+void ([[releases]] Cmd* c).close() {
 	if (c.native == NULL) {
 		return;
 	}
@@ -522,7 +522,7 @@ void (Poll* p).reset() {
 	opoll_reset(blob);
 }
 
-void ([[consumes]] Poll* p).close() {
+void ([[releases]] Poll* p).close() {
 	if (p.native == NULL) {
 		return;
 	}

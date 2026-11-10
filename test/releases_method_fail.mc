@@ -1,10 +1,10 @@
-// fail: F:use of consumed value
+// fail: F:use of released value
 
 struct Reg {
 	int* base;
 };
 
-void ([[consumes]] Reg* r).reset() {
+void ([[releases]] Reg* r).reset() {
 	(void)r;
 }
 
@@ -33,7 +33,7 @@ void bad_field_after_reset() {
 	r.base = 0;
 }
 
-void take([[consumes]] Reg* r) {
+void take([[releases]] Reg* r) {
 	(void)r;
 }
 
