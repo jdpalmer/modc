@@ -1330,7 +1330,8 @@ mk_builtin_name(Compiler* c, Span sp, const char* name) {
 // Wrap array or string literal in ranged() when the target is a ranged type.
 static Node*
 maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
-	Node* call;
+	Node *call, *b, *carm;
+	int want_ro;
 
 	if (c == NULL || dst == NULL || src == NULL || src->type == NULL)
 		return src;
@@ -1351,6 +1352,27 @@ maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 		/* Literals are const strings */
 		call->type = type_ranged_qual(c, dst->base, 1);
 		return call;
+	}
+	/*
+	 * pick ? "yes" : "no" types as const char* (decayed arms). When the
+	 * sink is const char[..], range each arm the same way a lone literal
+	 * would — keep pointer-typed ternaries working for const char* sinks.
+	 */
+	if (src->kind == NdCond && dst->base && is_char_elem(dst->base) &&
+	    (dst->is_readonly || dst->is_poly)) {
+		b = maybe_ranged_conv(c, dst, src->b);
+		carm = maybe_ranged_conv(c, dst, src->c);
+		if (b && carm && is_ranged(b->type) && is_ranged(carm->type) &&
+		    b->type->base && carm->type->base &&
+		    type_eq(b->type->base, dst->base) &&
+		    type_eq(carm->type->base, dst->base)) {
+			src->b = b;
+			src->c = carm;
+			want_ro = dst->is_readonly || b->type->is_readonly ||
+				  carm->type->is_readonly;
+			src->type = type_ranged_qual(c, dst->base, want_ro);
+			return src;
+		}
 	}
 	return src;
 }
@@ -3570,6 +3592,32 @@ Node* type_expr(Compiler* c, Node* n) {
 		if (nk && n->a && !is_scalar(decay(c, n->a->type)))
 			error_at(c, n->a->span,
 				 "conditional expression requires a scalar condition");
+		/*
+		 * Mix of string literal and const char[..]: unify to const char[..]
+		 * (two bare literals still decay to const char* below so
+		 * `const char *p = cond ? "a" : "b"` keeps working).
+		 */
+		{
+			int b_str = n->b && n->b->kind == NdStr && n->b->type &&
+				    n->b->type->base && is_char_elem(n->b->type->base);
+			int c_str = n->c && n->c->kind == NdStr && n->c->type &&
+				    n->c->type->base && is_char_elem(n->c->type->base);
+			int b_sl = n->b && is_ranged(n->b->type) && n->b->type->base &&
+				   is_char_elem(n->b->type->base) &&
+				   (n->b->type->is_readonly || n->b->type->is_poly);
+			int c_sl = n->c && is_ranged(n->c->type) && n->c->type->base &&
+				   is_char_elem(n->c->type->base) &&
+				   (n->c->type->is_readonly || n->c->type->is_poly);
+
+			if ((b_str || b_sl) && (c_str || c_sl) && (b_sl || c_sl)) {
+				Type* sl = type_ranged_qual(c, c->types.type_char, 1);
+
+				n->b = maybe_ranged_conv(c, sl, n->b);
+				n->c = maybe_ranged_conv(c, sl, n->c);
+				n->type = sl;
+				return n;
+			}
+		}
 		lt = n->b ? decay(c, n->b->type) : NULL;
 		rt = n->c ? decay(c, n->c->type) : NULL;
 		if (is_tagged_enum(lt) || is_tagged_enum(rt)) {
