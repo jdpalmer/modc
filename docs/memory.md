@@ -149,6 +149,11 @@ void build_dataset() {
 }
 ```
 
+`push` into a pointer slice (`T*[..]`) **retains** an owned / `[[provides]]`
+element on success (`push(&items, alloc(T))`, or `if (!push(&items, p)) …`).
+A failed `push` leaves ownership with the caller. Scalar element pushes are
+unchanged (bitwise copy only).
+
 How ownership moves across calls is under
 [Ownership attributes](#ownership-attributes-provides--releases--retains).
 

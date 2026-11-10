@@ -2035,6 +2035,7 @@ static Type* call_func_type(Node* call);
 static int param_is_region(Type* ft, int i);
 static int call_provides_result(Node* call);
 static int expr_carries_owned(EscapeState* st, Node* n);
+static void esc_clear_owned_in_expr(EscapeState* st, Node* n);
 static Symbol* alias_copy_src(Node* n);
 static Symbol* owned_slice_from_ptr_expr(EscapeState* st, Node* n);
 
@@ -3014,6 +3015,98 @@ esc_apply_releases(EscapeState* st, Node* call) {
 	}
 }
 
+static int
+call_is_modc_push(Node* call) {
+	return call_name_is(call, "__modc_push") || call_name_is(call, "__modc_pool_push");
+}
+
+/* Rewritten push/pool_push: element bytes pointer is the last arg. */
+static Node*
+push_elem_arg(Node* call) {
+	if (call == NULL || !call_is_modc_push(call) || call->children_len < 1)
+		return NULL;
+	return call->children[call->children_len - 1];
+}
+
+/* T in T[..]* destination of a rewritten push, or NULL. */
+static Type*
+push_slice_elem_type(Node* call) {
+	Node* sarg;
+	Type* t;
+
+	if (call == NULL || !call_is_modc_push(call) || call->children_len < 1)
+		return NULL;
+	/* __modc_push(s, esz, elem) / __modc_pool_push(pool, s, esz, elem) */
+	sarg = call_name_is(call, "__modc_pool_push") && call->children_len >= 2
+		       ? call->children[1]
+		       : call->children[0];
+	t = sarg ? sarg->type : NULL;
+	if (t && is_ptr(t))
+		t = t->base;
+	if (t && is_ranged(t))
+		return t->base;
+	return NULL;
+}
+
+/* Owned pointer expression that push copies into a T*[..] (peels &p). */
+static Node*
+push_owned_ptr_expr(EscapeState* st, Node* call) {
+	Node* elem;
+	Type* et;
+
+	et = push_slice_elem_type(call);
+	if (et == NULL || !is_ptr(et))
+		return NULL;
+	elem = push_elem_arg(call);
+	if (elem == NULL)
+		return NULL;
+	if (elem->kind == NdAddr)
+		elem = elem->a;
+	if (!expr_carries_owned(st, elem))
+		return NULL;
+	return elem;
+}
+
+/*
+ * Successful push of an owned pointer element retains it (like a store into
+ * the slice). Scalar pushes and non-owned pointer values are unchanged.
+ */
+static void
+esc_apply_push_retain(Compiler* c, EscapeState* st, Node* call) {
+	Node* elem;
+
+	elem = push_owned_ptr_expr(st, call);
+	if (elem == NULL)
+		return;
+	if (st->diag && expr_may_stack(st, elem))
+		error_at(c, elem->span,
+			 "passing stack address to push into a pointer slice");
+	note_retains_param_bits(st, expr_param_bits(st, elem));
+	esc_clear_owned_in_expr(st, elem);
+}
+
+/* if (push(…)) / if (!push(…)) → the call, and whether the if tests failure. */
+static Node*
+cond_push_call(Node* cond, int* fail_then) {
+	if (fail_then)
+		*fail_then = 0;
+	if (cond == NULL)
+		return NULL;
+	if (cond->kind == NdCast)
+		return cond_push_call(cond->a, fail_then);
+	if (cond->kind == NdUn && cond->op == PnBang) {
+		Node* call;
+
+		call = cond_push_call(cond->a, fail_then);
+		if (call && fail_then)
+			*fail_then = !*fail_then;
+		return call;
+	}
+	if (cond->kind == NdCall && call_is_modc_push(cond))
+		return cond;
+	return NULL;
+}
+
 static void
 esc_check_call(Compiler* c, EscapeState* st, Node* call) {
 	Type* ft;
@@ -3261,6 +3354,10 @@ esc_clear_owned_in_expr(EscapeState* st, Node* n) {
 		esc_clear_owned(st, n->symbol);
 		return;
 	}
+	if (n->kind == NdAddr) {
+		esc_clear_owned_in_expr(st, n->a);
+		return;
+	}
 	if (n->kind == NdTupleLit) {
 		for (i = 0; i < n->children_len; i++)
 			esc_clear_owned_in_expr(st, n->children[i]);
@@ -3337,6 +3434,8 @@ esc_walk_rvalue(Compiler* c, EscapeState* st, Node* n) {
 		}
 		esc_walk_rvalue(c, st, n->a);
 		esc_apply_releases(st, n);
+		/* Optimistic retain; if (!push) restores owned on the failure arm. */
+		esc_apply_push_retain(c, st, n);
 		return;
 	}
 	if (n->kind == NdTupleLit) {
@@ -3515,17 +3614,29 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		int save_n = 0, then_n = 0, else_n = 0;
 		int save_on = 0, then_on = 0, else_on = 0;
 		int then_exits, else_exits;
+		int push_fail_then = 0;
 		Symbol *nullsym, *nonsym;
+		Node* pushcall;
 
-		esc_check_expr_use(c, st, n->a);
-		esc_walk_stmt(c, st, n->a);
-		save = esc_snapshot_dead(st, &save_n);
-		save_o = esc_snapshot_owned(st, &save_on);
+		pushcall = cond_push_call(n->a, &push_fail_then);
 		nullsym = cond_null_checked_sym(n->a);
 		nonsym = cond_nonnull_checked_sym(n->a);
+		/* Snapshot before cond: push in the condition retains optimistically. */
+		save = esc_snapshot_dead(st, &save_n);
+		save_o = esc_snapshot_owned(st, &save_on);
+		esc_check_expr_use(c, st, n->a);
+		esc_walk_stmt(c, st, n->a);
 		/* Null path drops ownership: then for == NULL / !p, else for != NULL. */
 		if (nullsym)
 			esc_clear_owned(st, nullsym);
+		/*
+		 * Push retain: cond walk already cleared on success. Failure arm must
+		 * restore pre-cond owned bits so a failed push still owns the elem.
+		 */
+		if (pushcall && push_fail_then)
+			esc_restore_owned(st, save_o, save_on);
+		else if (pushcall && !push_fail_then)
+			esc_apply_push_retain(c, st, pushcall);
 		esc_walk_stmt(c, st, n->b);
 		then_exits = stmt_always_exits(n->b);
 		then_dead = esc_snapshot_dead(st, &then_n);
@@ -3534,6 +3645,9 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		esc_restore_owned(st, save_o, save_on);
 		if (nonsym)
 			esc_clear_owned(st, nonsym);
+		/* if (!push(…)): else is success — retain. if (push(…)): else is failure. */
+		if (pushcall && push_fail_then)
+			esc_apply_push_retain(c, st, pushcall);
 		esc_walk_stmt(c, st, n->c);
 		else_exits = stmt_always_exits(n->c);
 		else_dead = esc_snapshot_dead(st, &else_n);
@@ -3541,6 +3655,12 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		if (then_exits && (else_exits || n->c == NULL)) {
 			esc_restore_dead(st, save, save_n);
 			esc_restore_owned(st, save_o, save_on);
+			/*
+			 * if (!push(…)) return; — fall-through is success, so retain
+			 * after restoring the pre-if owned snapshot.
+			 */
+			if (pushcall && push_fail_then && n->c == NULL && !else_exits)
+				esc_apply_push_retain(c, st, pushcall);
 		} else if (then_exits) {
 			esc_restore_dead(st, else_dead, else_n);
 			esc_restore_owned(st, else_o, else_on);
@@ -3551,9 +3671,10 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 			/*
 			 * Implicit else is the false branch. For p != NULL, nonsym
 			 * already cleared owned before the empty else snapshot.
+			 * For !push, retain was applied before the empty else walk.
 			 */
 			esc_union_dead(st, save, save_n, then_dead, then_n);
-			if (nonsym)
+			if (nonsym || (pushcall && push_fail_then))
 				esc_union_owned(st, else_o, else_on, then_o, then_on);
 			else
 				esc_union_owned(st, save_o, save_on, then_o, then_on);

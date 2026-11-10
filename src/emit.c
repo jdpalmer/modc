@@ -1956,8 +1956,10 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 				args[i] = slot;
 				continue;
 			}
-			/* push elem by value → temp + pointer */
-			if (spill_elem && i == na - 1 && at && !is_ptr(at)) {
+			/* push elem → pointer to element bytes. Lvalues are already
+			 * &elem from type.c; pointer rvalues (alloc(T)) need a spill. */
+			if (spill_elem && i == na - 1 && at &&
+			    !(arg->kind == NdAddr)) {
 				Val slot, rv;
 				int w;
 
