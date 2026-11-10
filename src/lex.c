@@ -36,6 +36,7 @@ static const char* kwname[] = {
     "int",
     "long",
     "overload",
+    "pool",
     "register",
     "restrict",
     "return",

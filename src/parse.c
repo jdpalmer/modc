@@ -16,6 +16,8 @@
 
 static int switch_depth;
 static int loop_depth;
+/* Nested `pool name { }` statements; freestanding Pool locals are rejected outside. */
+static int pool_stmt_depth;
 /* `const` / `const?` before a declarator: apply to the first pointer / ranged level. */
 static int pending_pointee_const;
 static int pending_poly;
@@ -1723,6 +1725,16 @@ parse_destruct_decl(Compiler* c, Span sp, int allauto) {
 	outer->int_val = c->syms.block;
 	snprintf(tname, sizeof(tname), "__td%d", ntmp++);
 	tmp = symbol_define(c, tname, SkVar, tuplety, StLocal, sp);
+	/* All-blank `auto (_, _) = call;` still evaluates rhs; value is unused. */
+	{
+		int any_bind = 0;
+
+		for (i = 0; i < n; i++)
+			if (!(binds[i].name && strcmp(binds[i].name, "_") == 0))
+				any_bind = 1;
+		if (!any_bind)
+			tmp->maybe_unused = 1;
+	}
 	d = node(NdDecl, sp);
 	d->symbol = tmp;
 	d->type = tuplety;
@@ -1999,8 +2011,14 @@ parse_primary(Compiler* c) {
 		take(c);
 		n = node(NdName, t->span);
 		n->s = t->s;
-		/* Builtins len()/cap()/ptr()/ranged() may be undeclared; user defs still bind. */
-		if (t->s && (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0 || strcmp(t->s, "cap") == 0 || strcmp(t->s, "ptr") == 0) && at(c, PnLparen)) {
+		/* Builtins may be undeclared; user defs still bind. */
+		if (t->s &&
+		    (strcmp(t->s, "ranged") == 0 || strcmp(t->s, "len") == 0 ||
+		     strcmp(t->s, "cap") == 0 || strcmp(t->s, "cstr") == 0 ||
+		     strcmp(t->s, "alloc") == 0 || strcmp(t->s, "reserve") == 0 ||
+		     strcmp(t->s, "push") == 0 || strcmp(t->s, "append") == 0 ||
+		     strcmp(t->s, "release") == 0) &&
+		    at(c, PnLparen)) {
 			s = symbol_lookup(c, t->s);
 			if (s) {
 				n->symbol = s;
@@ -2108,10 +2126,22 @@ parse_postfix(Compiler* c, Node* n) {
 			continue;
 		}
 		if (eat(c, PnLparen)) {
+			int allow_type =
+				n && n->kind == NdName && n->s && strcmp(n->s, "alloc") == 0;
+			int first = 1;
+
 			call = node1(NdCall, sp, n);
 			if (!at(c, PnRparen)) {
 				for (;;) {
-					node_add(call, type_expr(c, parse_assign(c)));
+					if (allow_type && first && is_typename(c)) {
+						Node* targ;
+
+						targ = node(NdTypeArg, peek(c)->span);
+						targ->type = parse_typename(c);
+						node_add(call, targ);
+					} else
+						node_add(call, type_expr(c, parse_assign(c)));
+					first = 0;
 					if (!eat(c, PnComma))
 						break;
 				}
@@ -2131,13 +2161,23 @@ parse_postfix(Compiler* c, Node* n) {
 			t = take(c);
 			if (!arrow && at(c, PnLparen)) {
 				Node* call;
+				int allow_type = t->s && strcmp(t->s, "alloc") == 0;
+				int first = 1;
 
 				call = node1(NdCall, sp, node1(NdMethod, sp, n));
 				call->a->s = t->s;
 				take(c);
 				if (!at(c, PnRparen)) {
 					for (;;) {
-						node_add(call, type_expr(c, parse_assign(c)));
+						if (allow_type && first && is_typename(c)) {
+							Node* targ;
+
+							targ = node(NdTypeArg, peek(c)->span);
+							targ->type = parse_typename(c);
+							node_add(call, targ);
+						} else
+							node_add(call, type_expr(c, parse_assign(c)));
+						first = 0;
 						if (!eat(c, PnComma))
 							break;
 					}
@@ -3385,6 +3425,59 @@ parse_stmt(Compiler* c) {
 		expect(c, PnSemi, "';'");
 		return node(NdContinue, sp);
 	}
+	if (eatkw(c, KwPool)) {
+		Tok* id;
+		Symbol* ps;
+		Node *blk, *decl, *def, *call, *meth, *nm;
+		Initializer* in;
+
+		if (peek(c)->kind != TkIdent) {
+			error_tok(c, peek(c), "expected pool name");
+			return node(NdSkip, sp);
+		}
+		id = take(c);
+		if (!at(c, PnLbrace)) {
+			error_tok(c, peek(c), "expected '{' after pool name");
+			return node(NdSkip, sp);
+		}
+		symbol_push_block(c);
+		blk = node(NdBlock, sp);
+		blk->int_val = c->syms.block;
+		blk->scope = c->syms.current_scope;
+		c->syms.current_scope = blk;
+		pool_stmt_depth++;
+		ps = symbol_define(c, id->s, SkVar, c->types.type_pool, StLocal, id->span);
+		decl = node(NdDecl, id->span);
+		decl->symbol = ps;
+		decl->type = c->types.type_pool;
+		in = xmalloc(sizeof(*in));
+		memset(in, 0, sizeof(*in));
+		in->is_list = 1;
+		decl->init = in;
+		node_add(blk, decl);
+		/* defer p.free(); — typecheck now so Pool.free lowers to __modc_pool_free. */
+		nm = mknames(ps, id->span);
+		meth = node(NdMethod, id->span);
+		meth->a = nm;
+		meth->s = xstrdup("free");
+		call = node1(NdCall, id->span, meth);
+		call = type_expr(c, call);
+		def = node(NdDefer, id->span);
+		def->scope = blk;
+		def->a = call;
+		node_add(blk, def);
+		take(c); /* { */
+		while (!at(c, PnRbrace) && peek(c)->kind != TkEof && !c->diag.fatal) {
+			n = parse_stmt(c);
+			if (n)
+				node_add(blk, n);
+		}
+		expect(c, PnRbrace, "'}'");
+		pool_stmt_depth--;
+		c->syms.current_scope = blk->scope;
+		symbol_pop_block(c);
+		return blk;
+	}
 	if (eatkw(c, KwDefer)) {
 		n = node(NdDefer, sp);
 		n->scope = c->syms.current_scope;
@@ -3790,6 +3883,9 @@ parse_local_decl_attrs(Compiler* c, Node* blk, unsigned attrs) {
 		} else {
 			int st = storage == StStatic ? StStatic : StLocal;
 
+			if (ty == c->types.type_pool && pool_stmt_depth == 0)
+				error_at(c, sp,
+					 "Pool variables must be created with 'pool name { ... }'");
 			s = symbol_define(c, name, SkVar, ty, st, sp);
 			apply_decl_attrs(s, attrs);
 			d = node(NdDecl, sp);

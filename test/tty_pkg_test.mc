@@ -3,29 +3,17 @@ import "fs";
 #include <stddef.h>
 
 int test_stdio_borrow() {
-	File in = { 0 };
-	File out = { 0 };
-	File err = { 0 };
-	{
-		auto (f, ok) = tty_stdin();
-		if (!ok) {
-			return 1;
-		}
-		in = f;
+	auto (in, ok_in) = tty_stdin();
+	if (!ok_in) {
+		return 1;
 	}
-	{
-		auto (f, ok) = tty_stdout();
-		if (!ok) {
-			return 2;
-		}
-		out = f;
+	auto (out, ok_out) = tty_stdout();
+	if (!ok_out) {
+		return 2;
 	}
-	{
-		auto (f, ok) = tty_stderr();
-		if (!ok) {
-			return 3;
-		}
-		err = f;
+	auto (err, ok_err) = tty_stderr();
+	if (!ok_err) {
+		return 3;
 	}
 	/* close must not close the process stdio descriptors */
 	in.close();
@@ -42,13 +30,9 @@ int test_stdio_borrow() {
 }
 
 int test_isatty_size() {
-	File in = { 0 };
-	{
-		auto (f, ok) = tty_stdin();
-		if (!ok) {
-			return 1;
-		}
-		in = f;
+	auto (in, ok_in) = tty_stdin();
+	if (!ok_in) {
+		return 1;
 	}
 	{
 		bool is_tty = tty_isatty(&in);
@@ -68,13 +52,9 @@ int test_isatty_size() {
 }
 
 int test_raw_cooked() {
-	File in = { 0 };
-	{
-		auto (f, ok) = tty_stdin();
-		if (!ok) {
-			return 1;
-		}
-		in = f;
+	auto (in, ok_in) = tty_stdin();
+	if (!ok_in) {
+		return 1;
 	}
 	if (!tty_isatty(&in)) {
 		in.close();

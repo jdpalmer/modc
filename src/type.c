@@ -102,6 +102,41 @@ void type_init(Compiler* c) {
 	c->types.type_double = mkprim(c, TyDouble, 8, 8, 0);
 	c->types.type_bool = mkprim(c, TyBool, 1, 1, 0);
 	c->types.type_void_ptr = type_ptr(c, c->types.type_void);
+	/* Builtin Pool: { char *base; size_t cap; size_t off } — matches crash __modc_pool. */
+	{
+		Type* t;
+		Field *base, *cap, *off;
+		Symbol* s;
+		Span sp = {0};
+
+		t = type_new(c, TyStruct);
+		t->tag = xstrdup("Pool");
+		t->complete = 1;
+		base = xmalloc(sizeof(*base));
+		memset(base, 0, sizeof(*base));
+		base->name = xstrdup("base");
+		base->type = type_ptr(c, c->types.type_char);
+		cap = xmalloc(sizeof(*cap));
+		memset(cap, 0, sizeof(*cap));
+		cap->name = xstrdup("cap");
+		cap->type = c->types.type_ullong;
+		off = xmalloc(sizeof(*off));
+		memset(off, 0, sizeof(*off));
+		off->name = xstrdup("off");
+		off->type = c->types.type_ullong;
+		base->next = cap;
+		cap->next = off;
+		t->fields = base;
+		type_layout(c, t);
+		c->types.type_pool = t;
+		/* Always-visible builtin typedef — not owned by any package (home ""). */
+		s = symbol_define(c, "Pool", SkTypedef, t, StTypedef, sp);
+		if (s) {
+			s->header = 0;
+			free(s->home);
+			s->home = xstrdup("");
+		}
+	}
 	/* Poison: complete/laid out so size/align queries are safe during recovery. */
 	c->types.type_error = mkprim(c, TyError, 0, 1, 0);
 	c->types.type_error->complete = 1;
@@ -1013,6 +1048,11 @@ int_lit_fits_type(Type* t, int64_t v) {
 	return v >= min && v <= max;
 }
 
+static int
+is_char_elem(Type* t) {
+	return t && (t->kind == TyChar || t->kind == TyUChar);
+}
+
 // Whether an implicit conversion from src to dst is allowed for this expression.
 int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 	Type *from, *to;
@@ -1099,6 +1139,10 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 	}
 	if (is_ptr(to) && is_ranged(from) && from->base &&
 	    (type_eq(to->base, from->base) || to->base->kind == TyVoid)) {
+		/* char[..] → char* is never implicit (cstr / pool.cstr). */
+		if (to->base->kind != TyVoid && is_char_elem(from->base) &&
+		    is_char_elem(to->base))
+			return 0;
 		if (to->is_poly)
 			return 1;
 		if (from->is_readonly && !to->is_readonly && to->base->kind != TyVoid)
@@ -1320,7 +1364,27 @@ maybe_ranged_conv(Compiler* c, Type* dst, Node* src) {
 	return src;
 }
 
+/* Synthetic .ptr for internal lowering (user ptr() builtin is removed). */
+static Node*
+synth_ranged_ptr(Compiler* c, Node* src) {
+	Node* d;
+
+	if (src == NULL || src->type == NULL || !is_ranged(src->type) || !src->type->base)
+		return src;
+	d = node(NdDot, src->span);
+	d->a = src;
+	d->s = "ptr";
+	d->type = type_ptr(c, src->type->base);
+	if (src->type->is_readonly || src->type->is_poly)
+		d->type->is_readonly = 1;
+	d->int_val = 0;
+	d->is_lvalue = 0;
+	d->is_synth = 1;
+	return d;
+}
+
 // Take .ptr when a ranged value is used where T* or void* is expected.
+// char[..] / uchar[..] do NOT decay to char* (use cstr / pool.cstr); void* OK.
 static Node*
 maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 	Node* d;
@@ -1334,17 +1398,13 @@ maybe_ranged_decay(Compiler* c, Type* dst, Node* src) {
 	/* Element pointer or void* (memcpy/memcmp). */
 	if (!type_eq(dst->base, src->type->base) && dst->base->kind != TyVoid)
 		return src;
-	d = node(NdDot, src->span);
-	d->a = src;
-	d->s = "ptr";
-	d->type = type_ptr(c, src->type->base);
-	if (src->type->is_readonly)
-		d->type->is_readonly = 1;
+	/* Ban char[..] → char* — C-string sinks need cstr / pool.cstr. */
+	if (dst->base->kind != TyVoid && is_char_elem(src->type->base) &&
+	    is_char_elem(dst->base))
+		return src;
+	d = synth_ranged_ptr(c, src);
 	if (dst->base->kind == TyVoid)
 		d->type = dst;
-	d->int_val = 0;
-	d->is_lvalue = 0;
-	d->is_synth = 1;
 	return d;
 }
 
@@ -1433,6 +1493,13 @@ void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src) {
 	}
 	if (from && conv_implicit_ok(c, dst, from, src))
 		return;
+	if (src->type && is_ranged(src->type) && is_char_elem(src->type->base) &&
+	    is_ptr(dst) && is_char_elem(dst->base)) {
+		error_at(c, sp,
+			 "cannot pass char[..] to %s; use cstr() or pool.cstr() for a NUL C string",
+			 type_name(dst));
+		return;
+	}
 	error_at(c, sp, "implicit conversion from %s to %s requires a cast",
 		 type_name(from), type_name(dst));
 }
@@ -2054,6 +2121,264 @@ void mark_symbol_used(Node* n);
 static Node* type_expr_call(Compiler* c, Node* n);
 static Type* instantiate_poly_return(Compiler* c, Type* ft, Node** args, int nargs);
 
+static int
+is_pool_type(Compiler* c, Type* t) {
+	if (t && is_ptr(t))
+		t = t->base;
+	return t != NULL && t == c->types.type_pool;
+}
+
+static Node*
+mk_rt_name(Span sp, const char* name) {
+	Node* nm;
+
+	nm = node(NdName, sp);
+	nm->s = xstrdup(name);
+	return nm;
+}
+
+static Node*
+mk_size_lit(Compiler* c, Span sp, int sz) {
+	Node* lit;
+
+	lit = node(NdLit, sp);
+	lit->int_val = sz < 0 ? 0 : sz;
+	lit->type = c->types.type_ullong;
+	return lit;
+}
+
+/* Coerce string/array/T[..] into a T[..] value so emit can spill a header ptr. */
+static Node*
+coerce_slice_arg(Compiler* c, Node* a, Type* elem) {
+	Type* want;
+
+	if (a == NULL || elem == NULL)
+		return a;
+	if (a->type && is_ptr(a->type) && is_ranged(a->type->base))
+		return a;
+	want = type_ranged_qual(c, elem, 1);
+	a = maybe_ranged_conv(c, want, a);
+	if (a && is_ranged(a->type) && a->is_lvalue) {
+		a = node1(NdAddr, a->span, a);
+		a = type_expr(c, a);
+	}
+	return a;
+}
+
+/* Validate T for alloc(T) / alloc(T, n). Returns 0 and errors on bad T. */
+static int
+alloc_type_ok(Compiler* c, Type* t, Span sp) {
+	int sz;
+
+	if (t == NULL || is_error(t))
+		return 0;
+	if (t->kind == TyVoid) {
+		error_at(c, sp, "cannot alloc void");
+		return 0;
+	}
+	if (t->kind == TyFunc) {
+		error_at(c, sp, "cannot alloc a function type");
+		return 0;
+	}
+	sz = type_size(c, t);
+	if (sz <= 0) {
+		error_at(c, sp, "cannot alloc incomplete or zero-sized type");
+		return 0;
+	}
+	return 1;
+}
+
+/* Pool builtin methods → __modc_pool_* runtime calls (crash package). */
+static Node*
+lower_pool_method(Compiler* c, Node* n, Node* recv, const char* method) {
+	Node *call, *nm, *a0, *a1, *a2, *a3, *esz;
+	Type *et, *st;
+	int i, nargs;
+	const char* rt;
+
+	nargs = n->children_len;
+	for (i = 0; i < nargs; i++)
+		if (n->children[i])
+			n->children[i] = type_expr(c, n->children[i]);
+
+	if (strcmp(method, "free") == 0) {
+		if (nargs != 0)
+			error_at(c, n->span, "Pool.free takes no arguments");
+		nm = mk_rt_name(n->span, "__modc_pool_free");
+		call = node1(NdCall, n->span, nm);
+		node_add(call, recv);
+		call->type = c->types.type_void;
+		return call;
+	}
+	if (strcmp(method, "reset") == 0) {
+		if (nargs != 0)
+			error_at(c, n->span, "Pool.reset takes no arguments");
+		nm = mk_rt_name(n->span, "__modc_pool_reset");
+		call = node1(NdCall, n->span, nm);
+		node_add(call, recv);
+		call->type = c->types.type_void;
+		return call;
+	}
+	if (strcmp(method, "cstr") == 0) {
+		if (nargs != 1)
+			error_at(c, n->span, "Pool.cstr takes one argument");
+		a0 = n->children_len > 0 ? n->children[0] : NULL;
+		st = a0 ? a0->type : NULL;
+		if (st && is_array(st) && st->base && is_char_elem(st->base))
+			; /* string lit / fixed — ok via ranged conv at call */
+		else if (!is_ranged(st) || st->base == NULL || !is_char_elem(st->base))
+			error_at(c, n->span, "Pool.cstr requires char[..]");
+		nm = mk_rt_name(n->span, "__modc_pool_cstr");
+		call = node1(NdCall, n->span, nm);
+		node_add(call, recv);
+		if (a0 && a0->is_lvalue) {
+			a0 = node1(NdAddr, n->span, a0);
+			a0 = type_expr(c, a0);
+		}
+		node_add(call, a0);
+		call->type = type_ptr(c, c->types.type_char);
+		return call;
+	}
+	if (strcmp(method, "alloc") == 0) {
+		Node *targ, *narg, *al;
+
+		if (nargs != 1 && nargs != 2)
+			error_at(c, n->span, "Pool.alloc takes (T) or (T, n)");
+		targ = nargs > 0 ? n->children[0] : NULL;
+		if (targ == NULL || targ->kind != NdTypeArg || targ->type == NULL) {
+			error_at(c, n->span, "Pool.alloc requires a type as its first argument");
+			n->type = type_ptr(c, c->types.type_void);
+			return n;
+		}
+		et = targ->type;
+		if (!alloc_type_ok(c, et, n->span)) {
+			n->type = type_ptr(c, c->types.type_void);
+			return n;
+		}
+		esz = mk_size_lit(c, n->span, type_size(c, et));
+		al = mk_size_lit(c, n->span, type_align(c, et));
+		if (nargs == 1) {
+			nm = mk_rt_name(n->span, "__modc_pool_alloc_ptr");
+			call = node1(NdCall, n->span, nm);
+			node_add(call, recv);
+			node_add(call, esz);
+			node_add(call, al);
+			call->type = type_ptr(c, et);
+			return call;
+		}
+		narg = n->children[1];
+		if (narg && narg->type && !is_int(narg->type) && !is_error(narg->type))
+			error_at(c, n->span, "Pool.alloc count must be an integer");
+		nm = mk_rt_name(n->span, "__modc_pool_alloc_slice");
+		call = node1(NdCall, n->span, nm);
+		node_add(call, recv);
+		node_add(call, esz);
+		node_add(call, narg);
+		node_add(call, al);
+		call->type = type_ranged(c, et);
+		return call;
+	}
+	if (strcmp(method, "copy") == 0 || strcmp(method, "append") == 0 ||
+	    strcmp(method, "push") == 0) {
+		if (strcmp(method, "push") == 0) {
+			if (nargs != 2)
+				error_at(c, n->span, "Pool.push takes (T[..]* dst, T elem)");
+		} else {
+			if (nargs != 2)
+				error_at(c, n->span, "Pool.%s takes (T[..]* dst, …)", method);
+		}
+		a0 = n->children_len > 0 ? n->children[0] : NULL;
+		a1 = n->children_len > 1 ? n->children[1] : NULL;
+		st = a0 ? a0->type : NULL;
+		if (st && is_ptr(st))
+			st = st->base;
+		if (!is_ranged(st) || st->base == NULL) {
+			error_at(c, n->span, "Pool.%s requires a T[..]* destination", method);
+			n->type = c->types.type_bool;
+			return n;
+		}
+		if (st->is_readonly)
+			error_at(c, n->span, "cannot grow a const T[..]");
+		et = st->base;
+		esz = mk_size_lit(c, n->span, type_size(c, et));
+		if (strcmp(method, "copy") == 0) {
+			rt = "__modc_pool_copy";
+			a1 = coerce_slice_arg(c, a1, et);
+		} else if (strcmp(method, "append") == 0) {
+			rt = "__modc_pool_append";
+			a1 = coerce_slice_arg(c, a1, et);
+		} else {
+			rt = "__modc_pool_push";
+			if (a1 && a1->is_lvalue) {
+				a1 = node1(NdAddr, n->span, a1);
+				a1 = type_expr(c, a1);
+			} else if (a1) {
+				/* Emit spills non-lvalue elems into a temp. */
+				a1->is_lvalue = 0;
+			}
+		}
+		nm = mk_rt_name(n->span, rt);
+		call = node1(NdCall, n->span, nm);
+		node_add(call, recv);
+		node_add(call, a0);
+		node_add(call, esz);
+		node_add(call, a1);
+		call->type = c->types.type_bool;
+		return call;
+	}
+	if (strcmp(method, "join") == 0) {
+		if (nargs != 4)
+			error_at(c, n->span,
+				 "Pool.join takes (char[..]* dst, sep, parts, nparts)");
+		a0 = n->children_len > 0 ? n->children[0] : NULL;
+		a1 = n->children_len > 1 ? n->children[1] : NULL;
+		a2 = n->children_len > 2 ? n->children[2] : NULL;
+		a3 = n->children_len > 3 ? n->children[3] : NULL;
+		st = a0 && is_ptr(a0->type) ? a0->type->base : (a0 ? a0->type : NULL);
+		if (!is_ranged(st) || !st->base ||
+		    (st->base->kind != TyChar && st->base->kind != TyUChar))
+			error_at(c, n->span, "Pool.join requires char[..]* destination");
+		a1 = coerce_slice_arg(c, a1, c->types.type_char);
+		nm = mk_rt_name(n->span, "__modc_pool_join");
+		call = node1(NdCall, n->span, nm);
+		node_add(call, recv);
+		node_add(call, a0);
+		node_add(call, a1);
+		node_add(call, a2);
+		node_add(call, a3);
+		call->type = c->types.type_bool;
+		return call;
+	}
+	if (strcmp(method, "replace") == 0) {
+		if (nargs != 4)
+			error_at(c, n->span,
+				 "Pool.replace takes (char[..]* dst, src, old, new)");
+		a0 = n->children_len > 0 ? n->children[0] : NULL;
+		a1 = n->children_len > 1 ? n->children[1] : NULL;
+		a2 = n->children_len > 2 ? n->children[2] : NULL;
+		a3 = n->children_len > 3 ? n->children[3] : NULL;
+		st = a0 && is_ptr(a0->type) ? a0->type->base : (a0 ? a0->type : NULL);
+		if (!is_ranged(st) || !st->base ||
+		    (st->base->kind != TyChar && st->base->kind != TyUChar))
+			error_at(c, n->span, "Pool.replace requires char[..]* destination");
+		a1 = coerce_slice_arg(c, a1, c->types.type_char);
+		a2 = coerce_slice_arg(c, a2, c->types.type_char);
+		a3 = coerce_slice_arg(c, a3, c->types.type_char);
+		nm = mk_rt_name(n->span, "__modc_pool_replace");
+		call = node1(NdCall, n->span, nm);
+		node_add(call, recv);
+		node_add(call, a0);
+		node_add(call, a1);
+		node_add(call, a2);
+		node_add(call, a3);
+		call->type = c->types.type_bool;
+		return call;
+	}
+	error_at(c, n->span, "no method named %s for Pool", method);
+	n->type = c->types.type_void;
+	return n;
+}
+
 // Rewrite a method call into an ordinary call with receiver as first arg.
 static Node*
 lower_method_call(Compiler* c, Node* n) {
@@ -2078,6 +2403,8 @@ lower_method_call(Compiler* c, Node* n) {
 		recv = node1(NdAddr, n->span, recv);
 		recv = type_expr(c, recv);
 	}
+	if (is_pool_type(c, recv->type))
+		return lower_pool_method(c, n, recv, n->a->s);
 	sym = symbol_resolve_method_call(c, recv->type, n->a->s, n->span);
 	if (sym == NULL)
 		return n;
@@ -2185,6 +2512,10 @@ type_expr_call(Compiler* c, Node* n) {
 		error_at(c, n->span, "calls are limited to %d arguments", MaxParams);
 	if (n->a && n->a->kind == NdMethod)
 		return lower_method_call(c, n);
+	/* Already-lowered runtime helpers keep their type (NdCall re-enters type_expr). */
+	if (n->type && n->a && n->a->kind == NdName && n->a->s &&
+	    strncmp(n->a->s, "__modc_", 7) == 0 && !n->a->symbol)
+		return n;
 	n->a = type_expr(c, n->a);
 	if (is_error(n->a ? n->a->type : NULL)) {
 		for (i = 0; i < n->children_len; i++)
@@ -2229,6 +2560,112 @@ type_expr_call(Compiler* c, Node* n) {
 			n->type = c->types.type_int;
 		return n;
 	}
+	/* Heap alloc(T) / alloc(T, n) — user symbols named alloc win (Go-style). */
+	if (bn && strcmp(bn, "alloc") == 0 && !(n->a && n->a->symbol)) {
+		Node *targ, *narg, *esz, *nm, *call;
+		Type* et;
+
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i] && n->children[i]->kind != NdTypeArg)
+				n->children[i] = type_expr(c, n->children[i]);
+		if (n->children_len != 1 && n->children_len != 2)
+			error_at(c, n->span, "alloc takes (T) or (T, n)");
+		targ = n->children_len > 0 ? n->children[0] : NULL;
+		if (targ == NULL || targ->kind != NdTypeArg || targ->type == NULL) {
+			error_at(c, n->span, "alloc requires a type as its first argument");
+			n->type = type_ptr(c, c->types.type_void);
+			return n;
+		}
+		et = targ->type;
+		if (!alloc_type_ok(c, et, n->span)) {
+			n->type = type_ptr(c, c->types.type_void);
+			return n;
+		}
+		esz = mk_size_lit(c, n->span, type_size(c, et));
+		if (n->children_len == 1) {
+			nm = mk_rt_name(n->span, "__modc_alloc");
+			call = node1(NdCall, n->span, nm);
+			node_add(call, esz);
+			call->type = type_ptr(c, et);
+			return call;
+		}
+		narg = n->children[1];
+		if (narg && narg->type && !is_int(narg->type) && !is_error(narg->type))
+			error_at(c, n->span, "alloc count must be an integer");
+		nm = mk_rt_name(n->span, "__modc_alloc_slice");
+		call = node1(NdCall, n->span, nm);
+		node_add(call, esz);
+		node_add(call, narg);
+		call->type = type_ranged(c, et);
+		return call;
+	}
+	/* Heap T[..] builtins — user symbols named the same win (Go-style). */
+	if (bn && !(n->a && n->a->symbol) &&
+	    (strcmp(bn, "reserve") == 0 || strcmp(bn, "push") == 0 ||
+	     strcmp(bn, "append") == 0 || strcmp(bn, "release") == 0)) {
+		Node *sarg, *a1, *esz, *nm, *call;
+		Type *st, *et;
+		const char* rt;
+
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i])
+				n->children[i] = type_expr(c, n->children[i]);
+		if (strcmp(bn, "release") == 0) {
+			if (n->children_len != 1)
+				error_at(c, n->span, "release() takes one argument");
+			sarg = n->children_len > 0 ? n->children[0] : NULL;
+			st = sarg ? sarg->type : NULL;
+			if (st && is_ptr(st))
+				st = st->base;
+			if (sarg && st && !is_ranged(st) && !is_error(st))
+				error_at(c, n->span, "release() requires a T[..]*");
+			nm = mk_rt_name(n->span, "__modc_release");
+			call = node1(NdCall, n->span, nm);
+			node_add(call, sarg);
+			call->type = c->types.type_void;
+			return call;
+		}
+		if (strcmp(bn, "reserve") == 0) {
+			if (n->children_len != 2)
+				error_at(c, n->span, "reserve() takes (T[..]* s, size_t need)");
+			rt = "__modc_reserve";
+		} else if (strcmp(bn, "push") == 0) {
+			if (n->children_len != 2)
+				error_at(c, n->span, "push() takes (T[..]* s, T elem)");
+			rt = "__modc_push";
+		} else {
+			if (n->children_len != 2)
+				error_at(c, n->span, "append() takes (T[..]* s, const T[..] extra)");
+			rt = "__modc_append";
+		}
+		sarg = n->children_len > 0 ? n->children[0] : NULL;
+		a1 = n->children_len > 1 ? n->children[1] : NULL;
+		st = sarg ? sarg->type : NULL;
+		if (st && is_ptr(st))
+			st = st->base;
+		if (!is_ranged(st) || st->base == NULL) {
+			error_at(c, n->span, "%s() requires a T[..]*", bn);
+			n->type = c->types.type_bool;
+			return n;
+		}
+		if (st->is_readonly)
+			error_at(c, n->span, "cannot grow a const T[..]");
+		et = st->base;
+		esz = mk_size_lit(c, n->span, type_size(c, et));
+		if (strcmp(bn, "append") == 0)
+			a1 = coerce_slice_arg(c, a1, et);
+		else if (strcmp(bn, "push") == 0 && a1 && a1->is_lvalue) {
+			a1 = node1(NdAddr, n->span, a1);
+			a1 = type_expr(c, a1);
+		}
+		nm = mk_rt_name(n->span, rt);
+		call = node1(NdCall, n->span, nm);
+		node_add(call, sarg);
+		node_add(call, esz);
+		node_add(call, a1);
+		call->type = c->types.type_bool;
+		return call;
+	}
 	/* User funcs/methods named len/cap/ranged win over the builtins. */
 	if (bn && strcmp(bn, "ranged") == 0 && !(n->a && n->a->symbol)) {
 		Node *x, *y, *z;
@@ -2254,6 +2691,20 @@ type_expr_call(Compiler* c, Node* n) {
 			x = n->children[0];
 			y = n->children[1];
 			z = n->children_len == 3 ? n->children[2] : NULL;
+			/* Rebind: ranged(slice, len[, cap]) keeps the same base pointer. */
+			if (x && is_ranged(x->type) && x->type->base) {
+				et = x->type->base;
+				if (y && y->type && !is_int(y->type))
+					error_at(c, n->span, "ranged() length must be an integer");
+				if (z && z->type && !is_int(z->type))
+					error_at(c, n->span, "ranged() capacity must be an integer");
+				if (z && eval_const(c, y, &lv) && eval_const(c, z, &cv) && lv > cv)
+					error_at(c, n->span, "ranged() length exceeds capacity");
+				n->children[0] = synth_ranged_ptr(c, x);
+				n->type = type_ranged_qual(c, et,
+							    x->type->is_readonly || x->type->is_poly);
+				return n;
+			}
 			pt = x ? decay(c, x->type) : NULL;
 			if (pt && is_ptr(pt) && pt->base) {
 				et = pt->base;
@@ -2266,7 +2717,8 @@ type_expr_call(Compiler* c, Node* n) {
 				n->type = type_ranged(c, et);
 				return n;
 			}
-			error_at(c, n->span, "ranged() with two or three arguments requires a pointer");
+			error_at(c, n->span,
+				 "ranged() with two or three arguments requires a pointer or T[..]");
 			n->type = type_ranged(c, c->types.type_int);
 			return n;
 		}
@@ -2368,53 +2820,145 @@ type_expr_call(Compiler* c, Node* n) {
 		n->type = c->types.type_ullong;
 		return n;
 	}
-	if (bn && strcmp(bn, "ptr") == 0 && !(n->a && n->a->symbol)) {
-		Node* x;
+	/* Heap cstr(s) → char* (NUL C string). Literals lower to the backing address. */
+	if (bn && strcmp(bn, "cstr") == 0 && !(n->a && n->a->symbol)) {
+		Node *x, *nm, *call, *a0;
 		Type* lt;
 
-		if (n->children_len != 1) {
-			error_at(c, n->span, "ptr() takes one argument");
-			n->type = c->types.type_void_ptr;
-			return n;
-		}
-		if (n->children[0])
-			n->children[0] = type_expr(c, n->children[0]);
-		x = n->children[0];
+		if (n->children_len != 1)
+			error_at(c, n->span, "cstr() takes one argument");
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i])
+				n->children[i] = type_expr(c, n->children[i]);
+		x = n->children_len > 0 ? n->children[0] : NULL;
 		lt = x ? x->type : NULL;
-		if (is_ranged(lt) && lt->base) {
-			n->type = type_ptr(c, lt->base);
-			if (lt->is_readonly || lt->is_poly)
-				n->type->is_readonly = 1;
+		if (x && x->kind == NdStr && lt && lt->base && is_char_elem(lt->base)) {
+			/* Literal backing includes NUL — no alloc. */
+			x = node1(NdCast, n->span, x);
+			x->type = type_ptr(c, c->types.type_char);
+			return type_expr(c, x);
+		}
+		if (lt && is_array(lt) && lt->base && is_char_elem(lt->base)) {
+			/* Fixed char[N] decays to pointer (may not be NUL — caller asserts). */
+			x = node1(NdCast, n->span, x);
+			x->type = type_ptr(c, c->types.type_char);
+			return type_expr(c, x);
+		}
+		if (!is_ranged(lt) || !lt->base || !is_char_elem(lt->base)) {
+			error_at(c, n->span, "cstr() requires char[..]");
+			n->type = type_ptr(c, c->types.type_char);
 			return n;
 		}
-		if (is_array(lt) && lt->base) {
-			n->type = type_ptr(c, lt->base);
-			if (lt->is_readonly)
-				n->type->is_readonly = 1;
-			return n;
+		nm = mk_rt_name(n->span, "__modc_cstr");
+		call = node1(NdCall, n->span, nm);
+		a0 = x;
+		if (a0 && a0->is_lvalue) {
+			a0 = node1(NdAddr, n->span, a0);
+			a0 = type_expr(c, a0);
 		}
-		{
-			Type *ag, *rg;
-			int er;
-			int off;
+		node_add(call, a0);
+		call->type = type_ptr(c, c->types.type_char);
+		return call;
+	}
+	/* libc string queries: length-aware when args are char[..] / literals.
+	 * Intercept even when <string.h> bound the name — slice args must not
+	 * fall through to const char* (banned decay). */
+	if (bn && (strcmp(bn, "strlen") == 0 || strcmp(bn, "strcmp") == 0 ||
+		   strcmp(bn, "strncmp") == 0 || strcmp(bn, "puts") == 0)) {
+		Node *a, *b, *nn, *nm, *call;
+		int all_slice = 1;
 
-			ag = field_lhs(lt);
-			er = ag ? anon_embed_unique_ranged(ag, &rg, &off) : 0;
-			if (er == 2) {
-				error_at(c, n->span,
-					 "ambiguous anonymous embed for ptr()");
-				n->type = c->types.type_void_ptr;
-				return n;
+		for (i = 0; i < n->children_len; i++)
+			if (n->children[i])
+				n->children[i] = type_expr(c, n->children[i]);
+		for (i = 0; i < n->children_len; i++) {
+			a = n->children[i];
+			if (strcmp(bn, "strncmp") == 0 && i == 2)
+				continue;
+			if (a == NULL || a->type == NULL) {
+				all_slice = 0;
+				break;
 			}
-			if (er == 1 && rg && rg->base) {
-				check_embed_ranged_null(c, n->span, x);
-				n->type = type_ptr(c, rg->base);
-				return n;
-			}
+			/* Literals and char[..] only — fixed char[N] keeps libc
+			 * NUL-terminated semantics (buffer capacity ≠ string length). */
+			if (a->kind == NdStr)
+				continue;
+			if (is_ranged(a->type) && is_char_elem(a->type->base))
+				continue;
+			all_slice = 0;
+			break;
 		}
-		error_at(c, n->span, "ptr() requires a fixed or ranged array");
-		n->type = c->types.type_void_ptr;
-		return n;
+		if (all_slice && strcmp(bn, "strlen") == 0 && n->children_len == 1) {
+			a = n->children[0];
+			/* Literals include a trailing NUL in type len; convert to
+			 * char[..] so len matches C strlen / slice semantics. */
+			if (a && !is_ranged(a->type))
+				a = maybe_ranged_conv(c, type_ranged(c, c->types.type_char), a);
+			call = node1(NdCall, n->span, mk_builtin_name(c, n->span, "len"));
+			node_add(call, a);
+			return type_expr(c, call);
+		}
+		if (all_slice && strcmp(bn, "strcmp") == 0 && n->children_len == 2) {
+			nm = mk_rt_name(n->span, "__modc_strcmp_slice");
+			call = node1(NdCall, n->span, nm);
+			a = n->children[0];
+			b = n->children[1];
+			if (a && !is_ranged(a->type))
+				a = maybe_ranged_conv(c, type_ranged(c, c->types.type_char), a);
+			if (b && !is_ranged(b->type))
+				b = maybe_ranged_conv(c, type_ranged(c, c->types.type_char), b);
+			if (a && a->is_lvalue) {
+				a = node1(NdAddr, n->span, a);
+				a = type_expr(c, a);
+			}
+			if (b && b->is_lvalue) {
+				b = node1(NdAddr, n->span, b);
+				b = type_expr(c, b);
+			}
+			node_add(call, a);
+			node_add(call, b);
+			call->type = c->types.type_int;
+			return call;
+		}
+		if (all_slice && strcmp(bn, "strncmp") == 0 && n->children_len == 3) {
+			nm = mk_rt_name(n->span, "__modc_strncmp_slice");
+			call = node1(NdCall, n->span, nm);
+			a = n->children[0];
+			b = n->children[1];
+			nn = n->children[2];
+			if (a && !is_ranged(a->type))
+				a = maybe_ranged_conv(c, type_ranged(c, c->types.type_char), a);
+			if (b && !is_ranged(b->type))
+				b = maybe_ranged_conv(c, type_ranged(c, c->types.type_char), b);
+			if (a && a->is_lvalue) {
+				a = node1(NdAddr, n->span, a);
+				a = type_expr(c, a);
+			}
+			if (b && b->is_lvalue) {
+				b = node1(NdAddr, n->span, b);
+				b = type_expr(c, b);
+			}
+			node_add(call, a);
+			node_add(call, b);
+			node_add(call, nn);
+			call->type = c->types.type_int;
+			return call;
+		}
+		if (all_slice && strcmp(bn, "puts") == 0 && n->children_len == 1) {
+			nm = mk_rt_name(n->span, "__modc_puts_slice");
+			call = node1(NdCall, n->span, nm);
+			a = n->children[0];
+			if (a && !is_ranged(a->type))
+				a = maybe_ranged_conv(c, type_ranged(c, c->types.type_char), a);
+			if (a && a->is_lvalue) {
+				a = node1(NdAddr, n->span, a);
+				a = type_expr(c, a);
+			}
+			node_add(call, a);
+			call->type = c->types.type_int;
+			return call;
+		}
+		/* Mixed / non-slice: fall through to ordinary C call (Rule 2 blocks slice→char*). */
 	}
 	if (ft && is_func(ft)) {
 		if (n->type == NULL) {
@@ -2684,7 +3228,7 @@ check_pkg_private_field(Compiler* c, Type* aggr, Field* f, Span sp) {
 }
 
 // Type-check . / -> field access and attach field type and offset.
-// T[..] headers are opaque: use len()/cap()/ptr(), not .len/.cap/.ptr.
+// T[..] headers are opaque: use len()/cap()/ranged(), not .len/.cap/.ptr.
 static Node*
 type_expr_field(Compiler* c, Node* n) {
 	Type* lt;
@@ -2701,7 +3245,7 @@ type_expr_field(Compiler* c, Node* n) {
 	    (strcmp(n->s, "ptr") == 0 || strcmp(n->s, "len") == 0 || strcmp(n->s, "cap") == 0) &&
 	    user_source(c, n->span)) {
 		error_at(c, n->span,
-			 "T[..] is opaque; use len(), cap(), or ptr() (not .%s)",
+			 "T[..] is opaque; use len(), cap(), or ranged() (not .%s)",
 			 n->s);
 		n->type = c->types.type_void_ptr;
 		return n;
@@ -2769,6 +3313,9 @@ Node* type_expr(Compiler* c, Node* n) {
 		check_unnecessary_cast(c, NULL, n);
 		if (n->type && is_ranged(n->type))
 			n->a = apply_implicit_conversions(c, n->type, n->a);
+		/* (void*)slice / (T*)(void*)slice: extract .ptr (char[..]→char* still banned). */
+		if (n->type && is_ptr(n->type) && n->a)
+			n->a = maybe_ranged_decay(c, n->type, n->a);
 		if (n->type && n->type->kind == TyVoid)
 			return n;
 		return n;

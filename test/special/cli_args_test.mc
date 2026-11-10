@@ -1,11 +1,13 @@
-int main(int argc, char** argv) {
-	if (argc != 3) {
+/* main(const char[..][..] args) — hosted argc/argv shim; each args[i] is a
+ * view into argv (NUL excluded from len/cap). */
+int main(const char[..][..] args) {
+	if (len(args) != 3) {
 		return 1;
 	}
-	if (argv[1][0] != 'a' || argv[1][1] != 0) {
+	if (len(args[1]) != 1 || args[1][0] != 'a') {
 		return 2;
 	}
-	if (argv[2][0] != 'b' || argv[2][1] != 0) {
+	if (len(args[2]) != 1 || args[2][0] != 'b') {
 		return 3;
 	}
 	return 0;

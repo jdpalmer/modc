@@ -24,7 +24,8 @@
 
 * **`defer`** keyword that supports block-scoped LIFO cleanup
 
-* **`[[retains]]`**, **`[[consumes]]`**, and **`[[region]]`** attributes for stack-escape, use-after-free, and arena-view checking
+* **`[[retains]]`**, **`[[consumes]]`**, and **`[[region]]`** attributes for stack-escape, use-after-free, and pool-view checking
+* **`pool p { }`** bump regions and heap `T[..]` builtins (`reserve` / `push` / `append` / `release`)
 
 * A **`for`** construct providing ranged iteration — `for (auto x : expr)` by
   value, or `for (auto *p : expr)` to bind a pointer into the range
@@ -100,17 +101,17 @@ overload double dist2(Point* p) {
 }
 
 int main() {
-    Particle* particles = malloc(100 * sizeof(Particle));
-    defer free(particles);
-    double system_mass = 0;
-    auto cloud = ranged(particles, 100);
-    for (auto* p: cloud) {
-        p.x = rand() / (double)RAND_MAX;
-        p.y = rand() / (double)RAND_MAX;
-        p.mass = dist2(p); // Particle upcasts to Point
-        system_mass += p.mass;
+    pool mem {
+        Particle[..] particles = mem.alloc(Particle, 100);
+        double system_mass = 0;
+        for (auto* p: particles) {
+            p.x = rand() / (double)RAND_MAX;
+            p.y = rand() / (double)RAND_MAX;
+            p.mass = dist2(p); // Particle upcasts to Point
+            system_mass += p.mass;
+        }
+        printf("Particle system created with total mass %f.\n", system_mass);
     }
-    printf("Particle system created with total mass %f.\n", system_mass);
     return 0;
 }
 ```

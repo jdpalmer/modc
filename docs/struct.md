@@ -87,8 +87,8 @@ When the unique anonymous embed is a ranged type (`T[..]`), `len(x)`, `cap(x)`, 
 `x[lo .. hi]` work on the outer value or pointer like the embedded view
 (subrange over the view, not a full struct copy). Field access still goes through
 the outer type; the embedded `T[..]` header itself remains opaque
-(`len()` / `cap()` / `ptr()`, not `.len`). See [arrays.md](arrays.md). The
-`arena` package builds with `a.append` / `a.copy` and returns `char[..]` views
+(`len()` / `cap()` / `ranged()`, not `.len`). See [arrays.md](arrays.md). The
+`pool p { }` builds with `p.append` / `p.copy` and returns `char[..]` views
 rather than embedding a ranged header in an owner type.
 
 ### Ambiguity

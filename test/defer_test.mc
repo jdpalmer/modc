@@ -70,12 +70,11 @@ int on_branch(int x) {
 
 int with_ranged() {
 	int a[3] = { 0 };
-	int[..] s = { 0 };
 	nlog = 0;
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
-	s = a;
+	int[..] s = a;
 	defer tr(99);
 	return s[0] + s[1] + s[2];
 }

@@ -14,11 +14,10 @@ char[..] (Line* l).view() {
 
 int method_ranged_ret_run() {
 	Line line = { 0 };
-	char[..] v = { 0 };
 	line.buf[0] = 'a';
 	line.buf[1] = 'b';
 	line.n = 2;
-	v = line.view();
+	char[..] v = line.view();
 	if (len(v) != 2) {
 		return 1;
 	}

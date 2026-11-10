@@ -8,19 +8,19 @@ overload size_t write_cap(char dst[], const char[..] src, size_t cap) {
 		return n;
 	}
 	if (n >= cap) {
-		memcpy(dst, ptr(src), cap - 1);
+		memcpy(dst, src, cap - 1);
 		dst[cap - 1] = '\0';
 		return n;
 	}
 	if (n != 0) {
-		memcpy(dst, ptr(src), n);
+		memcpy(dst, src, n);
 	}
 	dst[n] = '\0';
 	return n;
 }
 
 overload size_t write_buf(char[..] dst, const char[..] src) {
-	return write_cap(ptr(dst), src, cap(dst));
+	return write_cap((char*)(void*)dst, src, cap(dst));
 }
 
 overload void take_int(int[..] x) {

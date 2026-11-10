@@ -119,16 +119,18 @@ main()
 
 Importers can manipulate `Window` and `Window *` directly because the memory layout accounts for the pointer slot. However, they do not gain access to `GtkWidget` types unless they explicitly `#include <gtk/gtk.h>`. Header symbols included in another package are never re-exported — except when the includer is a package `bridge.mc`, whose includes form the package C surface (package-visible, linked to host objects). See `test/pkg_encap*`.
 
-## Arenas and `char[..]`
+## Pools and `char[..]`
 
 `T[..]` / `char[..]` is a length-aware header like `T *`: ownership is
 convention, not a language attribute. Prefer `char[..]` in structs and APIs
 when you need bounds; use `char *` at foreign NUL boundaries.
 
-**Heap-owned text:** `str_dup`, `str_free`, `str_reserve`, `str_append` /
-`str_append_byte`, `str_set`, and `str_ensure_z` malloc/realloc through a
-`char[..]*` (rebind after growth). Only `str_free` headers these created (or
-that you treat as malloc owners) — not literals, subslices, or arena results.
+**Heap builtins:** `alloc(T)` → `T*`, `alloc(T, n)` → `T[..]` (uninitialized;
+`NULL` / empty on OOM). Mutate in place: `reserve` / `push` / `append` /
+`release` on any `T[..]*`. The `str` package wraps growth as `str_reserve` /
+`str_append` / `str_append_byte` / `str_free` (plus `str_dup`, `str_set`).
+Only `release` / `str_free` headers these created (or that you treat as malloc
+owners) — not literals, subslices, or pool views.
 
 ```c
 char[..] name = {0};
@@ -140,51 +142,36 @@ char[..] name = {0};
     }
     name = n;
 }
-str_append(&name, "!");
-str_free(&name);
+append(&name, "!");
+release(&name);
 ```
 
-**Arena regions:** the `arena` package owns a bump region; methods return
-`char[..]` into that storage (valid until `a.free()` / `a.reset()`). Grow by
-assigning (`s = a.append(s, …)`), not by writing header fields. Do not invent a
-parallel `{ ptr, len, cap }` type — that is already `char[..]`.
+**Pools:** create with `pool p { … }` only (auto-freed at block end). Builtin
+`Pool` methods mint into the bump region (valid until block end / `p.free()` /
+`p.reset()`): `p.alloc(T)` → `T*`, `p.alloc(T, n)` → `T[..]`, plus in-place
+`p.copy` / `p.append` / `p.push` / `p.join` / `p.replace` / `p.cstr`. Bare
+`append` inside the block is still heap. Do not invent a parallel
+`{ ptr, len, cap }` type — that is already `T[..]`.
 
 ```c
-(bool, char[..]) (Arena* a).copy(const char[..] s);
-(bool, char[..]) (Arena* a).append(char[..] cur, const char[..] s);
-(bool, char[..]) (Arena* a).append_byte(char[..] cur, char c);
-(bool, char[..]) (Arena* a).join(const char[..] sep, const char[..]* parts, size_t nparts);
+pool p {
+    char[..] out = {0};
+    char[..] chunk = {0};
+    int[..] xs = p.alloc(int, 8);
+    int* n = p.alloc(int);
+
+    *n = 1;
+    xs[0] = *n;
+    p.copy(&chunk, "part");
+    p.append(&out, chunk);
+    str_eq(out, "part");
+}
 ```
 
-```c
-import "arena";
+Mutator operations on pools are methods on `Pool` / `Pool*`; heap growth stays
+free builtins. See `test/pool_pkg.mc` for examples.
 
-Arena a;
-char[..] out = {0};
-char[..] chunk = {0};
-
-a.init();
-defer a.free();
-{
-    auto (ok, s) = a.append(str_empty(), "part");
-    if (!ok) {
-        return;
-    }
-    chunk = s;
-}
-{
-    auto (ok, s) = a.append(out, chunk);
-    if (!ok) {
-        return;
-    }
-    out = s;
-}
-str_eq(out, "part");
-```
-
-Mutator operations should be methods on pointer types (`T *`), whereas readers accept values (`str_eq(s, ...)`). See `arena/mod.mc` and `test/arena_pkg.mc` for canonical examples.
-
-For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Heap-owned fields use `str_dup` / `str_append` / `str_free`. Region builds use `arena` (`a.copy`, `a.append`, `a.join`, `a.replace`). Export to C with `cstr_write(buf, s)`, `str_ensure_z(&s)`, or `a.z(s)`. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
+For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Heap-owned fields use `str_dup` / `append` / `release` (or the `str_*` wrappers). Region builds use `pool p { … }` (`p.copy`, `p.append`, `p.join`, `p.replace`). Export to C with `cstr_write(buf, s)`, `cstr(s)`, or `p.cstr(s)`. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
 
 ## How imports resolve
 
@@ -207,7 +194,7 @@ When resolving `import "a/b";`, the compiler searches package roots in order unt
    `dir/a/b.mc`.
 
 5. **Standard library:** the installation package root (containing `str`,
-   `arena`, etc.), checking `MODC_PKG` first, then `$PREFIX/lib/modc/pkg`
+   `str`, etc.), checking `MODC_PKG` first, then `$PREFIX/lib/modc/pkg`
    adjacent to the binary, and finally the compiler repository build root.
 
 Path targets can be single `.mc` files or directories (where `mod.mc` loads first if present). Cyclic imports are strictly prohibited. Local files next to the importer intentionally shadow `vendor/` directories to prioritize project code, and local code/`-M` paths shadow stdlib modules. `modc` uses no central package registry; packages are defined via Git URLs in `modc.ini` and downloaded locally into `vendor/`.

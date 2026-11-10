@@ -3,10 +3,10 @@
 // Paths use '/' only. path_to_sys / path_from_sys convert separators (and a
 // leading drive letter) on Win32; they are identity elsewhere. Writers fill a
 // caller buffer (cap(dst) is room) and return a view into that buffer.
-// Slice helpers return views into the input. T[..] is opaque: use len/cap/ptr.
+// Slice helpers return views into the input. T[..] is opaque: use len/cap/ranged.
 //
 // On failure, if cap(dst) > 0 the first byte is set to NUL and no partial path
-// is written. Success returns ranged(ptr(dst), n, cap(dst)) with a trailing
+// is written. Success returns ranged(dst, n, cap(dst)) with a trailing
 // NUL when one extra byte remains.
 #include <stddef.h>
 #include <stdint.h>
@@ -29,19 +29,19 @@ static char[..] path_empty() {
 static(char[..], bool) path_put(char[..] dst, const char *src, size_t n) {
 	if (cap(dst) < n) {
 		if (cap(dst) > 0) {
-			char[..] room = ranged(ptr(dst), cap(dst));
+			char[..] room = ranged(dst, cap(dst));
 			room[0] = 0;
 		}
 		return (path_empty(), false);
 	}
 	if (n > 0) {
-		memcpy(ptr(dst), src, n);
+		memcpy(dst, src, n);
 	}
 	if (cap(dst) > n) {
-		char[..] room = ranged(ptr(dst), cap(dst));
+		char[..] room = ranged(dst, cap(dst));
 		room[n] = 0;
 	}
-	return (ranged(ptr(dst), n, cap(dst)), true);
+	return (ranged(dst, n, cap(dst)), true);
 }
 
 // True when p starts with '/'. Drive letters are not absolute here.
@@ -130,7 +130,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 		if (an > PathMax) {
 			return (path_empty(), false);
 		}
-		memcpy(tmp, ptr(a), an);
+		memcpy(tmp, a, an);
 		n = an;
 	}
 	if (bt == 0) {
@@ -147,7 +147,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 	if (bt > PathMax - n) {
 		return (path_empty(), false);
 	}
-	memcpy(tmp + n, ptr(b) + bi, bt);
+	memcpy(tmp + n, b[bi ..], bt);
 	n += bt;
 	return path_put(dst, tmp, n);
 }
@@ -203,7 +203,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 		if (clen > PathMax - n) {
 			return (path_empty(), false);
 		}
-		memcpy(tmp + n, ptr(p) + start, clen);
+		memcpy(tmp + n, p[start ..], clen);
 		n += clen;
 	}
 	return path_put(dst, tmp, n);
@@ -237,7 +237,8 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 	if (len(p) > PathMax) {
 		return (path_empty(), false);
 	}
-	return path_put(dst, ptr(p), len(p));
+	void* pp = p;
+	return path_put(dst, (const char*)pp, len(p));
 #endif
 }
 

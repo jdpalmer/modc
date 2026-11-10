@@ -91,7 +91,7 @@ struct Reader {
 
 // Host path in buf, NUL-terminated. Logical '/' paths become '\\' on Win32.
 static int fs_syspath(const char[..] path, char* buf, size_t cap) {
-	if (cap == 0 || (len(path) > 0 && ptr(path) == NULL)) {
+	if (cap == 0 || (len(path) > 0 && (void*)path == NULL)) {
 		return 0;
 	}
 	{
@@ -295,7 +295,7 @@ void* file_handle(File* f) {
 	if (cap(dst) == 0) {
 		return (0, true);
 	}
-	if (!fs_win_read(f.native, ptr(dst), cap(dst), &n)) {
+	if (!fs_win_read(f.native, (char*)(void*)dst, cap(dst), &n)) {
 		return (0, false);
 	}
 	return (n, true);
@@ -307,7 +307,7 @@ void* file_handle(File* f) {
 	if (cap(dst) == 0) {
 		return (0, true);
 	}
-	ssize_t n = read(fd, ptr(dst), cap(dst));
+	ssize_t n = read(fd, (void*)dst, cap(dst));
 	if (n < 0) {
 		return (0, false);
 	}
@@ -324,7 +324,7 @@ void* file_handle(File* f) {
 	if (len(src) == 0) {
 		return (0, true);
 	}
-	if (!fs_win_write(f.native, ptr(src), len(src), &n)) {
+	if (!fs_win_write(f.native, (const char*)(void*)src, len(src), &n)) {
 		return (0, false);
 	}
 	return (n, true);
@@ -336,7 +336,7 @@ void* file_handle(File* f) {
 	if (len(src) == 0) {
 		return (0, true);
 	}
-	ssize_t n = write(fd, ptr(src), len(src));
+	ssize_t n = write(fd, (const void*)(void*)src, len(src));
 	if (n < 0) {
 		return (0, false);
 	}
@@ -667,7 +667,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 	if (want == 0) {
 		return (0, true);
 	}
-	const char *p = ptr(src);
+	const char *p = (const char*)(void*)src;
 	if (p == NULL) {
 		return (0, false);
 	}
@@ -811,7 +811,7 @@ void ([[consumes]] Writer* w).close() {
 	if (want == 0) {
 		return (0, true);
 	}
-	char* out = ptr(dst);
+	char* out = (char*)(void*)dst;
 	if (out == NULL) {
 		return (0, false);
 	}

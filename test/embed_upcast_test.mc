@@ -78,11 +78,10 @@ int via_value_call() {
 
 int via_value_assign() {
 	Entity e = { 0 };
-	Transform t = { 0 };
 	e.id = 1;
 	e.x = 10;
 	e.y = 20;
-	t = e;
+	Transform t = e;
 	return t.x == 10 && t.y == 20;
 }
 

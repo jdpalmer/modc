@@ -1,4 +1,4 @@
-// fail: F:T[..] is opaque; use len(), cap(), or ptr() (not .len)
+// fail: F:T[..] is opaque; use len(), cap(), or ranged() (not .len)
 
 int f() {
 	char buf[2] = { 0 };

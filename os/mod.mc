@@ -46,11 +46,11 @@ static char[..] os_empty() {
 
 static int os_zcopy(const char[..] s, char* buf, size_t cap) {
 	size_t n = len(s);
-	if (buf == NULL || n + 1 > cap || (n > 0 && ptr(s) == NULL)) {
+	if (buf == NULL || n + 1 > cap || (n > 0 && (void*)s == NULL)) {
 		return 0;
 	}
 	if (n > 0) {
-		memcpy(buf, ptr(s), n);
+		memcpy(buf, s, n);
 	}
 	{
 		char[..] room = ranged(buf, cap);
@@ -144,31 +144,31 @@ bool os_set_env(const char[..] key, const char[..] val) {
 (char[..], bool) os_cwd(char[..] dst) {
 #ifdef _WIN32
 	char host[OsCap] = { 0 };
-	if (cap(dst) == 0 || ptr(dst) == NULL) {
+	if (cap(dst) == 0 || (void*)dst == NULL) {
 		return (ranged((char*)0, 0), false);
 	}
 	unsigned n = GetCurrentDirectoryA(OsCap, host);
 	if (n == 0 || n >= OsCap) {
 		if (cap(dst) > 0) {
-			char[..] room = ranged(ptr(dst), cap(dst));
+			char[..] room = ranged(dst, cap(dst));
 			room[0] = 0;
 		}
 		return (ranged((char*)0, 0), false);
 	}
 	return path_from_sys(dst, ranged(host, n));
 #else
-	if (cap(dst) == 0 || ptr(dst) == NULL) {
+	if (cap(dst) == 0 || (void*)dst == NULL) {
 		return (ranged((char*)0, 0), false);
 	}
-	if (getcwd(ptr(dst), cap(dst)) == NULL) {
+	if (getcwd((char*)(void*)dst, cap(dst)) == NULL) {
 		if (cap(dst) > 0) {
-			char[..] room = ranged(ptr(dst), cap(dst));
+			char[..] room = ranged(dst, cap(dst));
 			room[0] = 0;
 		}
 		return (ranged((char*)0, 0), false);
 	}
-	size_t n = strlen(ptr(dst));
-	return (ranged(ptr(dst), n, cap(dst)), true);
+	size_t n = strlen((char*)(void*)dst);
+	return (ranged(dst, n, cap(dst)), true);
 #endif
 }
 
@@ -246,7 +246,7 @@ void os_exit(int code) {
 
 (char[..], bool) os_look_path(char[..] dst, const char[..] name) {
 	char host[OsPathMax] = { 0 };
-	if (cap(dst) == 0 || ptr(dst) == NULL || len(name) == 0 || ptr(name) == NULL) {
+	if (cap(dst) == 0 || (void*)dst == NULL || len(name) == 0 || (void*)name == NULL) {
 		return (os_empty(), false);
 	}
 	{
@@ -262,12 +262,12 @@ void os_exit(int code) {
 	if (n >= cap(dst)) {
 		return (os_empty(), false);
 	}
-	memcpy(ptr(dst), host, n);
+	memcpy(dst, host, n);
 	if (cap(dst) > n) {
-		char[..] room = ranged(ptr(dst), cap(dst));
+		char[..] room = ranged(dst, cap(dst));
 		room[n] = 0;
 	}
-	return (ranged(ptr(dst), n, cap(dst)), true);
+	return (ranged(dst, n, cap(dst)), true);
 }
 
 void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
@@ -275,7 +275,7 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 		ocmd_free((OsCmd *)c.native);
 		c.native = NULL;
 	}
-	if (len(path) == 0 || ptr(path) == NULL) {
+	if (len(path) == 0 || (void*)path == NULL) {
 		return;
 	}
 	if (nargs > 0 && args == NULL) {
@@ -285,7 +285,7 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 	if (blob == NULL) {
 		return;
 	}
-	if (!ocmd_init(blob, ptr(path), len(path))) {
+	if (!ocmd_init(blob, (const char*)(void*)path, len(path))) {
 		ocmd_free(blob);
 		return;
 	}
@@ -293,7 +293,7 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 	size_t i = 0;
 	for (; i < nargs; i++) {
 		const char[..] a = as[i];
-		if (!ocmd_add_arg(blob, ptr(a), len(a))) {
+		if (!ocmd_add_arg(blob, (const char*)(void*)a, len(a))) {
 			ocmd_free(blob);
 			return;
 		}
@@ -309,7 +309,7 @@ bool (Cmd* c).dir(const char[..] d) {
 	if (len(d) == 0) {
 		return ocmd_set_dir(blob, NULL, 0) != 0;
 	}
-	return ocmd_set_dir(blob, ptr(d), len(d)) != 0;
+	return ocmd_set_dir(blob, (const char*)(void*)d, len(d)) != 0;
 }
 
 bool (Cmd* c).env(const char[..] key, const char[..] val) {
@@ -317,7 +317,7 @@ bool (Cmd* c).env(const char[..] key, const char[..] val) {
 		return false;
 	}
 	OsCmd* blob = (OsCmd *)c.native;
-	return ocmd_set_env(blob, ptr(key), len(key), ptr(val), len(val)) != 0;
+	return ocmd_set_env(blob, (const char*)(void*)key, len(key), (const char*)(void*)val, len(val)) != 0;
 }
 
 bool (Cmd* c).stdio(int which, int mode) {

@@ -1,7 +1,7 @@
 /* Portable test (was ranged.mc + ranged_main.c). */
 #include <assert.h>
 
-/* Ranged array int[..]: opaque header; use len()/cap()/ptr(). */
+/* Ranged array int[..]: opaque header; use len()/cap()/ranged(). */
 
 int sum_elems(int[..] s) {
 	int i = { 0 };
@@ -18,12 +18,11 @@ int[..] id_ranged(int[..] s) {
 
 int from_array() {
 	int a[4] = { 0 };
-	int[..] s = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
 	a[3] = 4;
-	s = a;
+	int[..] s = a;
 	if (len(s) != 4 || cap(s) != 4) {
 		return 0;
 	}
@@ -35,11 +34,10 @@ int from_array() {
 
 int from_ptr() {
 	int a[3] = { 0 };
-	int[..] s = { 0 };
 	a[0] = 10;
 	a[1] = 20;
 	a[2] = 30;
-	s = ranged(a, 3);
+	int[..] s = ranged(a, 3);
 	if (len(s) != 3 || cap(s) != 3) {
 		return 0;
 	}
@@ -48,8 +46,7 @@ int from_ptr() {
 
 int from_scratch() {
 	int a[4] = { 0 };
-	int[..] s = { 0 };
-	s = ranged(a, 0, 4);
+	int[..] s = ranged(a, 0, 4);
 	if (len(s) != 0 || cap(s) != 4) {
 		return 0;
 	}
@@ -64,10 +61,9 @@ int from_scratch() {
 
 int index_write() {
 	int a[2] = { 0 };
-	int[..] s = { 0 };
 	a[0] = 0;
 	a[1] = 0;
-	s = a;
+	int[..] s = a;
 	s[0] = 7;
 	s[1] = 8;
 	return a[0] + a[1];
@@ -75,12 +71,10 @@ int index_write() {
 
 int roundtrip() {
 	int a[2] = { 0 };
-	int[..] s = { 0 };
-	int[..] t = { 0 };
 	a[0] = 4;
 	a[1] = 5;
-	s = a;
-	t = id_ranged(s);
+	int[..] s = a;
+	int[..] t = id_ranged(s);
 	return t[0] + t[1];
 }
 
@@ -89,8 +83,7 @@ int ranged_size() {
 }
 
 int from_string() {
-	const char[..] s = { 0 };
-	s = "hi";
+	const char[..] s = "hi";
 	if (len(s) != 2 || cap(s) != 2) {
 		return 0;
 	}
@@ -107,17 +100,14 @@ int len_fixed() {
 
 int len_ranged() {
 	int a[3] = { 0 };
-	int[..] s = { 0 };
-	s = a;
+	int[..] s = a;
 	return (int)len(s);
 }
 
 int cap_ranged() {
 	int a[3] = { 0 };
-	int[..] s = { 0 };
-	int[..] t = { 0 };
-	s = a;
-	t = s[0 .. 2];
+	int[..] s = a;
+	int[..] t = s[0 .. 2];
 	if (cap(s) != 3 || cap(t) != 2 || len(t) != 2) {
 		return 0;
 	}

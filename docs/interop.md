@@ -105,7 +105,7 @@ arity and argument types. Non-literal formats are not checked or rewritten.
 ### `%s` and `char[..]`
 
 For a literal format, a **bare** `%s` with a `char[..]` argument is rewritten
-to `%.*s` with `(int)len(...)` and `ptr(...)`. The view need not be
+to `%.*s` with `(int)len(...)` and the slice base pointer. The view need not be
 NUL-terminated (path slices, `os_env`, `path_join` results, and so on).
 
 Flags, width, or precision on that conversion are **rejected** (for example
@@ -115,6 +115,11 @@ conversion (classic NUL-terminated C string). Prefer a `char[..]` with the
 real length when the buffer is only partially filled.
 
 Simple lowers: `printf("…\n")` → `puts`, `printf("%c", x)` → `putchar`.
+
+Hosted `strlen` / `strcmp` / `strncmp` / `puts` are likewise length-aware when
+every string argument is `char[..]` (or a string literal). Foreign APIs that
+still need a NUL C string take `cstr(s)` or `pool.cstr(s)` — `char[..]` does
+not implicitly convert to `char *`.
 
 ### Caveats
 
@@ -126,9 +131,7 @@ Simple lowers: `printf("…\n")` → `puts`, `printf("%c", x)` → `putchar`.
 3. **`len` is cast to `int`.** Views larger than `INT_MAX` would truncate the
    printed length (irrelevant for paths; relevant for huge buffers).
 4. **Empty / null views.** `len == 0` is fine conceptually; some libcs are
-   picky about `ptr == NULL` even with precision 0. Guarding `ptr != NULL`
-   remains wise.
+   picky about a null base even with precision 0.
 5. **Not scanf.** `scanf` `%s` still wants a mutable `char *`, not `char[..]`.
-6. **Other C string APIs are unchanged.** `strlen` / `strcmp` / etc. still
-   need a real C string. Do not generalize “`%s` is length-safe” to the rest
-   of libc.
+6. **Unwrapped C sinks.** Prefer `pool.cstr` / `cstr` at `fopen` / SQLite /
+   similar — do not cast around the `char[..]` → `char *` ban.

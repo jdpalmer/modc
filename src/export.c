@@ -1207,6 +1207,13 @@ load_one_sym(Compiler* c, Type** map, int max_id, const char* home, LoadSym* ls,
 			ensure_tag(c, t, home);
 			return 0;
 		}
+		/* Compiler builtin Pool — never re-import from a package export. */
+		if (ls->name && strcmp(ls->name, "Pool") == 0 && c->types.type_pool) {
+			if (t && t != c->types.type_pool) {
+				/* Prefer builtin; leave export stub unused. */
+			}
+			return 0;
+		}
 		s = symbol_define(c, ls->name, SkTypedef, t, StTypedef, sp);
 		finish_sym(s, home, ls);
 		return 0;

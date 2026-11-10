@@ -172,11 +172,22 @@ synth_len(Compiler* c, Span sp, Node* arg) {
 
 static Node*
 synth_ptr(Compiler* c, Span sp, Node* arg) {
-	Node* call;
+	Node* d;
+	Type* t;
 
-	call = node1(NdCall, sp, mk_name(sp, "ptr"));
-	node_add(call, arg);
-	return type_expr(c, call);
+	if (arg == NULL)
+		return arg;
+	t = arg->type;
+	/* User ptr() was removed; synthesize opaque-header .ptr for format %s. */
+	if (t && is_ranged(t) && t->base) {
+		d = node(NdDot, sp);
+		d->a = arg;
+		d->s = "ptr";
+		d->is_synth = 1;
+		return type_expr(c, d);
+	}
+	/* Fixed char[N]: pass the array (decays to char* at the call). */
+	return arg;
 }
 
 static const char*

@@ -170,7 +170,6 @@ int test_cmd_echo() {
 #else
 	Cmd c = { 0 };
 	Poll p = { 0 };
-	File out = { 0 };
 	char buf[64] = { 0 };
 	const char[..] args[1] = { 0 };
 	args[0] = "hello-modc";
@@ -179,13 +178,10 @@ int test_cmd_echo() {
 		c.close();
 		return 2;
 	}
-	{
-		auto (f, ok) = c.pipe(StdOut);
-		if (!ok) {
-			c.close();
-			return 3;
-		}
-		out = f;
+	auto (out, pipe_ok) = c.pipe(StdOut);
+	if (!pipe_ok) {
+		c.close();
+		return 3;
 	}
 	if (!c.start()) {
 		out.close();

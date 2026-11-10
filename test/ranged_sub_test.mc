@@ -14,13 +14,12 @@ int sum_elems(int[..] s) {
 
 int from_array_range() {
 	int a[5] = { 0 };
-	int[..] s = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
 	a[3] = 4;
 	a[4] = 5;
-	s = a[1 .. 4];
+	int[..] s = a[1 .. 4];
 	if (len(s) != 3) {
 		return 1;
 	}
@@ -35,13 +34,11 @@ int from_array_range() {
 
 int open_ends() {
 	int a[4] = { 0 };
-	int[..] s = { 0 };
-	int[..] t = { 0 };
 	a[0] = 10;
 	a[1] = 20;
 	a[2] = 30;
 	a[3] = 40;
-	s = a[2 ..];
+	int[..] s = a[2 ..];
 	if (len(s) != 2 || s[0] != 30 || s[1] != 40) {
 		return 1;
 	}
@@ -53,7 +50,7 @@ int open_ends() {
 	if (len(s) != 4 || sum_elems(s) != 100) {
 		return 3;
 	}
-	t = s[1 .. 3];
+	int[..] t = s[1 .. 3];
 	if (len(t) != 2 || t[0] != 20 || t[1] != 30) {
 		return 4;
 	}

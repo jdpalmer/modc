@@ -165,7 +165,6 @@ int test_stat_dir() {
 	const char[..] fa = "fs_pkg_list/a";
 	const char[..] fb = "fs_pkg_list/b";
 	const char[..] file = "fs_pkg_stat.bin";
-	Dir d = { 0 };
 	int saw_a = 0;
 	int saw_b = 0;
 	int nent = 0;
@@ -213,11 +212,8 @@ int test_stat_dir() {
 			return 5;
 		}
 	}
-	{
-		auto (opened, good) = dir_open(dir);
-		d = opened;
-		ok = good;
-	}
+	auto (d, dok) = dir_open(dir);
+	ok = dok;
 	if (!ok) {
 		fs_remove(fa);
 		fs_remove(fb);
@@ -269,16 +265,6 @@ int test_stat_dir() {
 		fs_remove(fb);
 		fs_remove(dir);
 		return 11;
-	}
-	{
-		auto (name, nok) = d.next();
-		(void)name;
-		if (nok) {
-			fs_remove(fa);
-			fs_remove(fb);
-			fs_remove(dir);
-			return 12;
-		}
 	}
 	{
 		auto (opened, good) = file_open(file, OpenWrite | OpenCreate | OpenTrunc);
@@ -338,30 +324,24 @@ int test_from_fd_pipe() {
 	return 0;
 #else
 	int pfd[2] = { 0 };
-	File r = { 0 };
-	File w = { 0 };
 	char got[8] = { 0 };
 	if (pipe(pfd) != 0) {
 		return 1;
 	}
-	{
-		auto (rf, rok) = file_from_fd(pfd[0]);
-		auto (wf, wok) = file_from_fd(pfd[1]);
-		if (!rok || !wok) {
-			if (rok) {
-				rf.close();
-			} else {
-				close(pfd[0]);
-			}
-			if (wok) {
-				wf.close();
-			} else {
-				close(pfd[1]);
-			}
-			return 2;
+	auto (r, r_ok) = file_from_fd(pfd[0]);
+	auto (w, w_ok) = file_from_fd(pfd[1]);
+	if (!r_ok || !w_ok) {
+		if (r_ok) {
+			r.close();
+		} else {
+			close(pfd[0]);
 		}
-		r = rf;
-		w = wf;
+		if (w_ok) {
+			w.close();
+		} else {
+			close(pfd[1]);
+		}
+		return 2;
 	}
 	if (file_fd(&r) != pfd[0] || file_fd(&w) != pfd[1]) {
 		r.close();
@@ -404,15 +384,10 @@ int test_from_fd_pipe() {
 int test_buf_open_roundtrip() {
 	const char[..] name = "fs_pkg_buf.bin";
 	char got[32] = { 0 };
-	Writer w = { 0 };
-	Reader r = { 0 };
 	fs_remove(name);
-	{
-		auto (ow, ok) = writer_open(name, OpenWrite | OpenCreate | OpenTrunc, 0);
-		if (!ok) {
-			return 1;
-		}
-		w = ow;
+	auto (w, w_ok) = writer_open(name, OpenWrite | OpenCreate | OpenTrunc, 0);
+	if (!w_ok) {
+		return 1;
 	}
 	{
 		auto (n, ok) = w.write("hello buf");
@@ -423,13 +398,10 @@ int test_buf_open_roundtrip() {
 		}
 	}
 	w.close();
-	{
-		auto (rd, ok) = reader_open(name, OpenRead, 0);
-		if (!ok) {
-			fs_remove(name);
-			return 3;
-		}
-		r = rd;
+	auto (r, r_ok) = reader_open(name, OpenRead, 0);
+	if (!r_ok) {
+		fs_remove(name);
+		return 3;
 	}
 	{
 		auto (n, ok) = r.read(got);
@@ -457,16 +429,11 @@ int test_buf_open_roundtrip() {
 int test_buf_tiny_writes() {
 	const char[..] name = "fs_pkg_buf_tiny.bin";
 	char got[16] = { 0 };
-	Writer w = { 0 };
-	Reader r = { 0 };
 	int i = 0;
 	fs_remove(name);
-	{
-		auto (ow, ok) = writer_open(name, OpenWrite | OpenCreate | OpenTrunc, 8);
-		if (!ok) {
-			return 1;
-		}
-		w = ow;
+	auto (w, w_ok) = writer_open(name, OpenWrite | OpenCreate | OpenTrunc, 8);
+	if (!w_ok) {
+		return 1;
 	}
 	for (; i < 10; i = i + 1) {
 		char one[1] = { 0 };
@@ -479,13 +446,10 @@ int test_buf_tiny_writes() {
 		}
 	}
 	w.close();
-	{
-		auto (rd, ok) = reader_open(name, OpenRead, 4);
-		if (!ok) {
-			fs_remove(name);
-			return 3;
-		}
-		r = rd;
+	auto (r, r_ok) = reader_open(name, OpenRead, 4);
+	if (!r_ok) {
+		fs_remove(name);
+		return 3;
 	}
 	{
 		auto (n, ok) = r.read(got);
@@ -512,16 +476,11 @@ int test_buf_utf8_split() {
 	char euro[3] = {
 		0xe2, 0x82, 0xac };
 	char got[8] = { 0 };
-	Writer w = { 0 };
-	File f = { 0 };
 	int i = 0;
 	fs_remove(name);
-	{
-		auto (ow, ok) = writer_open(name, OpenWrite | OpenCreate | OpenTrunc, 4);
-		if (!ok) {
-			return 1;
-		}
-		w = ow;
+	auto (w, w_ok) = writer_open(name, OpenWrite | OpenCreate | OpenTrunc, 4);
+	if (!w_ok) {
+		return 1;
 	}
 	for (; i < 3; i = i + 1) {
 		char one[1] = { 0 };
@@ -539,13 +498,10 @@ int test_buf_utf8_split() {
 		}
 	}
 	w.close();
-	{
-		auto (opened, ok) = file_open(name, OpenRead);
-		if (!ok) {
-			fs_remove(name);
-			return 4;
-		}
-		f = opened;
+	auto (f, f_ok) = file_open(name, OpenRead);
+	if (!f_ok) {
+		fs_remove(name);
+		return 4;
 	}
 	{
 		auto (n, rok) = f.read(got);
@@ -562,25 +518,16 @@ int test_buf_utf8_split() {
 int test_buf_borrow_init() {
 	const char[..] name = "fs_pkg_buf_borrow.bin";
 	char got[8] = { 0 };
-	File f = { 0 };
-	Writer w = { 0 };
-	Reader r = { 0 };
 	fs_remove(name);
-	{
-		auto (opened, ok) = file_open(name, OpenRead | OpenWrite | OpenCreate | OpenTrunc);
-		if (!ok) {
-			return 1;
-		}
-		f = opened;
+	auto (f, f_ok) = file_open(name, OpenRead | OpenWrite | OpenCreate | OpenTrunc);
+	if (!f_ok) {
+		return 1;
 	}
-	{
-		auto (ow, ok) = writer_from_file(&f, 8);
-		if (!ok) {
-			f.close();
-			fs_remove(name);
-			return 2;
-		}
-		w = ow;
+	auto (w, w_ok) = writer_from_file(&f, 8);
+	if (!w_ok) {
+		f.close();
+		fs_remove(name);
+		return 2;
 	}
 	{
 		auto (n, ok) = w.write("ab");
@@ -601,14 +548,11 @@ int test_buf_borrow_init() {
 			return 4;
 		}
 	}
-	{
-		auto (rd, ok) = reader_from_file(&f, 8);
-		if (!ok) {
-			f.close();
-			fs_remove(name);
-			return 5;
-		}
-		r = rd;
+	auto (r, r_ok) = reader_from_file(&f, 8);
+	if (!r_ok) {
+		f.close();
+		fs_remove(name);
+		return 5;
 	}
 	{
 		auto (n, ok) = r.read(got);

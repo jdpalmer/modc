@@ -81,6 +81,7 @@ enum {
 	KwInt,
 	KwLong,
 	KwOverload,
+	KwPool,
 	KwRegister,
 	KwRestrict,
 	KwReturn,
@@ -395,6 +396,7 @@ enum {
 	NdCast,
 	NdSizeof,
 	NdSizeofT,
+	NdTypeArg, /* typename as call arg (alloc(T)); Node.type holds T */
 	NdCond,
 	NdComma,
 	NdAssign,
@@ -454,7 +456,7 @@ struct Initializer {
 //   NdCall/NdMethod                       a=callee, children[]=args
 //   NdCond                                a=cond, b=then, c=else
 //   NdComma                               a=left, b=right
-//   NdSizeof                              a=expr; NdSizeofT uses type only
+//   NdSizeof                              a=expr; NdSizeofT / NdTypeArg use type only
 //   NdStmtExpr                            a=block
 //   NdBlock                               children[]=stmts
 //   NdIf                                  a=cond, b=then, c=else
@@ -677,6 +679,8 @@ struct CompTypes {
 	Type *type_int, *type_uint, *type_long, *type_ulong;
 	Type *type_llong, *type_ullong;
 	Type *type_float, *type_double, *type_bool, *type_void_ptr;
+	/* Builtin region type for `pool p { }` / Pool*. */
+	Type* type_pool;
 	/* Singleton poison type for parse/type recovery. */
 	Type* type_error;
 	// All heap types (never freed individually).

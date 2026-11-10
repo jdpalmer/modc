@@ -18,7 +18,6 @@ int const_ok() {
 	const char *p = "hi";
 	const char[..] v = "ab";
 	char buf[4] = { 0 };
-	char[..] w = { 0 };
 	if (sink("hi") != 2) {
 		return 1;
 	}
@@ -28,7 +27,7 @@ int const_ok() {
 	if (view_len(v) != 2) {
 		return 3;
 	}
-	w = ranged(buf, 0, 4);
+	char[..] w = ranged(buf, 0, 4);
 	char *m = buf;
 	char[..] room = ranged(m, 4);
 

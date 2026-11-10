@@ -10,14 +10,13 @@ int expect_z(char[..] dst, const char *want) {
 }
 
 int test_abs_dir_base() {
-	const char[..] p = { 0 };
 	if (path_is_abs("a") || path_is_abs("") || path_is_abs("C:/foo")) {
 		return 1;
 	}
 	if (!path_is_abs("/a") || !path_is_abs("/")) {
 		return 2;
 	}
-	p = "a/b";
+	const char[..] p = "a/b";
 	if (!str_is_empty(path_dir("a")) || !str_eq(path_base(p), "b") || !str_eq(path_dir(p), "a")) {
 		return 3;
 	}
@@ -42,7 +41,6 @@ int test_abs_dir_base() {
 
 int test_join() {
 	char buf[64] = { 0 };
-	char[..] empty = { 0 };
 	char sentinel = 'Z';
 	{
 		auto (view, ok) = path_join(buf, "a", "b");
@@ -86,7 +84,7 @@ int test_join() {
 			return 7;
 		}
 	}
-	empty = ranged(&sentinel, 0);
+	char[..] empty = ranged(&sentinel, 0);
 	{
 		auto (view, ok) = path_join(empty, "a", "b");
 		(void)view;

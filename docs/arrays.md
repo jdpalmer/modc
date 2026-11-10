@@ -70,16 +70,17 @@ Open arrays should be reserved for external C headers and foreign function bound
 
 A ranged array is an opaque `{ T *ptr; size_t len; size_t cap }` header
 (interned per element type). User code does not name those fields; use
-`len(s)`, `cap(s)`, and `ptr(s)`. Rebind the header by assignment (`s = …`);
-element writes through `s[i]` are fine. The language does not allocate or
-`free` through the header — same as `T *`.
+`len(s)`, `cap(s)`, and `ranged(s, …)` to rebind length/capacity on the same
+base. Rebind the header by assignment (`s = …`); element writes through `s[i]`
+are fine. The language does not allocate or `free` through the header — same
+as `T *`.
 
 **Ownership is convention, like `char *`.** The type is not “view-only” and
 not an owning container. A `char[..]` (or `T[..]`) field or local may be:
 
-- the only handle to a `malloc` / `realloc` block (`str_free(&s)` or
-  `free(ptr(s))` when done),
-- a window into stack storage, an arena region, or a caller buffer,
+- the only handle to a `malloc` / `realloc` block (`str_free(&s)` /
+  `release(&s)` when done),
+- a window into stack storage, a pool region, or a caller buffer,
 - a subslice or string literal (must not free).
 
 Returning a stack-backed `T[..]` (for example `return a[i..j]` or
@@ -93,8 +94,8 @@ Do not invent a parallel `{ char *p; size_t len; size_t cap }` struct to “own�
 what `char[..]` already is. Prefer storing `char[..]` in structs when you
 need length-aware text; keep `char *` for foreign NUL C boundaries, then
 convert once with `ranged` / `str_from_cstr`. Heap growth:
-`str_dup` / `str_reserve` / `str_append` / `str_set` / `str_free` in `str`.
-Region lifetimes: `import "arena"` (`defer a.free()`).
+`reserve` / `push` / `append` / `release` (or `str_*` wrappers in `str`).
+Region lifetimes: `pool p { … }` (auto-free at block end).
 
 ```c
 int[..] s = {0};
@@ -108,7 +109,7 @@ struct Token {
 ```
 
 `len(s)` is the initialized window. Indexing (`s[i]`), `len(s)`, and range-for
-stop there. `cap(s)` is how many elements are addressable from `ptr(s)`
+stop there. `cap(s)` is how many elements are addressable from the base
 (`len <= cap`). Spare room is for mutators that grow into the same block; it is
 not inherited by a subslice.
 
@@ -132,7 +133,7 @@ and C still allow unchecked pointer subscripting.
 Closed windows (string literals, `T[N]` → `T[..]`, and `s[lo..hi]`) set
 `len == cap`. Writable scratch over a block is `ranged(p, 0, n)` — length
 zero, capacity `n`. To grow length into spare capacity, assign a new header
-(`s = ranged(ptr(s), new_len, cap(s))`), do not write fields.
+(`s = ranged(s, new_len, cap(s))`), do not write fields.
 
 ### Constructing Ranged Arrays
 
@@ -168,37 +169,56 @@ At ranged-typed parameters and assignments:
 
 At pointer-typed parameters and assignments (C boundary):
 
-- `T[..]` → `T *` or `void *` (same as `ptr(s)`)
+- Non-char `T[..]` → `T *` or `void *` (counted FFI)
+- `char[..]` → `void *` (bytes for `memcpy` / `read` / `write`)
+- **`char[..]` does not decay to `char *`** — use `cstr(s)` / `pool.cstr(s)` for NUL C strings
 
 There is no implicit conversion from `T *` to `T[..]`. You must supply a length with
 `ranged(p, n)`.
 
-### C Interoperability and Pointer Decay
+### C Interoperability
 
-At call sites expecting `T *`, a ranged array automatically decays to its underlying pointer:
+Hosted string queries are length-aware when given `char[..]`:
 
 ```c
 #include <string.h>
 
-char[..] name = {0};
+const char[..] name = "James";
+strlen(name);           /* → len(name); O(1), no NUL scan */
 
-name = "James";
-strlen(name);           /* same as strlen(ptr(name)) */
+const char[..] word = name[0 .. 4];
+strlen(word);           /* → 4, not a scan past the slice */
 ```
 
-This automatic decay saves syntax overhead but does not make standard C functions length-aware. C library expectations remain unchanged; string functions continue scanning until encountering a NUL byte.
-
-Because pointer decay passes `ptr(s)` without length boundaries, slicing string buffers requires caution when invoking C string utilities:
+`printf("%s", slice)` is rewritten to `%.*s` (see [interop.md](interop.md)).
+Foreign sinks that need a real C string take `cstr` / `pool.cstr`:
 
 ```c
-char buf[] = "hello world";
-char[..] word = {0};
-
-word = buf[0..5];       /* len == 5; indices 0..4 are "hello" */
-strlen(word);           /* scans until NUL → 11, not 5 */
+pool p {
+	fopen(p.cstr(path), "r");
+}
+char* z = cstr(path);   /* heap copy + NUL; caller frees */
 ```
 
-To perform bounded reads safely, use `len(word)` within %C code, or pass explicit length bounds to compliant C functions (such as `strnlen(ptr(word), len(word))`). Similarly, when wrapping non-NUL-terminated buffers (such as output from `read()`), `strlen(chunk)` will read out of bounds because no NUL terminator exists at `len(chunk)`.
+String literals still bind to `const char *` directly (`fopen("x", "r")`).
+
+### `main(const char[..][..] args)`
+
+Hosted programs may take process arguments as a slice of slices instead of
+`int argc, char **argv`:
+
+```c
+int main(const char[..][..] args) {
+	if (len(args) < 2) {
+		return 1;
+	}
+	/* args[0] is the program name; args[i] views argv (NUL excluded). */
+	return len(args[1]) == 0 ? 2 : 0;
+}
+```
+
+The compiler emits a C `main(int, char **)` shim that builds `args` as views into
+`argv` (no string copies). Classic `main()` / `main(int, char **)` remain valid.
 
 ## Range-for
 
@@ -277,11 +297,11 @@ For string literals, prefer `const char[..]` rather than wrapping with `str_from
 | -------------------------------------------- | ----------------------------------------------------- |
 | **Stack Allocation**                         | Fixed array `T[N]`                                    |
 | **Unbounded C API Boundary**                 | Open array `T[]` or raw pointer `T *`                 |
-| **Pointer + length (+ cap)**                 | Opaque `T[..]` in locals/structs; `ranged(p, n)`, `ranged(p, len, cap)`, `len()` / `cap()` / `ptr()` |
-| **C String Integration (`strlen`/`printf`)** | `const char[..]` / `char[..]` (decays to `ptr(s)`; verify NUL termination) |
+| **Pointer + length (+ cap)**                 | Opaque `T[..]` in locals/structs; `ranged(p, n)`, `ranged(p, len, cap)`, `len()` / `cap()` |
+| **C String Integration (`strlen`/`printf`)** | `const char[..]` / `char[..]` (queries intercept; `cstr` / `pool.cstr` at NUL sinks) |
 | **Literal Text Management**                  | `const char[..] = "..."` or `char buf[] = "..."`; `const?` for passthrough |
 | **Subrange Slicing**                         | Syntax forms `s[lo..hi]`, `s[lo..]`, or `s[..hi]`     |
-| **Who frees the bytes**                      | Convention (like `char *`): `str_free` / arena / stack — not the type |
+| **Who frees the bytes**                      | Convention (like `char *`): `release` / pool / stack — not the type |
 
 
 
@@ -294,10 +314,11 @@ Importing `str` (`import "str";`) provides length-aware helpers on `char[..]`:
 and non-`*_cstr` APIs for literals (`str_eq(s, "ok")`); use `str_from_cstr` /
 `*_cstr` only for foreign `char *`.
 
-Importing `arena` (`import "arena";`) is bump allocation into a region.
-Methods `a.copy`, `a.join`, `a.replace`, `a.append` / `a.append_byte`
-(assign the returned `char[..]`), and `a.z` for NUL-terminated copies.
-Returned headers stay valid until `a.free()` / `a.reset()`. See
-`arena/mod.mc`.
+A `pool p { … }` statement is bump allocation into a region. `p.alloc(T)` and
+`p.alloc(T, n)` return a `T*` or `T[..]` minted in the pool; `p.copy`,
+`p.join`, `p.replace`, `p.append` / `p.push` rewrite slice headers in place;
+`p.cstr(s)` mints a NUL C string in the pool. Views stay valid until block end
+/ `p.free()` / `p.reset()`. Heap twins: `alloc(T)` / `alloc(T, n)` and
+`cstr(s)`. See `test/pool_pkg.mc`.
 
-`path`, `fs`, and `os` sit beside `str` and `arena`: slash paths, `File` handles, and process helpers, with `(T, bool)` results rather than POSIX or Win32 types. See [os.md](os.md).
+`path`, `fs`, and `os` sit beside `str`: slash paths, `File` handles, and process helpers, with `(T, bool)` results rather than POSIX or Win32 types. See [os.md](os.md).

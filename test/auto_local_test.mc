@@ -21,23 +21,21 @@ void* infer_ptr(void* p) {
 int infer_array_decay() {
 	int a[4] = { 0 };
 	auto p = a;
-	int[..] s = { 0 };
 
 	a[0] = 10;
 	a[1] = 20;
-	s = ranged(p, 4);
+	int[..] s = ranged(p, 4);
 	return s[0] + s[1];
 }
 
 int infer_ranged() {
 	int a[3] = { 0 };
-	int[..] s = { 0 };
 	int sum = 0;
 	int i = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
-	s = a;
+	int[..] s = a;
 	for (; i < (int)len(s); i++) {
 		sum = sum + s[i];
 	}

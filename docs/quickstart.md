@@ -91,7 +91,7 @@ In this example, `n` is inferred as an integer, while `parse(5)` returns a two-v
 
 ### Arrays
 
-%C provides three distinct bracket forms for arrays, unifying stack storage, foreign C interfaces, and length-aware headers. Fixed arrays (`T[N]`) represent fixed-size compile-time storage. Open arrays (`T[]`) maintain compatibility with standard C parameter syntax, decaying directly to pointers without length information in the type signature. Ranged arrays (`T[..]`) are opaque `{ T *ptr; size_t len; size_t cap }` headers — like `T *` with bounds; ownership is convention (no automatic `free`). Use `len(s)`, `cap(s)`, and `ptr(s)`; assign to rebind the header. Closed windows set `len == cap`; writable scratch is `ranged(p, 0, n)`. Indexing is allowed on `T[N]` and `T[..]` only — not on raw `T*` or open `T[]` in `.mc` (use `ranged(p, n)`); `*(p + i)` is likewise rejected. Store `T[..]` in structs when you need length; prefer `char *` only at foreign NUL boundaries.
+%C provides three distinct bracket forms for arrays, unifying stack storage, foreign C interfaces, and length-aware headers. Fixed arrays (`T[N]`) represent fixed-size compile-time storage. Open arrays (`T[]`) maintain compatibility with standard C parameter syntax, decaying directly to pointers without length information in the type signature. Ranged arrays (`T[..]`) are opaque `{ T *ptr; size_t len; size_t cap }` headers — like `T *` with bounds; ownership is convention (no automatic `free`). Use `len(s)` and `cap(s)`; assign or `ranged(s, …)` to rebind the header. Closed windows set `len == cap`; writable scratch is `ranged(p, 0, n)`. Indexing is allowed on `T[N]` and `T[..]` only — not on raw `T*` or open `T[]` in `.mc` (use `ranged(p, n)`); `*(p + i)` is likewise rejected. Store `T[..]` in structs when you need length; use `cstr` / `pool.cstr` at foreign NUL boundaries.
 
 ```c
 int a[4] = {0};
@@ -105,7 +105,15 @@ s = a[1..3];         // window over &a[1], len 2
 s = a[2..];          // through end
 len(a);              // element count
 cap(s);              // capacity (equals len for a closed window)
-strlen(s);           // T[..] → T* at pointer sites (uses ptr(s))
+strlen(s);           // length-aware when s is char[..] (→ len(s))
+```
+
+Entry sugar for CLI args (instead of `argc` / `argv`):
+
+```c
+int main(const char[..][..] args) {
+	return (int)len(args);
+}
 ```
 
 ### Ranged Iteration
@@ -307,13 +315,13 @@ The %C language enforces strict syntactic and semantic safety rules in user sour
 
 - **Explicit Switch Execution**: Implicit fallthrough across `switch` cases results in a compile-time error. Cases must terminate with `break` or explicitly declare `[[fallthrough]];`.
 
-- **C23 Attributes**: `[[fallthrough]]` marks intentional switch fallthrough (required, not a warning). `[[maybe_unused]]` suppresses unused local/parameter errors (alongside `(void)x;`). `[[nodiscard]]` makes discarding a non-void call result a compile-time error. `[[retains]]` on a parameter means the callee may keep that pointer or `T[..]` past the call (see stack escapes). `[[consumes]]` means the callee ends that value’s lifetime (`defer free(p)` / `defer a.free()` cannot escape `p`/`a`). `[[region]]` on a parameter means pointer/`T[..]` results of the call are allocated from that argument (views from `([[region]] Arena *a).copy()` cannot escape past `a.free()` / `a.reset()`). `[[unsequenced]]` and `[[reproducible]]` are accepted and ignored.
+- **C23 Attributes**: `[[fallthrough]]` marks intentional switch fallthrough (required, not a warning). `[[maybe_unused]]` suppresses unused local/parameter errors (alongside `(void)x;`). `[[nodiscard]]` makes discarding a non-void call result a compile-time error. `[[retains]]` on a parameter means the callee may keep that pointer or `T[..]` past the call (see stack escapes). `[[consumes]]` means the callee ends that value’s lifetime (`defer free(p)` / `defer a.free()` cannot escape `p`/`a`). `[[region]]` on a parameter means pointer/`T[..]` results of the call are allocated from that argument (pool views from `p.copy` / `p.append` cannot escape past block end / `p.free()` / `p.reset()`). `[[unsequenced]]` and `[[reproducible]]` are accepted and ignored.
 
 - **Defensive Local Initialization**: All local variables must be initialized at their point of declaration (`int x = 0;`). A scalar or aggregate initializer that is overwritten on every path before any read is an error (placeholder init); the diagnostic suggests initializing at the first assignment instead (`auto (f, ok) = file_open(…);` rather than `File f = {0}; …; f = of;`). Aggregates are whole-object only (`p = q` kills; `p.x = …` does not). Headers and functions with `goto` skip that check. The compiler also diagnoses `goto` jumps that bypass local declarations, control flow falling off non-`void` functions, signed/unsigned comparisons (except non-negative integer literals that fit the unsigned side), and unsequenced modifications (`i = i++`).
 
 - **No Stack Escapes**: A pointer or `T[..]` view rooted in a local (or by-value parameter) must not leave the function via `return`, stores into globals/statics, or stores through other pointers — including after assignment through locals (`int *p = &x; return p;`). Passing `&local` into ordinary callees remains allowed. Mark `%C` parameters `[[retains]]` when they may be stashed; the compiler also infers retain from `.mc` bodies that store a parameter into escaping storage (globals, `*out`, another object’s fields). In-place write-back through the same borrow (`c.p = c.p + 1`, `a[i] = a[j]`) does not infer `[[retains]]`. Explicit and inferred `[[retains]]` (and return-flow) are recorded in package exports so importers see them. C headers are not analyzed: libc-style borrow-for-call APIs need no annotation.
 
-- **Defer Invalidation**: After `defer free(p)` / `defer fclose(f)` / `defer` of a `[[consumes]]` call, that pointer must not escape the block (`return p` is an error; aliases are tracked). Method receivers use `([[consumes]] T *r).free()`. Views minted via a `[[region]]` parameter (e.g. Arena `copy`/`append`) are invalidated with that region.
+- **Defer Invalidation**: After `defer free(p)` / `defer fclose(f)` / `defer` of a `[[consumes]]` call, that pointer must not escape the block (`return p` is an error; aliases are tracked). Method receivers use `([[consumes]] T *r).free()`. Views minted via a `[[region]]` parameter or pool ops (e.g. `p.copy` / `p.append`) are invalidated with that region.
 
 - **Straight-line consumes**: After an immediate `free(p)` / `fclose(f)` / `[[consumes]]` call (not merely `defer`), later uses of that local/param in the function are errors (`*p`, `p[i]`, passing `p` again). Reassignment (`p = malloc(...)`) clears the kill. Fail-branch `free` + `return` does not poison the success path. Aliases (`q = p; free(p); *q`) are not fully tracked.
 

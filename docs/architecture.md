@@ -82,5 +82,5 @@ The corpus is `test/*_fail.mc`, `test/*_ok.mc`, and `test/*_run.mc`, run with
 Optional host rituals live in `make check-special` (vendor, cache, format, doc,
 includes). See [modc-test.md](modc-test.md).
 
-Shipped packages include `str/`, `arena/`, `path/`, `fs/`, `os/`, and `tty/`. Import resolution order is
+Shipped packages include `str/`, `path/`, `fs/`, `os/`, and `tty/`. Import resolution order is
 documented in [packages.md](packages.md).

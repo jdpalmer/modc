@@ -4,9 +4,10 @@
 // Prefer char[..] in structs/APIs; convert foreign NUL char* once (str_from_cstr).
 //
 // Heap-owned headers (malloc/realloc): str_dup, str_free, str_reserve, str_append,
-// str_append_byte, str_set, str_ensure_z. Only free/realloc headers these created
-// (or that you treat as malloc owners). Never str_free a literal, subslice, or
-// arena result. Region builds: import "arena" (defer a.free()).
+// str_append_byte, str_set — thin wrappers over builtin reserve/append/push/
+// release. Only free/realloc headers these created (or that you treat as malloc
+// owners). Never str_free a literal, subslice, or pool view.
+// Region builds: `pool p { … }` (auto-freed at block end).
 //
 // Preconditions (caller bugs are not swallowed):
 //   char dst[] + cap — when cap > 0, dst is writable; cap == 0 or dst == NULL is
@@ -76,7 +77,7 @@ char[..] str_from_cstr(const char* p) {
 
 // Malloc a copy of src (len == cap). Empty src → empty (no alloc).
 // Caller owns the result: str_free when done. Do not str_free views into
-// literals, stack, arena, or subslices.
+// literals, stack, pool, or subslices.
 (bool, char[..]) str_dup(const char[..] src) {
 	size_t n = len(src);
 	if (n == 0) {
@@ -86,81 +87,29 @@ char[..] str_from_cstr(const char* p) {
 	if (p == NULL) {
 		return (false, str_empty());
 	}
-	memcpy(p, ptr(src), n);
+	memcpy(p, src, n);
 	return (true, ranged(p, n));
 }
 
-// free(ptr(*s)) when non-NULL, then *s = empty. NULL s is a no-op.
+// release(*s). NULL s is a no-op.
 // Only for malloc-owned headers (str_dup / str_reserve growth / hand-owned).
 void str_free(char[..]* s) {
-	if (s == NULL) {
-		return;
-	}
-	if (ptr(*s) != NULL) {
-		free(ptr(*s));
-	}
-	*s = str_empty();
+	release(s);
 }
 
 // Grow capacity to at least need (realloc). Length unchanged. NULL s → false.
 bool str_reserve(char[..]* s, size_t need) {
-	if (s == NULL) {
-		return false;
-	}
-	size_t n = len(*s);
-	size_t c = cap(*s);
-	if (need <= c) {
-		return true;
-	}
-	size_t nc = c;
-	if (nc == 0) {
-		nc = 8;
-	}
-	while (nc < need) {
-		if (nc > (size_t) - 1 / 2) {
-			nc = need;
-			break;
-		}
-		nc = nc * 2;
-	}
-	if (nc < need) {
-		nc = need;
-	}
-	char* p = realloc(ptr(*s), nc);
-	if (p == NULL) {
-		return false;
-	}
-	*s = ranged(p, n, nc);
-	return true;
+	return reserve(s, need);
 }
 
 // Append extra onto *s (may realloc). NULL s → false.
 bool str_append(char[..]* s, const char[..] extra) {
-	if (s == NULL) {
-		return false;
-	}
-	size_t m = len(extra);
-	if (m == 0) {
-		return true;
-	}
-	size_t n = len(*s);
-	size_t newlen = n + m;
-	if (newlen < n) {
-		return false;
-	}
-	if (!str_reserve(s, newlen)) {
-		return false;
-	}
-	memcpy(ptr(*s) + n, ptr(extra), m);
-	*s = ranged(ptr(*s), newlen, cap(*s));
-	return true;
+	return append(s, extra);
 }
 
 // Append one byte onto *s.
 bool str_append_byte(char[..]* s, char c) {
-	char one[1] = { 0 };
-	one[0] = c;
-	return str_append(s, ranged(one, 1));
+	return push(s, c);
 }
 
 // Replace *s contents with src. Reuses capacity when it fits; otherwise
@@ -170,45 +119,29 @@ bool str_set(char[..]* s, const char[..] src) {
 		return false;
 	}
 	size_t n = len(src);
+	void* base = *s;
 	if (n == 0) {
-		if (ptr(*s) != NULL) {
-			*s = ranged(ptr(*s), 0, cap(*s));
+		if (base != NULL) {
+			*s = ranged(*s, 0, cap(*s));
 		} else {
 			*s = str_empty();
 		}
 		return true;
 	}
-	if (ptr(*s) != NULL && n <= cap(*s)) {
-		memmove(ptr(*s), ptr(src), n);
-		*s = ranged(ptr(*s), n, cap(*s));
+	if (base != NULL && n <= cap(*s)) {
+		memmove(*s, src, n);
+		*s = ranged(*s, n, cap(*s));
 		return true;
 	}
 	char* p = malloc(n);
 	if (p == NULL) {
 		return false;
 	}
-	memcpy(p, ptr(src), n);
-	if (ptr(*s) != NULL) {
-		free(ptr(*s));
+	memcpy(p, src, n);
+	if (base != NULL) {
+		free(base);
 	}
 	*s = ranged(p, n);
-	return true;
-}
-
-// Ensure room for a trailing NUL at ptr[len] without changing len (for C
-// handoff). Writes '\0' into spare capacity.
-bool str_ensure_z(char[..]* s) {
-	if (s == NULL) {
-		return false;
-	}
-	size_t n = len(*s);
-	if (!str_reserve(s, n + 1)) {
-		return false;
-	}
-	{
-		char[..] room = ranged(ptr(*s), cap(*s));
-		room[n] = '\0';
-	}
 	return true;
 }
 
@@ -223,7 +156,7 @@ bool str_eq(const char[..] a, const char[..] b) {
 	if (n != len(b)) {
 		return false;
 	}
-	return memcmp(ptr(a), ptr(b), n) == 0;
+	return memcmp(a, b, n) == 0;
 }
 
 // Equality against a NUL-terminated C string.
@@ -235,7 +168,7 @@ bool str_eq_cstr(const char[..] a, const char* z) {
 	if (n != len(a)) {
 		return false;
 	}
-	return memcmp(ptr(a), z, n) == 0;
+	return memcmp(a, z, n) == 0;
 }
 
 // memcmp-style ordering; shorter view sorts first when prefixes match.
@@ -245,7 +178,7 @@ int str_cmp(const char[..] a, const char[..] b) {
 		n = len(b);
 	}
 	if (n != 0) {
-		int r = memcmp(ptr(a), ptr(b), n);
+		int r = memcmp(a, b, n);
 		if (r != 0) {
 			return r;
 		}
@@ -287,7 +220,7 @@ bool str_starts_with(const char[..] s, const char[..] prefix) {
 	if (n > len(s)) {
 		return false;
 	}
-	return memcmp(ptr(s), ptr(prefix), n) == 0;
+	return memcmp(s, prefix, n) == 0;
 }
 
 // str_starts_with against a C string.
@@ -301,7 +234,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 	if (n > len(s)) {
 		return false;
 	}
-	return memcmp(ptr(s) + (len(s) - n), ptr(suffix), n) == 0;
+	return memcmp(s[(len(s) - n) ..], suffix, n) == 0;
 }
 
 // First occurrence of needle in hay; (false, empty) when missing.
@@ -315,7 +248,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 		return (false, str_empty());
 	}
 	for (size_t i = 0; i + nlen <= hlen; i++) {
-		if (memcmp(ptr(hay) + i, ptr(needle), nlen) == 0) {
+		if (memcmp(hay[i ..], needle, nlen) == 0) {
 			return (true, hay[i .. i + nlen]);
 		}
 	}
@@ -336,7 +269,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 		return (false, str_empty());
 	}
 	for (size_t i = hlen - nlen;; i--) {
-		if (memcmp(ptr(hay) + i, ptr(needle), nlen) == 0) {
+		if (memcmp(hay[i ..], needle, nlen) == 0) {
 			return (true, hay[i .. i + nlen]);
 		}
 		if (i == 0) {
@@ -415,9 +348,10 @@ overload void cstr_reset(char dst[], size_t cap) {
 	room[0] = '\0';
 }
 
-// cstr_reset on fixed char[N].
+// cstr_reset on fixed char[N] / char[..] buffer.
 overload void cstr_reset(char[..] dst) {
-	cstr_reset(ptr(dst), cap(dst));
+	void* p = dst;
+	cstr_reset((char*)p, cap(dst));
 }
 
 // Length of the filled prefix before the first NUL (capped by cap).
@@ -433,9 +367,10 @@ overload size_t cstr_zlen(char dst[], size_t cap) {
 	return i;
 }
 
-// cstr_zlen on fixed char[N].
+// cstr_zlen on fixed char[N] / char[..] buffer.
 overload size_t cstr_zlen(char[..] dst) {
-	return cstr_zlen(ptr(dst), cap(dst));
+	void* p = dst;
+	return cstr_zlen((char*)p, cap(dst));
 }
 
 // Write view into dst (strlcpy-style). Always NUL-terminates when cap > 0.
@@ -447,20 +382,21 @@ overload size_t cstr_write(char dst[], const char[..] src, size_t cap) {
 	}
 	char[..] room = ranged(dst, cap);
 	if (n >= cap) {
-		memcpy(dst, ptr(src), cap - 1);
+		memcpy(dst, src, cap - 1);
 		room[cap - 1] = '\0';
 		return n;
 	}
 	if (n != 0) {
-		memcpy(dst, ptr(src), n);
+		memcpy(dst, src, n);
 	}
 	room[n] = '\0';
 	return n;
 }
 
-// Write view into fixed char[N]; room is cap(dst).
+// Write view into fixed char[N] / char[..]; room is cap(dst).
 overload size_t cstr_write(char[..] dst, const char[..] src) {
-	return cstr_write(ptr(dst), src, cap(dst));
+	void* p = dst;
+	return cstr_write((char*)p, src, cap(dst));
 }
 
 // Split at the first byte in delims; no delimiter → (s, empty).

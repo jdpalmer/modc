@@ -256,6 +256,7 @@ da_expr(Compiler* c, Node* n, DAState* st, int as_lval) {
 	case NdLit:
 	case NdStr:
 	case NdSizeofT:
+	case NdTypeArg:
 	case NdSkip:
 		return;
 	case NdSizeof:
@@ -1627,14 +1628,13 @@ esc_mark_dead(EscapeState* st, Symbol* s) {
 		st->dead_taint[i] = 1;
 }
 
-/* After consuming region R, views minted from R are dead. */
+/* Kill views minted from region R (pool/arena). Does not mark R itself dead. */
 static void
-esc_invalidate_region(EscapeState* st, Symbol* region) {
+esc_invalidate_region_views(EscapeState* st, Symbol* region) {
 	int i, j, n;
 
 	if (region == NULL)
 		return;
-	esc_mark_dead(st, region);
 	for (i = 0; i < st->n; i++) {
 		n = st->region_dep_n[i];
 		for (j = 0; j < n; j++) {
@@ -1644,6 +1644,15 @@ esc_invalidate_region(EscapeState* st, Symbol* region) {
 			}
 		}
 	}
+}
+
+/* After free/consumes of region R: R and views minted from R are dead. */
+static void
+esc_invalidate_region(EscapeState* st, Symbol* region) {
+	if (region == NULL)
+		return;
+	esc_mark_dead(st, region);
+	esc_invalidate_region_views(st, region);
 }
 
 static void
@@ -1713,6 +1722,7 @@ esc_add_kill(EscapeState* st, Symbol* s) {
 	st->kill[d][st->kill_n[d]++] = s;
 }
 
+/* Region R is scheduled for free/reset by a defer — views must not escape. */
 static int
 sym_region_killed(EscapeState* st, Symbol* s) {
 	int i, j, n;
@@ -1725,6 +1735,24 @@ sym_region_killed(EscapeState* st, Symbol* s) {
 	for (j = 0; j < n; j++) {
 		r = st->region_deps[i * MaxRegionDeps + j];
 		if (r && (sym_in_defer_kill(st, r) || esc_dead_tainted(st, r)))
+			return 1;
+	}
+	return 0;
+}
+
+/* Region already freed/reset (not merely deferred) — local uses are invalid. */
+static int
+sym_region_already_dead(EscapeState* st, Symbol* s) {
+	int i, j, n;
+	Symbol* r;
+
+	i = esc_find(st, s);
+	if (i < 0)
+		return 0;
+	n = st->region_dep_n[i];
+	for (j = 0; j < n; j++) {
+		r = st->region_deps[i * MaxRegionDeps + j];
+		if (r && esc_dead_tainted(st, r))
 			return 1;
 	}
 	return 0;
@@ -1752,10 +1780,49 @@ static int
 builtin_arg_consumes(Symbol* callee, int i) {
 	const char* n;
 
-	if (callee == NULL || callee->name == NULL || i != 0)
+	if (i != 0)
 		return 0;
-	n = callee->name;
-	return strcmp(n, "free") == 0 || strcmp(n, "fclose") == 0;
+	n = callee && callee->name ? callee->name : NULL;
+	if (n && (strcmp(n, "free") == 0 || strcmp(n, "fclose") == 0))
+		return 1;
+	return 0;
+}
+
+static int
+call_name_is(Node* call, const char* want) {
+	if (call == NULL || call->a == NULL || call->a->kind != NdName || call->a->s == NULL)
+		return 0;
+	return strcmp(call->a->s, want) == 0;
+}
+
+static int
+call_is_pool_free(Node* call) {
+	return call_name_is(call, "__modc_pool_free");
+}
+
+static int
+call_is_pool_reset(Node* call) {
+	return call_name_is(call, "__modc_pool_reset");
+}
+
+/* free ends the pool; reset only kills minted views (slab reused). */
+static int
+call_is_pool_consume(Node* call) {
+	return call_is_pool_free(call) || call_is_pool_reset(call);
+}
+
+static int
+call_is_pool_region_mint(Node* call) {
+	const char* n;
+
+	if (call == NULL || call->a == NULL || call->a->kind != NdName || call->a->s == NULL)
+		return 0;
+	n = call->a->s;
+	return strcmp(n, "__modc_pool_copy") == 0 || strcmp(n, "__modc_pool_append") == 0 ||
+	       strcmp(n, "__modc_pool_push") == 0 || strcmp(n, "__modc_pool_join") == 0 ||
+	       strcmp(n, "__modc_pool_replace") == 0 || strcmp(n, "__modc_pool_cstr") == 0 ||
+	       strcmp(n, "__modc_pool_alloc_ptr") == 0 ||
+	       strcmp(n, "__modc_pool_alloc_slice") == 0;
 }
 
 /* Local/param object whose lifetime a consuming call ends. */
@@ -1793,6 +1860,8 @@ call_arg_consumes(Node* call, int i) {
 	if (ft && param_is_consumes(ft, i))
 		return 1;
 	if (builtin_arg_consumes(callee, i))
+		return 1;
+	if (i == 0 && call_is_pool_consume(call))
 		return 1;
 	return 0;
 }
@@ -1850,6 +1919,8 @@ expr_may_dead(EscapeState* st, Node* n) {
 	}
 	if (n->kind == NdCast || n->kind == NdComma)
 		return expr_may_dead(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdAddr)
+		return expr_may_dead(st, n->a);
 	if (n->kind == NdCond)
 		return expr_may_dead(st, n->b) || expr_may_dead(st, n->c);
 	if (n->kind == NdName && n->symbol)
@@ -1911,6 +1982,8 @@ expr_consumed_sym(EscapeState* st, Node* n) {
 		return NULL;
 	if (n->kind == NdCast || n->kind == NdComma)
 		return expr_consumed_sym(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdAddr)
+		return expr_consumed_sym(st, n->a);
 	if (n->kind == NdName && n->symbol &&
 	    (sym_is_consumed(st, n->symbol) || esc_dead_tainted(st, n->symbol) ||
 	     sym_region_killed(st, n->symbol)))
@@ -1986,12 +2059,14 @@ expr_may_already_consumed(EscapeState* st, Node* n) {
 	}
 	if (n->kind == NdCast || n->kind == NdComma)
 		return expr_may_already_consumed(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdAddr)
+		return expr_may_already_consumed(st, n->a);
 	if (n->kind == NdCond)
 		return expr_may_already_consumed(st, n->b) ||
 		       expr_may_already_consumed(st, n->c);
 	if (n->kind == NdName && n->symbol)
 		return esc_dead_tainted(st, n->symbol) ||
-		       sym_region_killed(st, n->symbol);
+		       sym_region_already_dead(st, n->symbol);
 	if (n->kind == NdDeref)
 		return expr_may_already_consumed(st, n->a);
 	if ((n->kind == NdDot || n->kind == NdArrow || n->kind == NdIndex) && n->a) {
@@ -1999,11 +2074,11 @@ expr_may_already_consumed(EscapeState* st, Node* n) {
 		if (bt && is_ptr(bt) && expr_may_already_consumed(st, n->a))
 			return 1;
 		s = lvalue_stack_object(n->a);
-		if (s && (esc_dead_tainted(st, s) || sym_region_killed(st, s)))
+		if (s && (esc_dead_tainted(st, s) || sym_region_already_dead(st, s)))
 			return 1;
 		if (n->a->kind == NdName && n->a->symbol &&
 		    (esc_dead_tainted(st, n->a->symbol) ||
-		     sym_region_killed(st, n->a->symbol)))
+		     sym_region_already_dead(st, n->a->symbol)))
 			return 1;
 	}
 	if (n->kind == NdBin)
@@ -2380,6 +2455,13 @@ esc_add_region_deps_from_expr(EscapeState* st, Symbol* dst, Node* src) {
 			esc_add_region_deps_from_expr(st, dst, src->children[0]);
 			return;
 		}
+		if ((call_name_is(src, "__modc_pool_cstr") ||
+		     call_name_is(src, "__modc_pool_alloc_ptr") ||
+		     call_name_is(src, "__modc_pool_alloc_slice")) &&
+		    src->children_len >= 1) {
+			esc_add_region_dep(st, dst, consume_target_sym(src->children[0]));
+			return;
+		}
 		ft = call_func_type(src);
 		if (ft == NULL)
 			return;
@@ -2424,13 +2506,34 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 static void
 esc_apply_consumes(EscapeState* st, Node* call) {
 	int i;
+	Symbol *pool, *slice;
 
 	if (call == NULL || call->kind != NdCall)
 		return;
 	for (i = 0; i < call->children_len; i++) {
 		if (!call_arg_consumes(call, i))
 			continue;
-		esc_invalidate_region(st, consume_target_sym(call->children[i]));
+		/* reset: invalidate views only; pool stays reusable. */
+		if (i == 0 && call_is_pool_reset(call))
+			esc_invalidate_region_views(st, consume_target_sym(call->children[i]));
+		else
+			esc_invalidate_region(st, consume_target_sym(call->children[i]));
+	}
+	/* Mutating pool ops: destination slice header is tied to the pool.
+	 * Returning mints (alloc_ptr / alloc_slice / z) attach deps via assign. */
+	if (call_is_pool_region_mint(call) && call->children_len >= 2 &&
+	    !call_name_is(call, "__modc_pool_cstr") &&
+	    !call_name_is(call, "__modc_pool_alloc_ptr") &&
+	    !call_name_is(call, "__modc_pool_alloc_slice")) {
+		pool = consume_target_sym(call->children[0]);
+		slice = consume_target_sym(call->children[1]);
+		esc_add_region_dep(st, slice, pool);
+		/* In-place rewrite of *dst: header is live again. */
+		if (slice) {
+			i = esc_find(st, slice);
+			if (i >= 0)
+				st->dead_taint[i] = 0;
+		}
 	}
 }
 

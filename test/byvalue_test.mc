@@ -35,41 +35,36 @@ Rect idr(Rect r) {
 
 int local_copy() {
 	Point a = { 0 };
-	Point b = { 0 };
 	a.x = 1;
 	a.y = 2;
-	b = a;
+	Point b = a;
 	return b.x + b.y;
 }
 
 int nested() {
 	Rect r = { 0 };
-	Rect s = { 0 };
 	r.min.x = 1;
 	r.min.y = 2;
 	r.max.x = 3;
 	r.max.y = 4;
-	s = r;
+	Rect s = r;
 	return s.min.x + s.max.y;
 }
 
 int main() {
 	Point a = { 0 };
-	Point b = { 0 };
-	Point c = { 0 };
 	Rect r = { 0 };
-	Rect r2 = { 0 };
 
 	a.x = 3;
 	a.y = 4;
 	if (sum(a) != 7) {
 		return 1;
 	}
-	b = id(a);
+	Point b = id(a);
 	if (b.x != 3 || b.y != 4) {
 		return 2;
 	}
-	c = add(a, b);
+	Point c = add(a, b);
 	if (c.x != 6 || c.y != 8) {
 		return 3;
 	}
@@ -85,7 +80,7 @@ int main() {
 	}
 	r.min = a;
 	r.max = b;
-	r2 = idr(r);
+	Rect r2 = idr(r);
 	if (r2.min.x != 6 || r2.max.y != 4) {
 		return 7;
 	}

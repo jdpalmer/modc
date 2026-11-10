@@ -1,4 +1,4 @@
-/* Ranged array int[..]: opaque header; use len()/cap()/ptr(). */
+/* Ranged array int[..]: opaque header; use len()/cap()/ranged(). */
 
 int sum_elems(int[..] s) {
 	int i = { 0 };
@@ -25,7 +25,7 @@ int from_array() {
 	if (len(s) != 4 || cap(s) != 4) {
 		return 0;
 	}
-	if (ptr(s)[0] != 1) {
+	if (s[0] != 1) {
 		return 0;
 	}
 	return sum_elems(s);

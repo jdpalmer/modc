@@ -1406,6 +1406,10 @@ emitlval(Compiler* c, Node* n) {
 		fprintf(outf, "\t%s =l add %s, %s\n", v.text, b.text, i.text);
 		return v;
 	}
+	/* Temporary aggregates (subrange, call result, …): materialize via
+	 * emitexpr so (void*)slice / .ptr decay does not see address 0. */
+	if (n->type && is_aggr(n->type))
+		return emitexpr(c, n);
 	strcpy(v.text, "0");
 	return v;
 }
@@ -1852,73 +1856,167 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 		v.cls = 'l';
 		return v;
 	}
-	if (bn && strcmp(bn, "ptr") == 0 && !(n->a && n->a->symbol)) {
-		Node* x;
-		Val base, p;
-		int ptroff;
-		Field* f;
-
-		x = n->children_len >= 1 ? n->children[0] : NULL;
-		if (x && is_ranged(x->type)) {
-			base = emitexpr(c, x);
-			if (base.cls != 'l' && base.cls != '@')
-				base = coerce(base, 'l', c->types.type_void_ptr);
-			ptroff = 0;
-			for (f = x->type->fields; f; f = f->next)
-				if (f->name && strcmp(f->name, "ptr") == 0)
-					ptroff = f->offset;
-			if (ptroff == 0) {
-				p = vtmp('l', n->type ? n->type : c->types.type_void_ptr);
-				fprintf(outf, "\t%s =l loadl %s\n", p.text, base.text);
-				return p;
-			}
-			{
-				Val off;
-
-				off = vtmp('l', c->types.type_void_ptr);
-				fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, ptroff);
-				p = vtmp('l', n->type ? n->type : c->types.type_void_ptr);
-				fprintf(outf, "\t%s =l loadl %s\n", p.text, off.text);
-				return p;
-			}
-		}
-		if (x && is_array(x->type)) {
-			p = emitexpr(c, x);
-			if (p.cls != 'l')
-				p = coerce(p, 'l', n->type ? n->type : c->types.type_void_ptr);
-			return p;
-		}
-		if (x) {
-			Type* ag;
-
-			ag = field_lhs(x->type);
-			if (ag && anon_embed_unique_ranged(ag, NULL, NULL) == 1) {
-				if (find_field(ag, "ptr", &ptroff)) {
-					if (x->type && is_aggr(x->type))
-						base = emitlval(c, x);
-					else
-						base = emitexpr(c, x);
-					if (base.cls != 'l' && base.cls != '@')
-						base = coerce(base, 'l', c->types.type_void_ptr);
-					{
-						Val off;
-
-						off = vtmp('l', c->types.type_void_ptr);
-						fprintf(outf, "\t%s =l add %s, %d\n", off.text, base.text, ptroff);
-						p = vtmp('l', n->type ? n->type : c->types.type_void_ptr);
-						fprintf(outf, "\t%s =l loadl %s\n", p.text, off.text);
-						return p;
-					}
-				}
-			}
-		}
-		v.text[0] = '0';
-		v.text[1] = 0;
-		v.cls = 'l';
-		return v;
-	}
 	if (try_inline_call(c, n, &v))
 		return v;
+	/* Unbound __modc_* from builtin lowering: call exported crash symbols + spill
+	 * slice/elem. Bound names (calls inside crash itself) use normal mangling. */
+	if (bn && strncmp(bn, "__modc_", 7) == 0 &&
+	    !(n->a && n->a->kind == NdName && n->a->symbol)) {
+		Val args[MaxParams];
+		int na = n->children_len < MaxParams ? n->children_len : MaxParams;
+		int spill_elem = (strcmp(bn, "__modc_push") == 0 ||
+				  strcmp(bn, "__modc_pool_push") == 0);
+		int mint_slice = (strcmp(bn, "__modc_alloc_slice") == 0 ||
+				  strcmp(bn, "__modc_pool_alloc_slice") == 0);
+
+		snprintf(tgt.text, sizeof(tgt.text), "$%s", bn);
+		tgt.cls = 'l';
+		/* alloc(T,n) helpers write through an out-param slice header and the
+		 * expression result is that header (same shape as ranged()). */
+		if (mint_slice && n->type && is_ranged(n->type)) {
+			Val slot;
+			int w, ai;
+
+			ensure_aggregate(n->type);
+			w = storewidth(c, n->type);
+			slot = vtmp('l', n->type);
+			fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, w);
+			fprintf(outf, "\tcall %s(", tgt.text);
+			if (strcmp(bn, "__modc_pool_alloc_slice") == 0) {
+				/* (pool, out, elemsz, n, align) — children: pool,esz,n,align */
+				for (ai = 0; ai < na; ai++) {
+					Val a;
+
+					if (ai)
+						fputs(", ", outf);
+					if (ai == 1) {
+						fputs("l ", outf);
+						fputs(slot.text, outf);
+						fputs(", ", outf);
+					}
+					a = emitexpr(c, n->children[ai]);
+					if (a.cls != 'l')
+						a = coerce(a, 'l', c->types.type_ullong);
+					fputs("l ", outf);
+					fputs(a.text, outf);
+				}
+			} else {
+				/* (out, elemsz, n) — children: esz, n */
+				fputs("l ", outf);
+				fputs(slot.text, outf);
+				for (ai = 0; ai < na; ai++) {
+					Val a;
+
+					fputs(", ", outf);
+					a = emitexpr(c, n->children[ai]);
+					if (a.cls != 'l')
+						a = coerce(a, 'l', c->types.type_ullong);
+					fputs("l ", outf);
+					fputs(a.text, outf);
+				}
+			}
+			fputs(")\n", outf);
+			snprintf(v.text, sizeof(v.text), "%s", slot.text);
+			v.cls = '@';
+			v.type = n->type;
+			return v;
+		}
+		for (i = 0; i < na; i++) {
+			Node* arg = n->children[i];
+			Type* at = arg ? arg->type : NULL;
+
+			if (arg == NULL) {
+				args[i].text[0] = '0';
+				args[i].text[1] = 0;
+				args[i].cls = 'l';
+				continue;
+			}
+			/* T[..] by value → temp header pointer */
+			if (at && is_ranged(at)) {
+				Val slot, rv;
+				int w;
+
+				w = storewidth(c, at);
+				slot = vtmp('l', c->types.type_void_ptr);
+				fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, w);
+				rv = emitexpr(c, arg);
+				if (rv.cls != 'l' && rv.cls != '@')
+					rv = coerce(rv, 'l', c->types.type_void_ptr);
+				emitblit(slot, rv, w);
+				args[i] = slot;
+				continue;
+			}
+			/* push elem by value → temp + pointer */
+			if (spill_elem && i == na - 1 && at && !is_ptr(at)) {
+				Val slot, rv;
+				int w;
+
+				w = storewidth(c, at);
+				if (w < 1)
+					w = 1;
+				slot = vtmp('l', c->types.type_void_ptr);
+				fprintf(outf, "\t%s =l alloc8 %d\n", slot.text, w > 8 ? w : 8);
+				rv = emitexpr(c, arg);
+				/* store value into slot */
+				if (is_aggr(at)) {
+					if (rv.cls != 'l' && rv.cls != '@')
+						rv = coerce(rv, 'l', c->types.type_void_ptr);
+					emitblit(slot, rv, w);
+				} else {
+					char cls = qbe_class(at);
+					const char* st = cls == 'd'   ? "stored"
+							: cls == 's' ? "stores"
+							: cls == 'l' ? "storel"
+							: cls == 'w' ? "storew"
+								     : "storeb";
+					if (cls != 'l' && cls != 'w' && cls != 's' && cls != 'd' &&
+					    cls != 'b')
+						rv = coerce(rv, 'w', at);
+					fprintf(outf, "\t%s %s, %s\n", st, rv.text, slot.text);
+				}
+				args[i] = slot;
+				continue;
+			}
+			args[i] = emitexpr(c, arg);
+			/* Runtime ABI: all __modc_* params are pointer- or size_t-sized. */
+			if (args[i].cls != 'l')
+				args[i] = coerce(args[i], 'l', c->types.type_ullong);
+		}
+		/* Prefer known runtime ABIs: AST type can be lost on re-typecheck. */
+		if (strcmp(bn, "__modc_release") == 0 || strcmp(bn, "__modc_pool_free") == 0 ||
+		    strcmp(bn, "__modc_pool_reset") == 0 ||
+		    strcmp(bn, "__modc_alloc_slice") == 0 ||
+		    strcmp(bn, "__modc_pool_alloc_slice") == 0) {
+			strcpy(v.text, "0");
+			v.cls = 'w';
+			fprintf(outf, "\tcall %s(", tgt.text);
+		} else if (strcmp(bn, "__modc_pool_cstr") == 0 || strcmp(bn, "__modc_cstr") == 0 ||
+			   strcmp(bn, "__modc_alloc") == 0 ||
+			   strcmp(bn, "__modc_pool_alloc_ptr") == 0) {
+			v = vtmp('l', c->types.type_void_ptr);
+			fprintf(outf, "\t%s =l call %s(", v.text, tgt.text);
+		} else if (n->type && n->type->kind == TyVoid) {
+			strcpy(v.text, "0");
+			v.cls = 'w';
+			fprintf(outf, "\tcall %s(", tgt.text);
+		} else if (n->type && (n->type->kind == TyBool || n->type->kind == TyPtr ||
+				      is_int(n->type))) {
+			v = vtmp(qbe_class(n->type), n->type);
+			fprintf(outf, "\t%s =%c call %s(", v.text, v.cls, tgt.text);
+		} else {
+			/* Default heap/pool mutators return bool. */
+			v = vtmp('w', c->types.type_bool);
+			fprintf(outf, "\t%s =w call %s(", v.text, tgt.text);
+		}
+		for (i = 0; i < na; i++) {
+			if (i)
+				fputs(", ", outf);
+			fputs("l ", outf);
+			fprintf(outf, "%s", args[i].text);
+		}
+		fputs(")\n", outf);
+		return v;
+	}
 	ft = n->a ? n->a->type : NULL;
 	if (ft && is_ptr(ft) && is_func(ft->base))
 		ft = ft->base;
@@ -3085,16 +3183,43 @@ emitallocs(Compiler* c) {
 	}
 }
 
+/* main(const char[..][..] args): nested ranged-of-char-slices entry sugar. */
+static int
+is_main_args_slice(Node* fn) {
+	Type *ty, *outer, *inner;
+	Symbol* s;
+
+	if (fn == NULL || fn->kind != NdFunc || fn->symbol == NULL || fn->symbol->name == NULL)
+		return 0;
+	if (strcmp(fn->symbol->name, "main") != 0)
+		return 0;
+	ty = fn->type;
+	if (ty == NULL || !is_func(ty) || ty->params_len != 1 || ty->params == NULL)
+		return 0;
+	if (ty->param_names == NULL || ty->param_names[0] == NULL)
+		return 0;
+	outer = ty->params[0];
+	if (outer == NULL || !is_ranged(outer) || outer->base == NULL)
+		return 0;
+	inner = outer->base;
+	if (!is_ranged(inner) || inner->base == NULL)
+		return 0;
+	return inner->base->kind == TyChar || inner->base->kind == TyUChar;
+}
+
 // Emit one function: signature, @start allocs, body, and implicit ret if needed.
 static void
 emitfunc(Compiler* c, Node* fn) {
 	Type *ty, *ret;
 	int i, first, returned;
+	int slice_main;
 	Symbol* s;
+	const char* args_name = NULL;
 
 	s = fn->symbol;
 	ty = fn->type;
 	ret = ty ? ty->base : c->types.type_int;
+	slice_main = is_main_args_slice(fn);
 	tempno = 0;
 	lblno = 0;
 	curlbl = 0;
@@ -3129,7 +3254,32 @@ emitfunc(Compiler* c, Node* fn) {
 		fprintf(outf, " $%s(", symbol_link_name(s));
 	}
 	first = 1;
-	if (ty) {
+	if (slice_main) {
+		/* Hosted C entry: synthesize const char[..][..] from argc/argv. */
+		fputs("w %argc, l %argv", outf);
+		args_name = ty->param_names[0];
+		{
+			int j, found = 0;
+
+			for (j = 0; j < locals_len; j++) {
+				if (locals[j]->name && strcmp(locals[j]->name, args_name) == 0) {
+					localparam[j] = 0; /* real stack slot, not ABI param */
+					found = 1;
+				}
+			}
+			if (!found) {
+				Symbol* ps = xmalloc(sizeof(*ps));
+
+				memset(ps, 0, sizeof(*ps));
+				ps->name = xstrdup(args_name);
+				ps->kind = SkVar;
+				ps->storage = StLocal;
+				ps->type = ty->params[0];
+				addlocal(ps, ty->params[0], 0);
+			}
+		}
+		first = 0;
+	} else if (ty) {
 		for (i = 0; i < ty->params_len; i++) {
 			if (!ty->param_names || !ty->param_names[i])
 				continue;
@@ -3163,6 +3313,18 @@ emitfunc(Compiler* c, Node* fn) {
 	fputs(") {\n@start\n", outf);
 	emit_curfn = fn;
 	emitallocs(c);
+	if (slice_main && args_name) {
+		const char* sn = args_name;
+		int j;
+
+		for (j = 0; j < locals_len; j++) {
+			if (locals[j]->name && strcmp(locals[j]->name, args_name) == 0) {
+				sn = localslot[j] ? localslot[j] : args_name;
+				break;
+			}
+		}
+		fprintf(outf, "\tcall $__modc_main_args(w %%argc, l %%argv, l %%%s.addr)\n", sn);
+	}
 	emit_recv_null_check(c, fn);
 	if (is_aggr(ret)) {
 		int align, width;

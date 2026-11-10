@@ -4,11 +4,12 @@
 import "str";
 
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 int test_cstr_write() {
 	char buf[32] = { 0 };
-	const char[..] a = { 0 };
-	a = "hello";
+	const char[..] a = "hello";
 	if (cstr_write(buf, a) != 5) {
 		return 1;
 	}
@@ -19,10 +20,8 @@ int test_cstr_write() {
 }
 
 int test_find() {
-	const char[..] hay = { 0 };
-	const char[..] needle = { 0 };
-	hay = "hello world";
-	needle = "world";
+	const char[..] hay = "hello world";
+	const char[..] needle = "world";
 	{
 		auto (ok, hit) = str_find(hay, needle);
 		if (!ok || !str_eq(hit, needle)) {
@@ -53,16 +52,14 @@ int test_find() {
 
 int test_chomp() {
 	char raw[8] = { 0 };
-	const char[..] s = { 0 };
-	const char[..] tok = { 0 };
 	raw[0] = 'l';
 	raw[1] = 'i';
 	raw[2] = 'n';
 	raw[3] = 'e';
 	raw[4] = '\n';
 	raw[5] = 0;
-	s = ranged(raw, 5);
-	tok = str_chomp(s);
+	const char[..] s = ranged(raw, 5);
+	const char[..] tok = str_chomp(s);
 	if (!str_eq(tok, "line")) {
 		return 1;
 	}
@@ -71,16 +68,11 @@ int test_chomp() {
 
 int test_sep_trim() {
 	char line[64] = { 0 };
-	const char[..] rest = { 0 };
-	const char[..] tok = { 0 };
 	int n = { 0 };
 	cstr_write(line, "  foo, bar , baz  ");
-	rest = str_from_cstr(line);
-	{
-		auto (t, r) = str_split_once(rest, " ");
-		tok = t;
-		rest = r;
-	}
+	const char[..] rest = str_from_cstr(line);
+	auto (tok, rest1) = str_split_once(rest, " ");
+	rest = rest1;
 	while (str_is_empty(tok) && !str_is_empty(rest)) {
 		auto (t, r) = str_split_once(rest, " ");
 		tok = t;
@@ -120,8 +112,7 @@ int test_sep_trim() {
 }
 
 int test_cmp_prefix() {
-	const char[..] s = { 0 };
-	s = "Hello";
+	const char[..] s = "Hello";
 	if (!str_starts_with(s, "He")) {
 		return 1;
 	}
@@ -162,13 +153,11 @@ int test_parse() {
 
 int test_subview() {
 	char data[16] = { 0 };
-	char[..] chunk = { 0 };
-	char[..] word = { 0 };
 	data[0] = 'h';
 	data[1] = 'i';
 	data[2] = '!';
-	chunk = ranged(data, 3);
-	word = chunk[0 .. 2];
+	char[..] chunk = ranged(data, 3);
+	char[..] word = chunk[0 .. 2];
 	if (!str_eq(word, "hi")) {
 		return 1;
 	}
@@ -176,14 +165,10 @@ int test_subview() {
 }
 
 int test_heap() {
-	char[..] s = { 0 };
 	char[..] t = { 0 };
-	{
-		auto (ok, n) = str_dup("ab");
-		if (!ok || len(n) != 2 || n[0] != 'a') {
-			return 1;
-		}
-		s = n;
+	auto (ok0, s) = str_dup("ab");
+	if (!ok0 || len(s) != 2 || s[0] != 'a') {
+		return 1;
 	}
 	if (!str_append(&s, "cd")) {
 		str_free(&s);
@@ -209,25 +194,23 @@ int test_heap() {
 		str_free(&s);
 		return 7;
 	}
-	if (!str_ensure_z(&s) || len(s) != 1) {
-		str_free(&s);
-		return 8;
-	}
 	{
-		char[..] room = ranged(ptr(s), len(s) + 1);
+		char* z = cstr(s);
 
-		if (room[len(s)] != 0) {
+		if (z == NULL || strcmp(z, "x") != 0 || len(s) != 1) {
+			free(z);
 			str_free(&s);
 			return 8;
 		}
+		free(z);
 	}
 	str_free(&s);
-	if (ptr(s) != NULL || len(s) != 0) {
+	if ((void*)s != NULL || len(s) != 0) {
 		return 9;
 	}
 	{
 		auto (ok, n) = str_dup(str_empty());
-		if (!ok || ptr(n) != NULL) {
+		if (!ok || (void*)n != NULL) {
 			return 10;
 		}
 	}

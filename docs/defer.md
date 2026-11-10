@@ -49,9 +49,9 @@ void write_log(char *path) {
 
 Returning a pointer freed by a deferred cleanup is a compile-time error when the
 cleanup is recognized as consuming: `free` / `fclose`, or a `%C` parameter marked
-`[[consumes]]` (including method receivers such as `([[consumes]] Arena *a).free()`).
-Views returned from a `[[region]]` parameter (Arena `copy` / `append` / `z`, …) are
-tied to that region and cannot escape past a consuming `free` / `reset` either.
+`[[consumes]]` (including method receivers). Pool blocks schedule `p.free()`
+like a defer; views minted via pool ops (`p.copy` / `p.append` / `p.cstr`, …) are
+tied to that pool and cannot escape past block end / `p.free()` / `p.reset()`.
 The `defer` keyword still only schedules cleanup order; `[[consumes]]` / `[[region]]`
 are what make the lifetime contract checkable. The same consume markers also reject
 straight-line use-after-free and double-free of that local after an immediate
@@ -60,15 +60,16 @@ are allowed; the kill is at block exit).
 
 ## Practical application patterns
 
-Block-level scoping makes `defer` useful for temporary state changes, lock management, and arena allocation within small scopes.
+Block-level scoping makes `defer` useful for temporary state changes, lock management, and pool allocation within small scopes.
 
 ```c
 mtx_lock(&m);
 defer mtx_unlock(&m);
 
-Arena a = {0};
-a.init();
-defer a.free();
+pool p {
+	char[..] s = {0};
+	p.copy(&s, "hi");
+}
 ```
 
 The feature remains simple by design. It does not introduce a generalized effect system, function-level scoping, or ownership type dependencies. Native headers do not parse `defer` keywords; cleanup routines belong strictly inside user `.mc` source files.

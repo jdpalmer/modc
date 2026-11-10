@@ -32,11 +32,10 @@ int sum_ranged(int[..] s) {
 
 int sum_ranged_expr() {
 	int a[3] = { 0 };
-	int[..] s = { 0 };
 	a[0] = 5;
 	a[1] = 6;
 	a[2] = 7;
-	s = a;
+	int[..] s = a;
 	return sum_ranged(s);
 }
 
@@ -101,13 +100,12 @@ int ptr_bind_array() {
 
 int ptr_bind_ranged() {
 	int a[4] = { 0 };
-	int[..] s = { 0 };
 	int t = { 0 };
 	a[0] = 1;
 	a[1] = 2;
 	a[2] = 3;
 	a[3] = 4;
-	s = a;
+	int[..] s = a;
 	for (auto* p: s) {
 		*p = *p + 1;
 	}
@@ -124,9 +122,8 @@ struct Pt {
 
 int ptr_bind_struct() {
 	Pt a[2] = { 0 };
-	Pt[..] s = { 0 };
 	int t = { 0 };
-	s = a;
+	Pt[..] s = a;
 	for (auto* p: s) {
 		p.x = 3;
 		p.y = 4;
