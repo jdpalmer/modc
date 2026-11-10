@@ -1391,6 +1391,8 @@ struct EscapeState {
 	Symbol** syms;
 	unsigned char* stack_taint;
 	unsigned char* dead_taint; /* may hold a value a defer will consume */
+	int* alias_gid; /* Name→Name pointer/T[..] copy groups; 0 = unset */
+	int alias_gen; /* next fresh group id */
 	Symbol** region_deps; /* n * MaxRegionDeps: views into [[region]] objects */
 	unsigned char* region_dep_n;
 	uint64_t* param_bits;
@@ -1518,17 +1520,20 @@ esc_release(EscapeState* st) {
 	free(st->syms);
 	free(st->stack_taint);
 	free(st->dead_taint);
+	free(st->alias_gid);
 	free(st->region_deps);
 	free(st->region_dep_n);
 	free(st->param_bits);
 	st->syms = NULL;
 	st->stack_taint = NULL;
 	st->dead_taint = NULL;
+	st->alias_gid = NULL;
 	st->region_deps = NULL;
 	st->region_dep_n = NULL;
 	st->param_bits = NULL;
 	st->n = 0;
 	st->cap = 0;
+	st->alias_gen = 0;
 }
 
 static void
@@ -1543,12 +1548,14 @@ esc_grow(EscapeState* st, int need) {
 	st->syms = xrealloc(st->syms, (size_t)ncap * sizeof(Symbol*));
 	st->stack_taint = xrealloc(st->stack_taint, (size_t)ncap);
 	st->dead_taint = xrealloc(st->dead_taint, (size_t)ncap);
+	st->alias_gid = xrealloc(st->alias_gid, (size_t)ncap * sizeof(int));
 	st->region_deps =
 		xrealloc(st->region_deps, (size_t)ncap * MaxRegionDeps * sizeof(Symbol*));
 	st->region_dep_n = xrealloc(st->region_dep_n, (size_t)ncap);
 	st->param_bits = xrealloc(st->param_bits, (size_t)ncap * sizeof(uint64_t));
 	for (i = st->cap; i < ncap; i++) {
 		st->dead_taint[i] = 0;
+		st->alias_gid[i] = 0;
 		st->region_dep_n[i] = 0;
 		for (j = 0; j < MaxRegionDeps; j++)
 			st->region_deps[i * MaxRegionDeps + j] = NULL;
@@ -1583,6 +1590,7 @@ esc_index(EscapeState* st, Symbol* s) {
 	st->syms[i] = s;
 	st->stack_taint[i] = 0;
 	st->dead_taint[i] = 0;
+	st->alias_gid[i] = ++st->alias_gen;
 	st->region_dep_n[i] = 0;
 	st->param_bits[i] = 0;
 	return i;
@@ -1619,13 +1627,64 @@ esc_add_region_dep(EscapeState* st, Symbol* dst, Symbol* region) {
 	st->region_dep_n[i] = (unsigned char)(n + 1);
 }
 
+static int
+type_is_aliasable(Type* t) {
+	return t != NULL && (is_ptr(t) || is_ranged(t));
+}
+
+/* Local/param Name (through cast/comma) used as a pointer/T[..] copy source. */
+static Symbol*
+alias_copy_src(Node* n) {
+	if (n == NULL)
+		return NULL;
+	if (n->kind == NdCast)
+		return alias_copy_src(n->a);
+	if (n->kind == NdComma)
+		return alias_copy_src(n->b);
+	if (n->kind == NdName && n->symbol && sym_is_stack_object(n->symbol) &&
+	    type_is_aliasable(n->symbol->type))
+		return n->symbol;
+	return NULL;
+}
+
+static void
+esc_alias_join(EscapeState* st, Symbol* dst, Node* src) {
+	Symbol* from;
+	int di, si;
+
+	if (dst == NULL || !type_is_aliasable(dst->type))
+		return;
+	di = esc_index(st, dst);
+	if (di < 0)
+		return;
+	from = alias_copy_src(src);
+	if (from == NULL || from == dst) {
+		st->alias_gid[di] = ++st->alias_gen;
+		return;
+	}
+	si = esc_index(st, from);
+	if (si < 0) {
+		st->alias_gid[di] = ++st->alias_gen;
+		return;
+	}
+	st->alias_gid[di] = st->alias_gid[si];
+}
+
 static void
 esc_mark_dead(EscapeState* st, Symbol* s) {
-	int i;
+	int i, j, g;
 
 	i = esc_index(st, s);
-	if (i >= 0)
-		st->dead_taint[i] = 1;
+	if (i < 0)
+		return;
+	g = st->alias_gid[i];
+	st->dead_taint[i] = 1;
+	if (g == 0)
+		return;
+	for (j = 0; j < st->n; j++) {
+		if (st->alias_gid[j] == g)
+			st->dead_taint[j] = 1;
+	}
 }
 
 /* Kill views minted from region R (pool/arena). Does not mark R itself dead. */
@@ -1639,7 +1698,7 @@ esc_invalidate_region_views(EscapeState* st, Symbol* region) {
 		n = st->region_dep_n[i];
 		for (j = 0; j < n; j++) {
 			if (st->region_deps[i * MaxRegionDeps + j] == region) {
-				st->dead_taint[i] = 1;
+				esc_mark_dead(st, st->syms[i]);
 				break;
 			}
 		}
@@ -1895,10 +1954,27 @@ expr_param_bits(EscapeState* st, Node* n);
 
 static int
 sym_is_consumed(EscapeState* st, Symbol* s) {
+	int i, j, g;
+
 	if (s == NULL)
 		return 0;
-	return sym_in_defer_kill(st, s) || esc_dead_tainted(st, s) ||
-	       sym_region_killed(st, s);
+	i = esc_find(st, s);
+	if (i < 0)
+		return sym_in_defer_kill(st, s) || sym_region_killed(st, s);
+	g = st->alias_gid[i];
+	for (j = 0; j < st->n; j++) {
+		if (g != 0 && st->alias_gid[j] != g)
+			continue;
+		if (g == 0 && j != i)
+			continue;
+		if (st->dead_taint[j])
+			return 1;
+		if (sym_in_defer_kill(st, st->syms[j]))
+			return 1;
+		if (sym_region_killed(st, st->syms[j]))
+			return 1;
+	}
+	return 0;
 }
 
 static int
@@ -2019,6 +2095,27 @@ report_consumed_use(Compiler* c, EscapeState* st, Node* n) {
 		error_at(c, n->span, "use of consumed value");
 }
 
+static int
+sym_defer_kill_alias(EscapeState* st, Symbol* s) {
+	int i, j, g;
+
+	if (s == NULL)
+		return 0;
+	if (sym_in_defer_kill(st, s))
+		return 1;
+	i = esc_find(st, s);
+	if (i < 0)
+		return 0;
+	g = st->alias_gid[i];
+	if (g == 0)
+		return 0;
+	for (j = 0; j < st->n; j++) {
+		if (st->alias_gid[j] == g && sym_in_defer_kill(st, st->syms[j]))
+			return 1;
+	}
+	return 0;
+}
+
 static void
 report_defer_escape(Compiler* c, EscapeState* st, Node* n) {
 	Symbol* s;
@@ -2028,13 +2125,13 @@ report_defer_escape(Compiler* c, EscapeState* st, Node* n) {
 	s = expr_consumed_sym(st, n);
 	if (s == NULL && n->kind == NdName)
 		s = n->symbol;
-	if (s && s->name && sym_in_defer_kill(st, s))
+	if (s && s->name && sym_defer_kill_alias(st, s))
 		error_at(c, n->span,
 			 "'%s' is invalidated by a defer in this block and cannot escape",
 			 s->name);
 	else if (s && s->name)
 		error_at(c, n->span, "consumed value '%s' cannot escape", s->name);
-	else if (s && sym_in_defer_kill(st, s))
+	else if (s && sym_defer_kill_alias(st, s))
 		error_at(c, n->span,
 			 "value invalidated by a defer in this block cannot escape");
 	else
@@ -2498,6 +2595,7 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 		st->dead_taint[i] = 1;
 	else
 		st->dead_taint[i] = 0;
+	esc_alias_join(st, dst, src);
 	esc_clear_region_deps(st, i);
 	esc_add_region_deps_from_expr(st, dst, src);
 	esc_add_param_bits(st, dst, expr_param_bits(st, src));
