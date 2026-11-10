@@ -477,7 +477,6 @@ install: $(MODC)
 		$(DESTDIR)$(MODCLIB)/pkg/os $(DESTDIR)$(MODCLIB)/pkg/tty \
 		$(DESTDIR)$(MODCLIB)/pkg/crash
 	cp -R $(ROOT)/str $(DESTDIR)$(MODCLIB)/pkg/str
-	cp -R $(ROOT)/arena $(DESTDIR)$(MODCLIB)/pkg/arena
 	cp -R $(ROOT)/path $(DESTDIR)$(MODCLIB)/pkg/path
 	cp -R $(ROOT)/fs $(DESTDIR)$(MODCLIB)/pkg/fs
 	cp -R $(ROOT)/os $(DESTDIR)$(MODCLIB)/pkg/os
