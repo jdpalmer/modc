@@ -24,7 +24,7 @@
 
 * **`defer`** keyword that supports block-scoped LIFO cleanup
 
-* **`[[retains]]`**, **`[[releases]]`**, **`[[provides]]`**, and **`[[region]]`** attributes for stack-escape, ownership, use-after-free, and pool-view checking
+* **Checked lifetimes in `.mc`**: pools, `[[provides]]` / `[[releases]]`, `T[..]` + `ptr`/`cstr`, and `[[retains]]` / escape checking — see [memory.md](docs/memory.md)
 * **`pool p { }`** bump regions and heap `T[..]` builtins (`reserve` / `push` / `append` / `release`)
 
 * A **`for`** construct providing ranged iteration — `for (auto x : expr)` by
@@ -48,7 +48,9 @@
 
 ## Anti-Features
 
-* No memory management or concurrency system; host C plus `defer` instead
+* No GC, borrow checker, or hidden allocator runtime — host C heap plus `defer`, pools, and optional ownership attrs ([memory.md](docs/memory.md)); C headers / raw `T*` stay unchecked by design
+
+* No concurrency system (threads, channels, async)
 
 * No object system; lightweight struct composition plus `overload` plus receiver syntax instead
 
@@ -124,5 +126,6 @@ Full index: [docs/README.md](docs/README.md).
 | --- | ----- |
 | [Installation](docs/installation.md) | Build and install `modc` |
 | [Quickstart](docs/quickstart.md) | Write and build a first program |
+| [Memory](docs/memory.md) | Pools, ownership, slices, escapes, C boundary |
 | [Interop](docs/interop.md) | User `.mc` versus `#include` headers |
 | [Packages](docs/packages.md) | `import`, vendoring, and cache |
