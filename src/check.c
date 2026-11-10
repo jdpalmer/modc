@@ -3163,6 +3163,31 @@ cond_null_checked_sym(Node* cond) {
 	return NULL;
 }
 
+/* if (p != NULL) / if (ptr(p) != NULL) / … → owned local (null path is else) */
+static Symbol*
+cond_nonnull_checked_sym(Node* cond) {
+	Node *a, *b;
+	Symbol* s;
+
+	if (cond == NULL)
+		return NULL;
+	if (cond->kind != NdBin || cond->op != PnBangEq)
+		return NULL;
+	a = cond->a;
+	b = cond->b;
+	if (expr_is_null_const(b)) {
+		s = cond_null_checked_operand_sym(a);
+		if (s)
+			return s;
+	}
+	if (expr_is_null_const(a)) {
+		s = cond_null_checked_operand_sym(b);
+		if (s)
+			return s;
+	}
+	return NULL;
+}
+
 static void
 esc_clear_owned_in_expr(EscapeState* st, Node* n) {
 	Symbol* rs;
@@ -3414,13 +3439,15 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		int save_n = 0, then_n = 0, else_n = 0;
 		int save_on = 0, then_on = 0, else_on = 0;
 		int then_exits, else_exits;
-		Symbol* nullsym;
+		Symbol *nullsym, *nonsym;
 
 		esc_check_expr_use(c, st, n->a);
 		esc_walk_stmt(c, st, n->a);
 		save = esc_snapshot_dead(st, &save_n);
 		save_o = esc_snapshot_owned(st, &save_on);
 		nullsym = cond_null_checked_sym(n->a);
+		nonsym = cond_nonnull_checked_sym(n->a);
+		/* Null path drops ownership: then for == NULL / !p, else for != NULL. */
 		if (nullsym)
 			esc_clear_owned(st, nullsym);
 		esc_walk_stmt(c, st, n->b);
@@ -3429,6 +3456,8 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		then_o = esc_snapshot_owned(st, &then_on);
 		esc_restore_dead(st, save, save_n);
 		esc_restore_owned(st, save_o, save_on);
+		if (nonsym)
+			esc_clear_owned(st, nonsym);
 		esc_walk_stmt(c, st, n->c);
 		else_exits = stmt_always_exits(n->c);
 		else_dead = esc_snapshot_dead(st, &else_n);
@@ -3443,8 +3472,15 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 			esc_restore_dead(st, then_dead, then_n);
 			esc_restore_owned(st, then_o, then_on);
 		} else if (n->c == NULL) {
+			/*
+			 * Implicit else is the false branch. For p != NULL, nonsym
+			 * already cleared owned before the empty else snapshot.
+			 */
 			esc_union_dead(st, save, save_n, then_dead, then_n);
-			esc_union_owned(st, save_o, save_on, then_o, then_on);
+			if (nonsym)
+				esc_union_owned(st, else_o, else_on, then_o, then_on);
+			else
+				esc_union_owned(st, save_o, save_on, then_o, then_on);
 		} else {
 			esc_union_dead(st, then_dead, then_n, else_dead, else_n);
 			esc_union_owned(st, then_o, then_on, else_o, else_on);

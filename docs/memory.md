@@ -191,8 +191,9 @@ On every path, an owned local must do one of these:
 3. Return it from a `[[provides]]` function
 
 `[[provides]]` results may be null (as with `malloc`). A null value has no
-release obligation: after `if (!p)`, `if (p == NULL)`, or `if (ptr(s) == NULL)`
-on the failure path, the checker drops the obligation for that name.
+release obligation. The checker drops the obligation on the null path of
+`if (!p)`, `if (p == NULL)`, `if (ptr(s) == NULL)`, and the duals
+`if (p != NULL)` / `if (ptr(s) != NULL)` (null is the else / implicit-else arm).
 
 ```c
 struct Widget {
