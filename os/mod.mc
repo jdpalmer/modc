@@ -407,7 +407,7 @@ void (Poll* p).init() {
 	p.native = blob;
 }
 
-bool (Poll* p).add_file(File* f, int events) {
+bool (Poll* p).add_file([[retains]] File* f, int events) {
 	if (p.native == NULL || f == NULL) {
 		return false;
 	}
@@ -424,7 +424,7 @@ bool (Poll* p).add_file(File* f, int events) {
 	return opoll_add_file(blob, f, events) != 0;
 }
 
-bool (Poll* p).add_cmd(Cmd* c) {
+bool (Poll* p).add_cmd([[retains]] Cmd* c) {
 	if (p.native == NULL || c == NULL || c.native == NULL) {
 		return false;
 	}

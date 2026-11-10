@@ -643,7 +643,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 }
 
 [[provides]]
-(Writer, bool) writer_from_file(File* f, size_t cap) {
+(Writer, bool) writer_from_file([[retains]] File* f, size_t cap) {
 	Writer w = { 0 };
 	if (f == NULL || f.native == NULL) {
 		return (w, false);
@@ -789,7 +789,7 @@ void ([[releases]] Writer* w).close() {
 }
 
 [[provides]]
-(Reader, bool) reader_from_file(File* f, size_t cap) {
+(Reader, bool) reader_from_file([[retains]] File* f, size_t cap) {
 	Reader r = { 0 };
 	if (f == NULL || f.native == NULL) {
 		return (r, false);

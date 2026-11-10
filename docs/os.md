@@ -92,13 +92,13 @@ void *file_handle(File *f);                        /* NULL if closed / non-Win32
 void (File *f).close();
 
 (Writer, bool) writer_open(const char[..] path, int flags, size_t cap);
-(Writer, bool) writer_from_file(File *f, size_t cap);
+(Writer, bool) writer_from_file([[retains]] File *f, size_t cap);
 (int64_t, bool) (Writer *w).write(const char[..] src);
 bool (Writer *w).flush();
 void (Writer *w).close();
 
 (Reader, bool) reader_open(const char[..] path, int flags, size_t cap);
-(Reader, bool) reader_from_file(File *f, size_t cap);
+(Reader, bool) reader_from_file([[retains]] File *f, size_t cap);
 (int64_t, bool) (Reader *r).read(char[..] dst);
 void (Reader *r).close();
 
@@ -202,8 +202,8 @@ struct Poll {
 };
 
 void (Poll *p).init();
-bool (Poll *p).add_file(File *f, int events);
-bool (Poll *p).add_cmd(Cmd *c);
+bool (Poll *p).add_file([[retains]] File *f, int events);
+bool (Poll *p).add_cmd([[retains]] Cmd *c);
 (int, bool) (Poll *p).wait(int64_t timeout_ms); /* n_ready; 0 = timeout */
 int (Poll *p).ready_count();
 (File*, int) (Poll *p).ready_file(int i);
