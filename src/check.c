@@ -2031,6 +2031,7 @@ static int param_is_region(Type* ft, int i);
 static int call_provides_result(Node* call);
 static int expr_carries_owned(EscapeState* st, Node* n);
 static Symbol* alias_copy_src(Node* n);
+static Symbol* owned_slice_from_ptr_expr(EscapeState* st, Node* n);
 
 static int
 param_is_releases(Type* ft, int i) {
@@ -2930,13 +2931,16 @@ esc_propagate_to(EscapeState* st, Symbol* dst, Node* src) {
 	esc_alias_join(st, dst, src);
 	if (expr_carries_owned(st, src)) {
 		Symbol* rs = ranged_owned_ptr_sym(st, src);
+		Symbol* slice = owned_slice_from_ptr_expr(st, src);
 
 		esc_mark_owned(st, dst);
 		if (rs)
 			esc_clear_owned(st, rs);
+		else if (slice)
+			esc_clear_owned(st, slice);
 		/* Destructure: move ownership out of the temporary aggregate. */
-		if ((src->kind == NdDot || src->kind == NdArrow) && src->a &&
-		    src->a->kind == NdName && src->a->symbol && src->a->symbol != dst)
+		else if ((src->kind == NdDot || src->kind == NdArrow) && src->a &&
+			 src->a->kind == NdName && src->a->symbol && src->a->symbol != dst)
 			esc_clear_owned(st, src->a->symbol);
 		/* Owning aggregate move (File f = opened), not ptr field store. */
 		else if (src->kind == NdName && src->symbol && src->symbol != dst &&
@@ -3199,6 +3203,30 @@ cond_nonnull_checked_sym(Node* cond) {
 	return NULL;
 }
 
+/* ptr(owned_slice) / synth slice.ptr → the owned T[..] header, else NULL. */
+static Symbol*
+owned_slice_from_ptr_expr(EscapeState* st, Node* n) {
+	Node* a;
+
+	if (n == NULL || st == NULL)
+		return NULL;
+	if (n->kind == NdCast || n->kind == NdComma)
+		return owned_slice_from_ptr_expr(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdDot && n->is_synth && n->s && strcmp(n->s, "ptr") == 0)
+		a = n->a;
+	else if (n->kind == NdCall && n->a && n->a->kind == NdName && n->a->s &&
+		 !n->a->symbol && strcmp(n->a->s, "ptr") == 0 && n->children_len >= 1)
+		a = n->children[0];
+	else
+		return NULL;
+	if (a && a->kind == NdCast)
+		a = a->a;
+	if (a && a->kind == NdName && a->symbol && is_ranged(a->symbol->type) &&
+	    esc_owned_tainted(st, a->symbol))
+		return a->symbol;
+	return NULL;
+}
+
 static void
 esc_clear_owned_in_expr(EscapeState* st, Node* n) {
 	Symbol* rs;
@@ -3220,11 +3248,19 @@ esc_clear_owned_in_expr(EscapeState* st, Node* n) {
 	else if (n->kind == NdCond) {
 		esc_clear_owned_in_expr(st, n->b);
 		esc_clear_owned_in_expr(st, n->c);
+	} else if ((rs = owned_slice_from_ptr_expr(st, n)) != NULL) {
+		/* return ptr(buf) / retain(ptr(buf)): hand off the owned header. */
+		esc_clear_owned(st, rs);
 	} else if (n->kind == NdCall) {
 		rs = ranged_owned_ptr_sym(st, n);
 		if (rs)
 			esc_clear_owned(st, rs);
 		/* Fresh provide call transfers ownership out — no local to clear. */
+	} else if (n->kind == NdDot || n->kind == NdArrow) {
+		/* Owned aggregate field peel (same as expr_carries_owned). */
+		if (n->a && n->a->kind == NdName && n->a->symbol &&
+		    esc_owned_tainted(st, n->a->symbol))
+			esc_clear_owned(st, n->a->symbol);
 	}
 }
 
