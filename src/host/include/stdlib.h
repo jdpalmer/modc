@@ -54,6 +54,7 @@ int at_quick_exit(void (*func)(void));
 void exit(int status);
 void _Exit(int status);
 char *getenv(const char *name);
+int putenv(char *string); /* retains string; wrap with [[retains]] in .mc */
 int setenv(const char *name, const char *value, int overwrite);
 int unsetenv(const char *name);
 void quick_exit(int status);
