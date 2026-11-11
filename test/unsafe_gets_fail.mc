@@ -1,4 +1,4 @@
-// fail: F:'gets' is not allowed in %C
+// fail: F:'gets' is deprecated
 
 #include <stdio.h>
 

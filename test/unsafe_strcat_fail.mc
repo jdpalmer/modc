@@ -1,4 +1,4 @@
-// fail: F:'strcat' is not allowed in %C
+// fail: F:'strcat' is deprecated
 
 #include <string.h>
 

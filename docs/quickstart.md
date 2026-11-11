@@ -341,7 +341,7 @@ When writing or generating %C code, adhere to the following dialect conventions 
 
 - **Return Values over Out-Parameters**: Return multi-value tuples such as `(T, bool)` alongside `auto` destructuring instead of passing mutable pointer out-parameters.
 
-- **Manual Lifetime Discipline**: Prefer `[[releases]]` on cleanup APIs and `[[provides]]` on factories (`alloc`, `str_dup`, `file_open`, …). Owned values from `alloc` / `malloc` / `fopen` / heap `cstr(s)` / `[[provides]]` must be discharged (release/free/`fclose`/`[[releases]]`, `[[retains]]`, escaping store, or a `[[provides]]` return). Known retainers such as `putenv` reject an owned argument unless called through a `%C` `[[retains]]` wrapper. The compiler also rejects escaping values a `defer` will invalidate and later uses after a straight-line release. If a defer uses an owned value, that same defer must release it (`[[releases]]` or `free`/`fclose`/`release`); helpers before the release are fine. Overview: [memory.md](memory.md).
+- **Manual Lifetime Discipline**: Prefer `[[releases]]` on cleanup APIs and `[[provides]]` on factories (`alloc`, `str_dup`, `file_open`, …). Owned values from `alloc` / `malloc` / `fopen` / heap `cstr(s)` / `[[provides]]` must be discharged (release/free/`fclose`/`[[releases]]`, `[[retains]]`, escaping store, or a `[[provides]]` return). Hermetic `putenv` is `[[retains]]` and discharges at the call. The compiler also rejects escaping values a `defer` will invalidate and later uses after a straight-line release. If a defer uses an owned value, that same defer must release it (`[[releases]]` or `free`/`fclose`/`release`); helpers before the release are fine. Overview: [memory.md](memory.md).
 
 ### Formatting and Declaration Structure
 

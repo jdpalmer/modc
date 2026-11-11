@@ -274,8 +274,12 @@ enum {
 	AtRetains = 1u << 3,
 	AtReleases = 1u << 4,
 	AtRegion = 1u << 5,
-	AtProvides = 1u << 6
+	AtProvides = 1u << 6,
+	AtDeprecated = 1u << 7
 };
+
+/* Optional message from [[deprecated("…")]]; consumed by apply_decl_attrs. */
+static char* pending_deprecated_msg;
 static Initializer* parse_init(Compiler* c);
 static void parse_decl_or_def(Compiler* c, int in_func);
 static void parse_static_assert(Compiler* c);
@@ -670,8 +674,6 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 				else
 					a = take(c)->s;
 			}
-			if (at(c, PnLparen))
-				skip_paren_group(c);
 			/* Scoped attributes (gnu::…) are ignored; only unscoped standards apply. */
 			if (ns == NULL && a != NULL && flags != NULL) {
 				if (strcmp(a, "fallthrough") == 0)
@@ -688,8 +690,28 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 					*flags |= AtRegion;
 				else if (strcmp(a, "provides") == 0)
 					*flags |= AtProvides;
+				else if (strcmp(a, "deprecated") == 0) {
+					*flags |= AtDeprecated;
+					if (at(c, PnLparen)) {
+						Tok* msg;
+
+						take(c); /* ( */
+						msg = peek(c);
+						if (msg->kind == TkString && msg->s) {
+							free(pending_deprecated_msg);
+							pending_deprecated_msg = xstrdup(msg->s);
+							take(c);
+						}
+						while (!at(c, PnRparen) && peek(c)->kind != TkEof)
+							take(c);
+						eat(c, PnRparen);
+					}
+					continue;
+				}
 				/* unsequenced / reproducible / unknown: ignore */
 			}
+			if (at(c, PnLparen))
+				skip_paren_group(c);
 			continue;
 		}
 		/* Skip unexpected tokens inside [[...]] rather than looping forever. */
@@ -714,12 +736,26 @@ parse_attr_seq(Compiler* c) {
 // Apply declaration attributes to a symbol (OR onto existing flags).
 static void
 apply_decl_attrs(Compiler* c, Symbol* s, unsigned flags) {
-	if (s == NULL)
+	if (s == NULL) {
+		free(pending_deprecated_msg);
+		pending_deprecated_msg = NULL;
 		return;
+	}
 	if ((flags & AtMaybeUnused) && s->kind == SkVar)
 		s->maybe_unused = 1;
 	if ((flags & AtNodiscard) && s->kind == SkFunc)
 		s->nodiscard = 1;
+	if ((flags & AtDeprecated) && (s->kind == SkFunc || s->kind == SkVar)) {
+		s->deprecated = 1;
+		if (pending_deprecated_msg) {
+			free(s->deprecated_msg);
+			s->deprecated_msg = pending_deprecated_msg;
+			pending_deprecated_msg = NULL;
+		}
+	} else {
+		free(pending_deprecated_msg);
+		pending_deprecated_msg = NULL;
+	}
 	if ((flags & AtProvides) && s->kind == SkFunc) {
 		Type* ret;
 		Field* f;

@@ -181,14 +181,14 @@ call. That is enough for `fopen`, `strlen`, and most C APIs. Use
 outlives the call (a field, global, registry, or similar).
 
 **`[[provides]]`** belongs on factories (`file_open`, `str_dup`, and similar).
-Built-ins such as `alloc`, `malloc` / `calloc` / `realloc` / `aligned_alloc` /
-`strdup` / `strndup`, `fopen` / `fdopen` / `popen` / `tmpfile`, `opendir`, and
-heap `cstr(s)` provide ownership even if the C declaration has no attribute.
+Hermetic libc prototypes carry the same attribute (`malloc` / `calloc` /
+`realloc` / `aligned_alloc` / `strdup` / `strndup`, `fopen` / `fdopen` /
+`popen` / `tmpfile`, `opendir`). Built-ins such as `alloc` and heap `cstr(s)`
+provide ownership even without a header Symbol.
 
 **`[[releases]]`** belongs on cleanups (`str_free`, `f.close()`, and similar).
-Built-ins such as `free`, `fclose` / `pclose`, `closedir`, and `release`
-consume ownership the same way, without needing an attribute on the libc
-declaration.
+Hermetic prototypes mark `free`, `fclose` / `pclose`, and `closedir`; the
+`release` builtin consumes ownership the same way.
 
 On every path, an owned local must do one of these:
 
@@ -232,9 +232,10 @@ void pipeline(Registry* r) {
 }
 ```
 
-C headers are not analyzed. If a foreign API keeps a pointer (`putenv`,
-registration callbacks), wrap it in a `%C` function with `[[retains]]` so the
-checker can see the hand-off. See [The foreign C boundary](#the-foreign-c-boundary).
+C bodies are not analyzed. Annotate hermetic (or project) prototypes with
+`[[retains]]` when a foreign API keeps a pointer (`putenv`, registration
+callbacks). A `%C` wrapper with `[[retains]]` works the same way when the
+header is unannotated. See [The foreign C boundary](#the-foreign-c-boundary).
 
 #### Leak, overwrite, and use-after-free
 
@@ -457,11 +458,12 @@ Compile-time contracts apply to `.mc` code. Once a call crosses into foreign C,
 the checker trusts the declarations and does not look inside the callee:
 
 - **`.mc` code** is checked for escapes and ownership.
-- **Host C / libc** bodies are not analyzed; a curated set of libc-shaped
-  factories / cleanups is recognized (`malloc`/`fopen`/`opendir` provide;
-  `free`/`fclose`/`closedir` release; see attributes above).
-- **Known retainers** (`putenv`, `_putenv`): passing an owned pointer directly
-  is an error — wrap with `[[retains]]` first.
+- **Host C / libc** bodies are not analyzed; hermetic prototypes carry
+  `[[provides]]` / `[[releases]]` / `[[retains]]` (and `[[deprecated]]` for
+  classic unbounded sinks). Unbound builtins (`alloc`, `release`, …) keep
+  name-based fallbacks.
+- **`putenv` / `_putenv`** are `[[retains]]` in the hermetic headers — an owned
+  argument is discharged at the call (stack addresses are still rejected).
 - **Raw `T*`** after `ptr()` or casts leaves the checked world.
 - **Calls through function pointers** do not track retain or release.
 
@@ -470,17 +472,12 @@ Most C APIs only borrow their arguments for the duration of the call
 string from a pool (`p.cstr(s)`), or allocate a heap `cstr` and `free` it
 after the call returns.
 
-APIs that keep the pointer need a `%C` wrapper with `[[retains]]` (see
+APIs that keep the pointer should declare `[[retains]]` on the prototype (see
 [Ownership attributes](#ownership-attributes-provides--releases--retains)):
 
 ```c
-void env_set([[retains]] char* z) {
-	putenv(z); /* libc body unchecked; [[retains]] discharges ownership here */
-}
-
 void install_env(const char[..] env_str) {
 	char* z = cstr(env_str);
-	env_set(z); /* retained; do not free while still in the environment */
+	putenv(z); /* hermetic [[retains]]; do not free while still in the environment */
 }
-/* putenv(z) directly with an owned z is an error — use the wrapper. */
 ```

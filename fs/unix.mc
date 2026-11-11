@@ -40,7 +40,7 @@ int fs_sys_stat(char* path, int* kind, int64_t* size, int64_t* mtime) {
 	return 1;
 }
 
-void* fs_sys_opendir(char* path) {
+[[provides]] void* fs_sys_opendir(char* path) {
 	if (path == 0) {
 		return 0;
 	}
@@ -72,7 +72,7 @@ int fs_sys_readdir(void* dp, char* name, size_t cap, size_t* nlen) {
 	return 1;
 }
 
-void fs_sys_closedir(void* dp) {
+void fs_sys_closedir([[releases]] void* dp) {
 	if (dp == 0) {
 		return;
 	}

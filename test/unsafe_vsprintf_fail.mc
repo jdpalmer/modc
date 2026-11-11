@@ -1,4 +1,4 @@
-// fail: F:'vsprintf' is not allowed in %C
+// fail: F:'vsprintf' is deprecated
 
 #include <stdio.h>
 #include <stdarg.h>

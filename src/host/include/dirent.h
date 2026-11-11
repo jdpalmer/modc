@@ -27,6 +27,6 @@ struct dirent {
 };
 #endif
 
-DIR *opendir(const char *path);
+[[provides]] DIR *opendir(const char *path);
 struct dirent *readdir(DIR *dp);
-int closedir(DIR *dp);
+int closedir([[releases]] DIR *dp);

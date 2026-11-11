@@ -12,12 +12,14 @@
 void *memcpy(void *restrict dest, const void *restrict src, size_t n);
 void *memmove(void *dest, const void *src, size_t n);
 void *memccpy(void *restrict dest, const void *restrict src, int c, size_t n);
-char *strcpy(char *restrict dest, const char *restrict src);
+[[deprecated("use strncpy, memcpy, or char[..] copy/append")]] char *strcpy(
+    char *restrict dest, const char *restrict src);
 char *strncpy(char *restrict dest, const char *restrict src, size_t n);
-char *strdup(const char *s);
-char *strndup(const char *s, size_t n);
+[[provides]] char *strdup(const char *s);
+[[provides]] char *strndup(const char *s, size_t n);
 
-char *strcat(char *restrict dest, const char *restrict src);
+[[deprecated("use strncat, memcpy, or char[..] append")]] char *strcat(
+    char *restrict dest, const char *restrict src);
 char *strncat(char *restrict dest, const char *restrict src, size_t n);
 
 int memcmp(const void *s1, const void *s2, size_t n);

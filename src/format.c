@@ -1,6 +1,6 @@
 /*
- * printf/scanf format checking, printf-family lowering, and bans on classic
- * unbounded string sinks in .mc (gets/strcpy/strcat/sprintf/vsprintf).
+ * printf/scanf format checking, printf-family lowering, and [[deprecated]]
+ * call diagnostics in .mc.
  *
  * Format must be a string literal in .mc (non-literals are an error). Bare %s
  * with char[..] rewrites to %.*s + len + ptr. Fixed char[N] decays to a
@@ -683,38 +683,28 @@ fmt_literal_node(Node* n) {
 	return n;
 }
 
-/*
- * Ban classic unbounded C string sinks in .mc (headers unchanged).
- * Prefer snprintf, fgets, strncpy/memcpy, or length-aware char[..] helpers.
- */
+/* [[deprecated]] on a callee: error when called from .mc (headers may declare). */
 void
-check_unsafe_string_call(Compiler* c, Node* call) {
+check_deprecated_call(Compiler* c, Node* call) {
+	Symbol* s;
 	const char* name;
+	const char* msg;
 
 	if (c == NULL || call == NULL || call->a == NULL)
 		return;
 	if (!user_source(c, call->span))
 		return;
-	if (call->a->kind != NdName)
+	if (call->a->kind != NdName || call->a->symbol == NULL)
 		return;
-	name = call->a->symbol && call->a->symbol->name ? call->a->symbol->name : call->a->s;
-	if (name == NULL)
+	s = call->a->symbol;
+	if (!s->deprecated)
 		return;
-	if (strcmp(name, "gets") == 0)
-		error_at(c, call->span,
-			 "'gets' is not allowed in %%C; use fgets or a bounded reader");
-	else if (strcmp(name, "strcpy") == 0)
-		error_at(c, call->span,
-			 "'strcpy' is not allowed in %%C; use strncpy, memcpy, or char[..] copy/append");
-	else if (strcmp(name, "strcat") == 0)
-		error_at(c, call->span,
-			 "'strcat' is not allowed in %%C; use strncat, memcpy, or char[..] append");
-	else if (strcmp(name, "sprintf") == 0)
-		error_at(c, call->span,
-			 "'sprintf' is not allowed in %%C; use snprintf");
-	else if (strcmp(name, "vsprintf") == 0)
-		error_at(c, call->span,
-			 "'vsprintf' is not allowed in %%C; use vsnprintf");
+	name = s->name ? s->name : "";
+	msg = s->deprecated_msg;
+	if (msg && msg[0])
+		error_at(c, call->span, "'%s' is deprecated: %s", name, msg);
+	else
+		error_at(c, call->span, "'%s' is deprecated in %%C", name);
 }
 
 void check_format_call(Compiler* c, Node* call, Type* ft) {

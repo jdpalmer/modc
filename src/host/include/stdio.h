@@ -47,14 +47,17 @@ extern FILE *stderr;
 
 int remove(const char *filename);
 int rename(const char *old, const char *new);
-FILE *tmpfile(void);
+[[provides]] FILE *tmpfile(void);
 char *tmpnam(char *s);
 
-int fclose(FILE *stream);
+int fclose([[releases]] FILE *stream);
 int fflush(FILE *stream);
-FILE *fopen(const char *restrict filename, const char *restrict mode);
-FILE *freopen(const char *restrict filename, const char *restrict mode,
-    FILE *restrict stream);
+[[provides]] FILE *fopen(const char *restrict filename, const char *restrict mode);
+[[provides]] FILE *fdopen(int fd, const char *mode);
+[[provides]] FILE *popen(const char *command, const char *mode);
+int pclose([[releases]] FILE *stream);
+[[provides]] FILE *freopen(const char *restrict filename, const char *restrict mode,
+			   [[releases]] FILE *restrict stream);
 void setbuf(FILE *restrict stream, char *restrict buf);
 int setvbuf(FILE *restrict stream, char *restrict buf, int mode, size_t size);
 
@@ -63,18 +66,20 @@ int fscanf(FILE *restrict stream, const char *restrict format, ...);
 int printf(const char *restrict format, ...);
 int scanf(const char *restrict format, ...);
 int snprintf(char *restrict s, size_t n, const char *restrict format, ...);
-int sprintf(char *restrict s, const char *restrict format, ...);
+[[deprecated("use snprintf")]] int sprintf(char *restrict s, const char *restrict format,
+					   ...);
 int sscanf(const char *restrict s, const char *restrict format, ...);
 int vfprintf(FILE *restrict stream, const char *restrict format, va_list arg);
 int vfscanf(FILE *restrict stream, const char *restrict format, va_list arg);
 int vprintf(const char *restrict format, va_list arg);
 int vscanf(const char *restrict format, va_list arg);
 int vsnprintf(char *restrict s, size_t n, const char *restrict format, va_list arg);
-int vsprintf(char *restrict s, const char *restrict format, va_list arg);
+[[deprecated("use vsnprintf")]] int vsprintf(char *restrict s, const char *restrict format,
+					     va_list arg);
 int vsscanf(const char *restrict s, const char *restrict format, va_list arg);
 
 int fgetc(FILE *stream);
-char *gets(char *s); /* removed in C11; declared for diagnostics — banned in .mc */
+[[deprecated("use fgets or a bounded reader")]] char *gets(char *s);
 char *fgets(char *restrict s, int n, FILE *restrict stream);
 int fputc(int c, FILE *stream);
 int fputs(const char *restrict s, FILE *restrict stream);

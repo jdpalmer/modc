@@ -357,6 +357,9 @@ struct Symbol {
 	int maybe_unused;
 	// [[nodiscard]] — discarding a non-void call result is an error.
 	int nodiscard;
+	// [[deprecated]] — calling from .mc is an error (optional message).
+	int deprecated;
+	char* deprecated_msg;
 	// [[provides]] — call result is an owning pointer/T[..] (also Type.provides).
 	int provides;
 	// Definition / declaration source location.
@@ -855,7 +858,7 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr);
 Node* apply_implicit_conversions(Compiler* c, Type* dst, Node* src);
 void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src);
 void check_format_call(Compiler* c, Node* call, Type* ft);
-void check_unsafe_string_call(Compiler* c, Node* call);
+void check_deprecated_call(Compiler* c, Node* call);
 int intern_str(Compiler* c, const char* raw, int* out_len);
 /* Decode one C escape at p (points after '\\'). Writes decoded byte to *out.
  * Returns chars consumed from p, or 0 if invalid/incomplete. */

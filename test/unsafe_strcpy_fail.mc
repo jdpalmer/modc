@@ -1,4 +1,4 @@
-// fail: F:'strcpy' is not allowed in %C
+// fail: F:'strcpy' is deprecated
 
 #include <string.h>
 

@@ -1,6 +1,8 @@
 /*
  * C23 <stdlib.h> for %C — declaration-only; host libc at link.
  * Skipped: Annex K (*_s); long double converters (no long double in %C).
+ *
+ * Ownership for .mc is declared with [[provides]] / [[releases]] / [[retains]].
  */
 #pragma once
 
@@ -42,11 +44,11 @@ unsigned long long strtoull(const char *restrict nptr, char **restrict endptr, i
 int rand(void);
 void srand(unsigned seed);
 
-void *aligned_alloc(size_t alignment, size_t size);
-void *calloc(size_t nmemb, size_t size);
-void free(void *ptr);
-void *malloc(size_t size);
-void *realloc(void *ptr, size_t size);
+[[provides]] void *aligned_alloc(size_t alignment, size_t size);
+[[provides]] void *calloc(size_t nmemb, size_t size);
+void free([[releases]] void *ptr);
+[[provides]] void *malloc(size_t size);
+[[provides]] void *realloc([[releases]] void *ptr, size_t size);
 
 void abort(void);
 int atexit(void (*func)(void));
@@ -54,7 +56,10 @@ int at_quick_exit(void (*func)(void));
 void exit(int status);
 void _Exit(int status);
 char *getenv(const char *name);
-int putenv(char *string); /* retains string; wrap with [[retains]] in .mc */
+int putenv([[retains]] char *string);
+#ifdef _WIN32
+int _putenv([[retains]] char *string);
+#endif
 int setenv(const char *name, const char *value, int overwrite);
 int unsetenv(const char *name);
 void quick_exit(int status);
@@ -78,4 +83,3 @@ int mbtowc(wchar_t *restrict pwc, const char *restrict s, size_t n);
 int wctomb(char *s, wchar_t wc);
 size_t mbstowcs(wchar_t *restrict dst, const char *restrict src, size_t len);
 size_t wcstombs(char *restrict dst, const wchar_t *restrict src, size_t len);
-

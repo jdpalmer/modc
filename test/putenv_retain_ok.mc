@@ -1,10 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-void env_set([[retains]] char* z) {
-	putenv(z);
-}
-
 int main() {
 	char* z = malloc(8);
 
@@ -12,6 +8,7 @@ int main() {
 		return 1;
 	}
 	memcpy(z, "A=1", 4);
-	env_set(z);
+	/* Hermetic putenv is [[retains]] — discharges ownership at the call. */
+	putenv(z);
 	return 0;
 }

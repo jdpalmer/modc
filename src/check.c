@@ -2060,7 +2060,10 @@ call_name_is(Node* call, const char* want) {
 	return strcmp(call->a->s, want) == 0;
 }
 
-/* libc-shaped / builtin releases when the callee is not a %C [[releases]] API. */
+/*
+ * Unbound runtime release names (no Symbol / header attr). Libc free/fclose/…
+ * use [[releases]] on hermetic prototypes instead.
+ */
 static int
 builtin_arg_releases(Symbol* callee, int i) {
 	const char* n;
@@ -2068,57 +2071,32 @@ builtin_arg_releases(Symbol* callee, int i) {
 	if (i != 0)
 		return 0;
 	n = callee && callee->name ? callee->name : NULL;
-	if (n && (strcmp(n, "free") == 0 || strcmp(n, "fclose") == 0 ||
-		  strcmp(n, "pclose") == 0 || strcmp(n, "closedir") == 0 ||
-		  strcmp(n, "__modc_release") == 0 || strcmp(n, "realloc") == 0))
+	if (n && strcmp(n, "__modc_release") == 0)
 		return 1;
 	return 0;
 }
 
 static int
 call_is_builtin_release(Node* call) {
-	return call_name_is(call, "__modc_release") || call_name_is(call, "free") ||
-	       call_name_is(call, "fclose") || call_name_is(call, "pclose") ||
-	       call_name_is(call, "closedir");
+	return call_name_is(call, "__modc_release");
 }
 
 static int
 call_provides_result(Node* call) {
 	Symbol* callee;
 	Type* ft;
-	const char* n;
 
 	if (call == NULL || call->kind != NdCall)
 		return 0;
+	/* Unbound builtins / alloc lowering — no header Symbol. */
 	if (call_name_is(call, "__modc_alloc") || call_name_is(call, "__modc_alloc_slice") ||
 	    call_name_is(call, "alloc") || call_name_is(call, "__modc_cstr"))
 		return 1;
 	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
-	n = callee && callee->name ? callee->name : NULL;
-	if (n == NULL && call->a && call->a->kind == NdName)
-		n = call->a->s;
-	if (n && (strcmp(n, "malloc") == 0 || strcmp(n, "calloc") == 0 ||
-		  strcmp(n, "realloc") == 0 || strcmp(n, "strdup") == 0 ||
-		  strcmp(n, "strndup") == 0 || strcmp(n, "aligned_alloc") == 0 ||
-		  strcmp(n, "fopen") == 0 || strcmp(n, "fdopen") == 0 ||
-		  strcmp(n, "popen") == 0 || strcmp(n, "tmpfile") == 0 ||
-		  strcmp(n, "opendir") == 0))
-		return 1;
 	if (callee && callee->provides)
 		return 1;
 	ft = call_func_type(call);
 	return ft && is_func(ft) && ft->provides;
-}
-
-/*
- * Curated libc APIs that keep a pointer past the call. .mc must not hand them
- * an owned value directly — wrap with [[retains]] (foreign body stays unchecked).
- */
-static int
-libc_known_retains_arg(const char* name, int argi) {
-	if (argi != 0 || name == NULL)
-		return 0;
-	return strcmp(name, "putenv") == 0 || strcmp(name, "_putenv") == 0;
 }
 
 static int
@@ -2920,19 +2898,6 @@ call_func_type(Node* call) {
 	return NULL;
 }
 
-/*
- * %C function that may carry [[retains]] / return-flow (local body or
- * imported export stub). C headers and fn-ptrs are excluded.
- */
-static int
-is_mc_retains_callee(Symbol* s) {
-	if (s == NULL || s->kind != SkFunc || s->type == NULL || !is_func(s->type))
-		return 0;
-	if (s->header)
-		return 0;
-	return 1;
-}
-
 static void
 esc_add_region_deps_from_expr(EscapeState* st, Symbol* dst, Node* src) {
 	int i, j, lim, si, n;
@@ -3242,30 +3207,11 @@ cond_push_call(Node* cond, int* fail_then) {
 	return NULL;
 }
 
-/* Known retainers (putenv, …): owned args must go through a [[retains]] wrapper. */
-static void
-esc_check_libc_retainers(Compiler* c, EscapeState* st, Node* call) {
-	const char* name;
-	Node* arg;
-	int i;
-
-	if (!st->diag || call == NULL || call->a == NULL || call->a->kind != NdName)
-		return;
-	name = call->a->symbol && call->a->symbol->name ? call->a->symbol->name : call->a->s;
-	if (name == NULL)
-		return;
-	for (i = 0; i < call->children_len; i++) {
-		if (!libc_known_retains_arg(name, i))
-			continue;
-		arg = call->children[i];
-		if (!expr_carries_owned(st, arg))
-			continue;
-		error_at(c, arg->span,
-			 "'%s' retains its argument; call through a %%C wrapper with [[retains]]",
-			 name);
-	}
-}
-
+/*
+ * Apply [[retains]] at the call site from the callee's type — including
+ * annotated hermetic headers. Bodies of header functions stay unanalyzed;
+ * only the attribute on the prototype matters.
+ */
 static void
 esc_check_call(Compiler* c, EscapeState* st, Node* call) {
 	Type* ft;
@@ -3275,14 +3221,10 @@ esc_check_call(Compiler* c, EscapeState* st, Node* call) {
 	const char* pname;
 	const char* fname;
 
-	esc_check_libc_retainers(c, st, call);
 	ft = call_func_type(call);
-	if (ft == NULL)
+	if (ft == NULL || !is_func(ft))
 		return;
 	callee = (call->a && call->a->kind == NdName) ? call->a->symbol : NULL;
-	/* C / headers / fn-ptrs: do not assume retain. Import stubs OK. */
-	if (callee == NULL || !is_mc_retains_callee(callee))
-		return;
 	n = call->children_len;
 	if (n > ft->params_len)
 		n = ft->params_len;
@@ -3295,7 +3237,8 @@ esc_check_call(Compiler* c, EscapeState* st, Node* call) {
 		if (st->diag && expr_may_stack(st, arg)) {
 			pname = (ft->param_names && ft->param_names[i]) ? ft->param_names[i]
 								       : "";
-			fname = callee->name ? callee->name : "";
+			fname = (callee && callee->name) ? callee->name
+							: (call->a && call->a->s ? call->a->s : "");
 			if (pname[0])
 				error_at(c, arg->span,
 					 "passing stack address to [[retains]] parameter '%s' of '%s'",

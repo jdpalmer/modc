@@ -1,4 +1,4 @@
-// fail: F:'sprintf' is not allowed in %C
+// fail: F:'sprintf' is deprecated
 
 #include <stdio.h>
 

@@ -28,7 +28,7 @@ Classification is purely mechanical: if a file is a root compile translation uni
 | Switch Statements         | requires `break` or `[[fallthrough]];`               | Implicit fallthrough allowed          |
 | Function Declarations     | Function prototypes rejected                         | Standard C prototypes allowed         |
 | Vendor attributes         | Rejected                                             | Ignored (`__attribute__`, `__declspec`, `__asm` / Darwin aliases, calling conventions, …) |
-| C23 attributes            | `[[fallthrough]]` / `[[maybe_unused]]` / `[[nodiscard]]` / `[[retains]]` / `[[releases]]` / `[[provides]]` / `[[region]]` honored; `[[unsequenced]]` / `[[reproducible]]` ignored | Parsed; same semantics when present; unknown ignored |
+| C23 attributes            | `[[fallthrough]]` / `[[maybe_unused]]` / `[[nodiscard]]` / `[[retains]]` / `[[releases]]` / `[[provides]]` / `[[region]]` / `[[deprecated]]` honored; `[[unsequenced]]` / `[[reproducible]]` ignored | Parsed; same semantics when present; unknown ignored |
 | Tag / ordinary names      | Unified: no tag↔func/var clash                       | Homonyms allowed (POSIX `if_nameindex`, …); bare name prefers the function/var |
 
 ## Build System & Driver Integration
@@ -103,10 +103,10 @@ Calls to the hosted `printf` / `fprintf` / `snprintf` and `scanf` / `fscanf` /
 literal is fine). The literal is checked for arity and argument types. A
 non-literal format is a compile-time error.
 
-In `.mc`, classic unbounded sinks are rejected outright: `gets`, `strcpy`,
-`strcat`, `sprintf`, and `vsprintf`. Use `fgets`, `strncpy` / `memcpy`,
-`snprintf` / `vsnprintf`, or length-aware `char[..]` helpers instead. Headers
-may still declare the banned names for C interop.
+In `.mc`, classic unbounded sinks are `[[deprecated]]` on hermetic prototypes
+(`gets`, `strcpy`, `strcat`, `sprintf`, `vsprintf`) — calling them is a
+compile-time error. Use `fgets`, `strncpy` / `memcpy`, `snprintf` /
+`vsnprintf`, or length-aware `char[..]` helpers instead.
 
 ### `%s` and `char[..]`
 
