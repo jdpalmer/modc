@@ -84,9 +84,11 @@ struct Reader {
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <time.h>
 #endif
 
 // Host path in buf, NUL-terminated. Logical '/' paths become '\\' on Win32.
@@ -922,6 +924,375 @@ bool fs_mkdir(const char[..] path) {
 
 static char[..] fs_empty() {
 	return ranged((char*)0, 0);
+}
+
+/* Keep in sync with os_temp_dir (fs cannot import os). */
+static(char[..], bool) fs_default_temp_dir(char[..] dst) {
+#ifdef _WIN32
+	char host[FsPathMax] = { 0 };
+	unsigned n = 0;
+	size_t end = 0;
+
+	if (cap(dst) == 0 || (void*)dst == NULL) {
+		return (fs_empty(), false);
+	}
+	n = GetTempPathA(FsPathMax, host);
+	if (n == 0 || n >= FsPathMax) {
+		if (cap(dst) > 0) {
+			char[..] room = ranged(dst, cap(dst));
+			room[0] = 0;
+		}
+		return (fs_empty(), false);
+	}
+	{
+		auto (view, ok) = path_from_sys(dst, ranged(host, n));
+		if (!ok) {
+			return (view, false);
+		}
+		end = len(view);
+		while (end > 1 && view[end - 1] == '/') {
+			end--;
+		}
+		if (cap(dst) > end) {
+			char[..] room = ranged(dst, cap(dst));
+			room[end] = 0;
+		}
+		return (ranged(dst, end, cap(dst)), true);
+	}
+#else
+	if (cap(dst) == 0 || (void*)dst == NULL) {
+		return (fs_empty(), false);
+	}
+	{
+		const char* t = getenv("TMPDIR");
+
+		if (t == NULL || *t == 0) {
+			t = "/tmp";
+		}
+		{
+			size_t n = strlen(t);
+			char[..] room = ranged(dst, cap(dst));
+
+			if (n > cap(dst)) {
+				room[0] = 0;
+				return (fs_empty(), false);
+			}
+			memcpy(ptr(dst), t, n);
+			{
+				size_t end = n;
+
+				while (end > 1 && room[end - 1] == '/') {
+					end--;
+				}
+				if (cap(dst) > end) {
+					room[end] = 0;
+				}
+				return (ranged(dst, end, cap(dst)), true);
+			}
+		}
+	}
+#endif
+}
+
+static uint64_t fs_temp_seq;
+
+static uint64_t fs_temp_seed() {
+#ifdef _WIN32
+	uint64_t x = GetTickCount64();
+
+	x ^= (uint64_t)(size_t)&fs_temp_seq << 17;
+	return x;
+#else
+	struct timespec ts = { 0 };
+
+	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
+	{
+		uint64_t x = ((uint64_t)ts.tv_sec << 32) ^ (uint64_t)ts.tv_nsec;
+
+		x ^= (uint64_t)getpid() << 16;
+		return x;
+	}
+#endif
+}
+
+static void fs_temp_rand_hex(char[..] out) {
+	char hex[17] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e',
+			 'f', 0 };
+
+	if (cap(out) < 17) {
+		return;
+	}
+	{
+		uint64_t x = fs_temp_seed();
+		size_t i = 0;
+
+		fs_temp_seq++;
+		x ^= fs_temp_seq * 0x9e3779b97f4a7c15UL;
+		for (; i < 16; i++) {
+			out[15 - i] = hex[x & 15];
+			x >>= 4;
+		}
+		out[16] = 0;
+	}
+}
+
+/* Build leaf name from pattern (Go-like: replace last '*', else append).
+ * Returns leaf length, or 0 on failure.
+ */
+static size_t fs_temp_leaf(const char[..] pattern, char[..] leaf) {
+	char rnd[20] = { 0 };
+	size_t pn = len(pattern);
+	size_t star = pn;
+	char[..] rndv = ranged(rnd, 20);
+
+	if (cap(leaf) == 0) {
+		return 0;
+	}
+	fs_temp_rand_hex(rndv);
+	if (pn > 0 && (void*)pattern != NULL) {
+		size_t i = pn;
+		while (i > 0) {
+			i--;
+			if (pattern[i] == '*') {
+				star = i;
+				break;
+			}
+		}
+	}
+	if (star < pn) {
+		size_t need = star + 16 + (pn - star - 1);
+
+		if (need + 1 > cap(leaf)) {
+			return 0;
+		}
+		if (star > 0) {
+			memcpy(ptr(leaf), ptr(pattern), star);
+		}
+		memcpy(ptr(leaf) + star, ptr(rndv), 16);
+		if (pn > star + 1) {
+			memcpy(ptr(leaf) + star + 16, ptr(pattern) + star + 1, pn - star - 1);
+		}
+		leaf[need] = 0;
+		return need;
+	}
+	{
+		size_t need = pn + 16;
+
+		if (need + 1 > cap(leaf)) {
+			return 0;
+		}
+		if (pn > 0) {
+			memcpy(ptr(leaf), ptr(pattern), pn);
+		}
+		memcpy(ptr(leaf) + pn, ptr(rndv), 16);
+		leaf[need] = 0;
+		return need;
+	}
+}
+
+/* Copy dir into rootbuf, or resolve the default temp root. */
+static(char[..], bool) fs_temp_base(char[..] rootbuf, const char[..] dir) {
+	if (len(dir) == 0) {
+		return fs_default_temp_dir(rootbuf);
+	}
+	{
+		size_t n = len(dir);
+
+		if (cap(rootbuf) == 0 || n >= cap(rootbuf)) {
+			if (cap(rootbuf) > 0) {
+				char[..] room = ranged(rootbuf, cap(rootbuf));
+				room[0] = 0;
+			}
+			return (fs_empty(), false);
+		}
+		{
+			char[..] room = ranged(rootbuf, cap(rootbuf));
+
+			if (n > 0) {
+				memcpy(ptr(room), ptr(dir), n);
+			}
+			room[n] = 0;
+			return (ranged(rootbuf, n, cap(rootbuf)), true);
+		}
+	}
+}
+
+/*
+ * Create a unique directory under dir (empty dir → default temp root).
+ * pattern is a name prefix; a final '*' is replaced by random hex (Go-like).
+ * Path view is minted into p. Caller removes with fs_remove when empty.
+ */
+(char[..], bool) fs_mkdir_temp([[region]] Pool* p, const char[..] dir, const char[..] pattern) {
+	char rootbuf[FsPathMax] = { 0 };
+	char leaf[256] = { 0 };
+	char cand[FsPathMax] = { 0 };
+
+	if (p == NULL) {
+		return (fs_empty(), false);
+	}
+	{
+		auto (base, rok) = fs_temp_base(rootbuf, dir);
+
+		if (!rok) {
+			return (fs_empty(), false);
+		}
+		{
+			int tries = 0;
+
+			for (; tries < 10000; tries++) {
+				size_t ln = fs_temp_leaf(pattern, leaf);
+
+				if (ln == 0) {
+					break;
+				}
+				{
+					char[..] leafv = ranged(leaf, ln);
+					auto (joined, jok) = path_join(cand, base, leafv);
+
+					if (!jok) {
+						break;
+					}
+					if (fs_mkdir(joined)) {
+						char[..] out = { 0 };
+
+						if (!p.copy(&out, joined)) {
+							fs_remove(joined);
+							return (fs_empty(), false);
+						}
+						return (out, true);
+					}
+				}
+#ifdef _WIN32
+				if (GetLastError() != ERROR_ALREADY_EXISTS) {
+					break;
+				}
+#else
+				if (errno != EEXIST) {
+					break;
+				}
+#endif
+			}
+		}
+	}
+	return (fs_empty(), false);
+}
+
+/*
+ * Create and open a unique file under dir (empty dir → default temp root).
+ * Path view is minted into p. Caller closes and fs_remove's.
+ */
+[[provides]]
+(File, char[..], bool) fs_create_temp([[region]] Pool* p, const char[..] dir,
+				      const char[..] pattern) {
+	File f = { 0 };
+
+	if (p == NULL) {
+		return (f, fs_empty(), false);
+	}
+	{
+		char rootbuf[FsPathMax] = { 0 };
+		char leaf[256] = { 0 };
+		char cand[FsPathMax] = { 0 };
+		auto (base, rok) = fs_temp_base(rootbuf, dir);
+
+		if (!rok) {
+			return (f, fs_empty(), false);
+		}
+		{
+			int tries = 0;
+
+			for (; tries < 10000; tries++) {
+				size_t ln = fs_temp_leaf(pattern, leaf);
+
+				if (ln == 0) {
+					break;
+				}
+				{
+					char[..] leafv = ranged(leaf, ln);
+					auto (joined, jok) = path_join(cand, base, leafv);
+
+					if (!jok) {
+						break;
+					}
+#ifdef _WIN32
+					{
+						char zbuf[FsPathMax] = { 0 };
+
+						if (!fs_syspath(joined, zbuf, FsPathMax)) {
+							break;
+						}
+						{
+							HANDLE h = CreateFileA(zbuf, GENERIC_READ | GENERIC_WRITE,
+									FsWinShare, 0, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
+
+							if (fs_win_bad(h)) {
+								if (GetLastError() == ERROR_FILE_EXISTS) {
+									continue;
+								}
+								break;
+							}
+							{
+								void* blob = fs_win_from_handle(h, 1);
+								char[..] out = { 0 };
+
+								if (blob == NULL) {
+									CloseHandle(h);
+									break;
+								}
+								if (!p.copy(&out, joined)) {
+									fs_win_close(blob);
+									return (f, fs_empty(), false);
+								}
+								f.native = blob;
+								return (f, out, true);
+							}
+						}
+					}
+#else
+					{
+						char zbuf[FsPathMax] = { 0 };
+
+						if (!fs_syspath(joined, zbuf, FsPathMax)) {
+							break;
+						}
+						{
+							int fd = open(zbuf, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC,
+									384); /* 0600 */
+
+							if (fd < 0) {
+								if (errno == EEXIST) {
+									continue;
+								}
+								break;
+							}
+							{
+								FsFd* blob = (FsFd *)malloc(sizeof(FsFd));
+								char[..] out = { 0 };
+
+								if (blob == NULL) {
+									close(fd);
+									unlink(zbuf);
+									break;
+								}
+								blob.fd = fd;
+								blob.owns = 1;
+								if (!p.copy(&out, joined)) {
+									close(fd);
+									free(blob);
+									unlink(zbuf);
+									return (f, fs_empty(), false);
+								}
+								f.native = blob;
+								return (f, out, true);
+							}
+						}
+					}
+#endif
+				}
+			}
+		}
+	}
+	return (f, fs_empty(), false);
 }
 
 #ifndef _WIN32

@@ -110,6 +110,8 @@ void (Dir *d).close();
 bool fs_remove(const char[..] path);          /* file or empty directory */
 bool fs_rename(const char[..] from, const char[..] to);
 bool fs_mkdir(const char[..] path);           /* one level; no mkdir -p */
+(char[..], bool) fs_mkdir_temp([[region]] Pool *p, const char[..] dir, const char[..] pattern);
+(File, char[..], bool) fs_create_temp([[region]] Pool *p, const char[..] dir, const char[..] pattern);
 ```
 
 An open file descriptor of 0 is stored in a heap blob, never as `native`
@@ -151,18 +153,27 @@ and the buffer is empty. There is no seek on `Writer` / `Reader` in this cut.
 
 `Dir` follows the same handle rules as `File`. Do not copy it by value.
 
+`fs_mkdir_temp` / `fs_create_temp` create a unique name under `dir` (empty `dir`
+uses the same default root as `os_temp_dir`). A final `*` in `pattern` is
+replaced by random hex; otherwise the random hex is appended. The path view is
+minted into the caller `Pool` (`[[region]]`) and dies with that pool — copy out
+with `str_dup` / heap alloc if it must escape. The caller removes the path with
+`fs_remove` (empty directories only today). `fs_create_temp` also returns an
+open `File` (`[[provides]]`; close it).
+
 Not in this cut: permissions, owner, atime, `lstat`, symlink kind, `fstat`, recursive walk, or `mmap`. Win32 I/O uses `CreateFile` / `FindFirstFile` and follows the same result rules. `path_to_sys` is applied before each call, so callers pass logical slash paths.
 
 ## `os`
 
 - `(bool, char[..]) os_env(const char[..] key)` — view into the process environment, valid until the next `os_set_env` of that key (on Win32, until the next `os_env` or `os_set_env`). A missing key is `(false, empty)`.
 - `bool os_set_env(const char[..] key, const char[..] val)` — empty `val` unsets. False on failure, or if a NUL-terminated copy cannot be made (internal stack buffer, 4 KiB).
-- `(char[..], bool) os_cwd(char[..] dst)` — write the current directory as a logical slash path; return a view into `dst`. False if `dst` is too small or the call fails.
+- `(char[..], bool) os_temp_dir([[region]] Pool *p)` — default temporary directory as a logical slash path minted into `p` (`$TMPDIR` or `/tmp` on POSIX; `GetTempPath` on Win32). Does not create the directory. Trailing slashes are trimmed except for a root path.
+- `(char[..], bool) os_cwd([[region]] Pool *p)` — current directory as a logical slash path minted into `p`. False if the call fails or `p` is null.
 - `bool os_chdir(const char[..] path)` — `path` is logical; Win32 converts with `path_to_sys`.
 - `void os_sleep_ms(int64_t ms)` — `ms < 0` is treated as 0. Values above one billion milliseconds are clamped.
 - `int64_t os_mono_ns()` — monotonic nanoseconds since an arbitrary epoch; 0 if unavailable.
 - `void os_exit(int code)` — does not return.
-- `(char[..], bool) os_look_path(char[..] dst, const char[..] name)` — resolve a bare name via `PATH` (or return `name` when it contains `/`). Writes into `dst`.
+- `(char[..], bool) os_look_path([[region]] Pool *p, const char[..] name)` — resolve a bare name via `PATH` (or return `name` when it contains `/`). Path view is minted into `p`.
 
 ### `Cmd`
 

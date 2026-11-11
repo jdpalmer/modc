@@ -1,4 +1,5 @@
 import "fs";
+import "path";
 import "str";
 #include <stddef.h>
 #ifndef _WIN32
@@ -593,6 +594,72 @@ int test_buf_borrow_init() {
 	return 0;
 }
 
+int test_temp() {
+	char got[16] = { 0 };
+	int rc = 0;
+
+	pool p {
+		{
+			auto (d, ok) = fs_mkdir_temp(&p, "", "modc-fs-");
+			if (!ok || len(d) == 0) {
+				rc = 1;
+			} else {
+				auto (info, iok) = fs_stat(d);
+				if (!iok || info.kind != KindDir) {
+					fs_remove(d);
+					rc = 2;
+				} else if (!fs_remove(d)) {
+					rc = 3;
+				}
+			}
+		}
+		if (rc == 0) {
+			auto (d, ok) = fs_mkdir_temp(&p, "", "modc-*-tmp");
+			if (!ok || len(d) == 0) {
+				rc = 4;
+			} else if (!str_starts_with(path_base(d), "modc-") ||
+				   !str_ends_with(path_base(d), "-tmp")) {
+				fs_remove(d);
+				rc = 5;
+			} else if (!fs_remove(d)) {
+				rc = 6;
+			}
+		}
+		if (rc == 0) {
+			auto (f, name, ok) = fs_create_temp(&p, "", "modc-file-");
+			if (!ok || len(name) == 0) {
+				f.close();
+				rc = 7;
+			} else if (!write_all(&f, "hi")) {
+				f.close();
+				fs_remove(name);
+				rc = 8;
+			} else {
+				auto (pos, sok) = f.seek(0, SeekSet);
+				(void)pos;
+				if (!sok) {
+					f.close();
+					fs_remove(name);
+					rc = 9;
+				} else {
+					auto (n, rok) = f.read(got);
+					if (!rok || n != 2 || got[0] != 'h' || got[1] != 'i') {
+						f.close();
+						fs_remove(name);
+						rc = 10;
+					} else {
+						f.close();
+						if (!fs_remove(name)) {
+							rc = 11;
+						}
+					}
+				}
+			}
+		}
+	}
+	return rc;
+}
+
 int fs_pkg_run() {
 	if (test_rw_seek_remove() != 0) {
 		return 1;
@@ -623,6 +690,9 @@ int fs_pkg_run() {
 	}
 	if (test_buf_borrow_init() != 0) {
 		return 10;
+	}
+	if (test_temp() != 0) {
+		return 11;
 	}
 	return 0;
 }

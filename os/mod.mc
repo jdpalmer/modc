@@ -2,9 +2,10 @@
 //
 // os_env views the process environment until the next os_set_env of that key
 // (on Win32, until the next os_env or os_set_env). Empty val unsets. NUL
-// copies use a 4 KiB stack buffer. os_cwd fills dst and returns a logical
-// slash-path view. Cmd spawns argv (no shell). Poll waits on File and Cmd.
-// POSIX uses curated host/include stubs (unistd, time, …), not system headers.
+// copies use a 4 KiB stack buffer. os_cwd / os_temp_dir / os_look_path mint a
+// logical slash-path view into a caller [[region]] Pool. Cmd spawns argv (no
+// shell). Poll waits on File and Cmd. POSIX uses curated host/include stubs
+// (unistd, time, …), not system headers.
 import "path";
 import "fs";
 #include <stdint.h>
@@ -141,34 +142,88 @@ bool os_set_env(const char[..] key, const char[..] val) {
 #endif
 }
 
-(char[..], bool) os_cwd(char[..] dst) {
+/* Default directory for temporary files (TMPDIR / GetTempPath). Does not create. */
+(char[..], bool) os_temp_dir([[region]] Pool* p) {
+	if (p == NULL) {
+		return (os_empty(), false);
+	}
 #ifdef _WIN32
-	char host[OsCap] = { 0 };
-	if (cap(dst) == 0 || (void*)dst == NULL) {
-		return (ranged((char*)0, 0), false);
-	}
-	unsigned n = GetCurrentDirectoryA(OsCap, host);
-	if (n == 0 || n >= OsCap) {
-		if (cap(dst) > 0) {
-			char[..] room = ranged(dst, cap(dst));
-			room[0] = 0;
+	{
+		char host[OsCap] = { 0 };
+		unsigned n = GetTempPathA(OsCap, host);
+		char[..] dst = p.alloc(char, OsCap);
+		size_t end = 0;
+
+		if (n == 0 || n >= OsCap || cap(dst) == 0 || (void*)dst == NULL) {
+			return (os_empty(), false);
 		}
-		return (ranged((char*)0, 0), false);
+		{
+			auto (view, ok) = path_from_sys(dst, ranged(host, n));
+			if (!ok) {
+				return (os_empty(), false);
+			}
+			end = len(view);
+			while (end > 1 && view[end - 1] == '/') {
+				end--;
+			}
+			return (ranged(dst, end, cap(dst)), true);
+		}
 	}
-	return path_from_sys(dst, ranged(host, n));
 #else
-	if (cap(dst) == 0 || (void*)dst == NULL) {
-		return (ranged((char*)0, 0), false);
-	}
-	if (getcwd((char*)(void*)dst, cap(dst)) == NULL) {
-		if (cap(dst) > 0) {
-			char[..] room = ranged(dst, cap(dst));
-			room[0] = 0;
+	{
+		const char* t = getenv("TMPDIR");
+		char[..] out = { 0 };
+
+		if (t == NULL || *t == 0) {
+			t = "/tmp";
 		}
-		return (ranged((char*)0, 0), false);
+		{
+			size_t n = strlen(t);
+			char[..] src = ranged((char*)(void*)t, n);
+			size_t end = n;
+
+			while (end > 1 && src[end - 1] == '/') {
+				end--;
+			}
+			if (!p.copy(&out, ranged(ptr(src), end))) {
+				return (os_empty(), false);
+			}
+			return (out, true);
+		}
 	}
-	size_t n = strlen((char*)(void*)dst);
-	return (ranged(dst, n, cap(dst)), true);
+#endif
+}
+
+(char[..], bool) os_cwd([[region]] Pool* p) {
+	if (p == NULL) {
+		return (os_empty(), false);
+	}
+#ifdef _WIN32
+	{
+		char host[OsCap] = { 0 };
+		unsigned n = GetCurrentDirectoryA(OsCap, host);
+		char[..] dst = p.alloc(char, OsCap);
+
+		if (n == 0 || n >= OsCap || cap(dst) == 0 || (void*)dst == NULL) {
+			return (os_empty(), false);
+		}
+		return path_from_sys(dst, ranged(host, n));
+	}
+#else
+	{
+		char[..] dst = p.alloc(char, OsCap);
+
+		if (cap(dst) == 0 || (void*)dst == NULL) {
+			return (os_empty(), false);
+		}
+		if (getcwd((char*)(void*)dst, cap(dst)) == NULL) {
+			return (os_empty(), false);
+		}
+		{
+			size_t n = strlen((char*)(void*)dst);
+			return (ranged(dst, n, cap(dst)), true);
+		}
+	}
 #endif
 }
 
@@ -242,9 +297,11 @@ void os_exit(int code) {
 	exit(code);
 }
 
-(char[..], bool) os_look_path(char[..] dst, const char[..] name) {
+(char[..], bool) os_look_path([[region]] Pool* p, const char[..] name) {
 	char host[OsPathMax] = { 0 };
-	if (cap(dst) == 0 || (void*)dst == NULL || len(name) == 0 || (void*)name == NULL) {
+	char[..] out = { 0 };
+
+	if (p == NULL || len(name) == 0 || (void*)name == NULL) {
 		return (os_empty(), false);
 	}
 	{
@@ -256,16 +313,14 @@ void os_exit(int code) {
 			return (os_empty(), false);
 		}
 	}
-	size_t n = strlen(host);
-	if (n >= cap(dst)) {
-		return (os_empty(), false);
+	{
+		size_t n = strlen(host);
+
+		if (!p.copy(&out, ranged(host, n))) {
+			return (os_empty(), false);
+		}
 	}
-	memcpy(ptr(dst), host, n);
-	if (cap(dst) > n) {
-		char[..] room = ranged(dst, cap(dst));
-		room[n] = 0;
-	}
-	return (ranged(dst, n, cap(dst)), true);
+	return (out, true);
 }
 
 void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {

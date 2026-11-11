@@ -38,22 +38,46 @@ int test_env() {
 }
 
 int test_cwd() {
-	char buf[4096] = { 0 };
-	{
-		auto (view, ok) = os_cwd(buf);
-		if (!ok || len(view) == 0 || buf[0] == 0) {
-			return 1;
+	int rc = 0;
+
+	pool p {
+		auto (view, ok) = os_cwd(&p);
+		if (!ok || len(view) == 0) {
+			rc = 1;
 		}
 	}
+	if (rc != 0) {
+		return 1;
+	}
 	{
-		char tiny[1] = { 0 };
-		tiny[0] = 'x';
-		{
-			auto (view, ok) = os_cwd(tiny);
-			(void)view;
-			if (ok) {
-				return 2;
-			}
+		auto (view, ok) = os_cwd(0);
+		(void)view;
+		if (ok) {
+			return 2;
+		}
+	}
+	return 0;
+}
+
+int test_temp_dir() {
+	int rc = 0;
+
+	pool p {
+		auto (view, ok) = os_temp_dir(&p);
+		if (!ok || len(view) == 0) {
+			rc = 1;
+		} else if (view[len(view) - 1] == '/') {
+			rc = 2;
+		}
+	}
+	if (rc != 0) {
+		return rc;
+	}
+	{
+		auto (view, ok) = os_temp_dir(0);
+		(void)view;
+		if (ok) {
+			return 3;
 		}
 	}
 	return 0;
@@ -69,24 +93,23 @@ int test_mono() {
 }
 
 int test_look_path() {
-	char buf[4096] = { 0 };
+	int rc = 0;
+
+	pool p {
 #ifdef _WIN32
-	{
-		auto (view, ok) = os_look_path(buf, "cmd.exe");
+		auto (view, ok) = os_look_path(&p, "cmd.exe");
 		(void)view;
 		if (!ok) {
-			return 1;
+			rc = 1;
 		}
-	}
 #else
-	{
-		auto (view, ok) = os_look_path(buf, "true");
+		auto (view, ok) = os_look_path(&p, "true");
 		if (!ok || len(view) == 0 || view[0] != '/') {
-			return 1;
+			rc = 1;
 		}
-	}
 #endif
-	return 0;
+	}
+	return rc;
 }
 
 /* Poll.add_* retains File/Cmd pointers; keep them in static storage for the test. */
@@ -242,17 +265,20 @@ int os_pkg_run() {
 	if (test_cwd() != 0) {
 		return 2;
 	}
-	if (test_mono() != 0) {
+	if (test_temp_dir() != 0) {
 		return 3;
 	}
-	if (test_look_path() != 0) {
+	if (test_mono() != 0) {
 		return 4;
 	}
-	if (test_cmd_echo() != 0) {
+	if (test_look_path() != 0) {
 		return 5;
 	}
-	if (test_cmd_true() != 0) {
+	if (test_cmd_echo() != 0) {
 		return 6;
+	}
+	if (test_cmd_true() != 0) {
+		return 7;
 	}
 	return 0;
 }

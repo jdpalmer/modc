@@ -13,6 +13,7 @@
 #define O_APPEND 0x0008
 #define O_CREAT 0x0200
 #define O_TRUNC 0x0400
+#define O_EXCL 0x0800
 #define O_CLOEXEC 0x01000000
 #else
 /* Linux (and other ELF) traditional bits. */
@@ -21,6 +22,7 @@
 #define O_RDWR 2
 #define O_CREAT 0x40
 #define O_TRUNC 0x200
+#define O_EXCL 0x80
 #define O_APPEND 0x400
 #define O_CLOEXEC 0x80000
 #endif

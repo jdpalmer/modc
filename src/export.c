@@ -1156,6 +1156,9 @@ ensure_tag(Compiler* c, Type* t, const char* home) {
 		return;
 	if (is_synth_tag(t->tag))
 		return;
+	/* Builtin Pool is a typedef; never install a colliding tag from exports. */
+	if (c->types.type_pool && strcmp(t->tag, "Pool") == 0)
+		return;
 	if (symbol_lookup_tag(c, t->tag))
 		return;
 	sp = export_span(home);

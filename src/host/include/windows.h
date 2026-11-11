@@ -46,6 +46,7 @@ typedef LONG (*PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS *info);
 #define FILE_SHARE_WRITE 0x00000002u
 #define FILE_SHARE_DELETE 0x00000004u
 
+#define CREATE_NEW 1u
 #define CREATE_ALWAYS 2u
 #define OPEN_EXISTING 3u
 #define OPEN_ALWAYS 4u
@@ -66,6 +67,8 @@ typedef LONG (*PVECTORED_EXCEPTION_HANDLER)(EXCEPTION_POINTERS *info);
 #define MOVEFILE_REPLACE_EXISTING 1u
 
 #define ERROR_NO_MORE_FILES 18u
+#define ERROR_FILE_EXISTS 80u
+#define ERROR_ALREADY_EXISTS 183u
 #define ERROR_ENVVAR_NOT_FOUND 203u
 
 #define STD_INPUT_HANDLE ((DWORD)(0xfffffff6u))  /* (DWORD)-10 */
@@ -204,6 +207,7 @@ DWORD GetEnvironmentVariableA(const char *name, char *buf, DWORD n);
 BOOL SetEnvironmentVariableA(const char *name, const char *val);
 DWORD GetCurrentDirectoryA(DWORD n, char *buf);
 BOOL SetCurrentDirectoryA(const char *path);
+DWORD GetTempPathA(DWORD n, char *buf);
 void Sleep(DWORD ms);
 BOOL QueryPerformanceCounter(int64_t *c);
 BOOL QueryPerformanceFrequency(int64_t *f);
