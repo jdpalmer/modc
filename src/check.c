@@ -2218,6 +2218,122 @@ defer_register_releases(EscapeState* st, Node* n) {
 		defer_register_releases(st, n->kind == NdComma ? n->b : n->a);
 }
 
+enum { MaxDeferOwned = 32 };
+
+/* Collect owned locals/params mentioned as call args in a defer body. */
+static void
+defer_collect_owned_args(EscapeState* st, Node* n, Symbol** out, int* nout, Node** spans) {
+	int i;
+	Symbol* s;
+
+	if (n == NULL || *nout >= MaxDeferOwned)
+		return;
+	if (n->kind == NdBlock) {
+		for (i = 0; i < n->children_len; i++)
+			defer_collect_owned_args(st, n->children[i], out, nout, spans);
+		return;
+	}
+	if (n->kind == NdCall) {
+		for (i = 0; i < n->children_len && *nout < MaxDeferOwned; i++) {
+			int j, dup;
+
+			s = consume_target_sym(n->children[i]);
+			if (s == NULL || !esc_owned_tainted(st, s))
+				continue;
+			dup = 0;
+			for (j = 0; j < *nout; j++) {
+				if (out[j] == s) {
+					dup = 1;
+					break;
+				}
+			}
+			if (dup)
+				continue;
+			out[*nout] = s;
+			spans[*nout] = n->children[i];
+			(*nout)++;
+		}
+		return;
+	}
+	if (n->kind == NdCast || n->kind == NdComma)
+		defer_collect_owned_args(st, n->kind == NdComma ? n->b : n->a, out, nout,
+					 spans);
+}
+
+/* Symbols that a recognized release in this defer body will kill. */
+static void
+defer_collect_released(Node* n, Symbol** out, int* nout) {
+	int i;
+	Symbol* s;
+
+	if (n == NULL || *nout >= MaxDeferOwned)
+		return;
+	if (n->kind == NdBlock) {
+		for (i = 0; i < n->children_len; i++)
+			defer_collect_released(n->children[i], out, nout);
+		return;
+	}
+	if (n->kind == NdCall) {
+		for (i = 0; i < n->children_len && *nout < MaxDeferOwned; i++) {
+			if (!call_arg_releases(n, i))
+				continue;
+			s = consume_target_sym(n->children[i]);
+			if (s == NULL)
+				continue;
+			out[*nout] = s;
+			(*nout)++;
+		}
+		return;
+	}
+	if (n->kind == NdCast || n->kind == NdComma)
+		defer_collect_released(n->kind == NdComma ? n->b : n->a, out, nout);
+}
+
+static int
+defer_sym_in(Symbol** list, int n, Symbol* s) {
+	int i;
+
+	for (i = 0; i < n; i++) {
+		if (list[i] == s)
+			return 1;
+	}
+	return 0;
+}
+
+/*
+ * Owned value used in a defer body must also be released in that same body
+ * (flush(f); fclose(f); is OK). Otherwise the kill set is missed and escapes
+ * of that value are not diagnosed.
+ */
+static void
+esc_check_defer_owned_released(Compiler* c, EscapeState* st, Node* body) {
+	Symbol* owned[MaxDeferOwned];
+	Symbol* released[MaxDeferOwned];
+	Node* spans[MaxDeferOwned];
+	int nowned = 0, nrel = 0, i;
+
+	if (!st->diag || body == NULL)
+		return;
+	defer_collect_owned_args(st, body, owned, &nowned, spans);
+	defer_collect_released(body, released, &nrel);
+	for (i = 0; i < nowned; i++) {
+		if (defer_sym_in(released, nrel, owned[i]))
+			continue;
+		error_at(c, spans[i]->span,
+			 "deferred call uses owned '%s' without releasing it; mark a cleanup [[releases]] or use free/fclose/release in this defer",
+			 owned[i]->name ? owned[i]->name : "");
+	}
+}
+
+static void
+esc_check_defer(Compiler* c, EscapeState* st, Node* n) {
+	Node* body;
+
+	body = n ? n->a : NULL;
+	esc_check_defer_owned_released(c, st, body);
+	defer_register_releases(st, body);
+}
+
 static uint64_t
 expr_param_bits(EscapeState* st, Node* n);
 
@@ -3629,7 +3745,7 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		return;
 	}
 	if (n->kind == NdDefer) {
-		defer_register_releases(st, n->a);
+		esc_check_defer(c, st, n);
 		return;
 	}
 	if (n->kind == NdCall) {

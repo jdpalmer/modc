@@ -59,6 +59,12 @@ reject straight-line use-after-free and double-free of that local after an immed
 `free(p)` / `fclose(f)` / `[[releases]]` call (uses before a deferred cleanup still run
 are allowed; the kill is at block exit).
 
+If a defer uses an owned pointer as a call argument, the same defer must also
+release it (`free` / `fclose` / `release` / `[[releases]]`) — otherwise the kill
+set is missed and a later `return` of that pointer can slip through. Teardown
+helpers before the release are allowed (`defer { flush(f); fclose(f); }`). Pure
+side-effect defers that do not touch owned values are fine.
+
 ## Practical application patterns
 
 Block-level scoping makes `defer` useful for temporary state changes, lock management, and pool allocation within small scopes.

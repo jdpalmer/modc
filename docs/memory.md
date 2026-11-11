@@ -361,10 +361,11 @@ char* bad_defer() {
 }
 ```
 
-An opaque `defer { … }` block that does not contain a recognized release
-(`free`, `fclose`, a `[[releases]]` call, or ending a pool) is only weakly
-checked. Prefer a single releasing call, or wrap the cleanup in a
-`[[releases]]` API.
+If a defer body uses an owned value as a call argument, that same defer must
+also release it (`free` / `fclose` / `release` / `[[releases]]` / pool end).
+Helpers before the release are fine (`defer { flush(f); fclose(f); }`). A defer
+that only calls an unmarked cleanup (`defer my_free(p);`) is an error. Side-effect
+defers that do not touch owned values remain fine.
 
 When a `%C` package function stores a parameter somewhere that outlives the
 call, the compiler infers `[[retains]]` on that parameter and exports it.
