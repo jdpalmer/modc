@@ -3609,10 +3609,12 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 	case NdIf: {
 		/* Path-sensitive dead/owned: free/releases in a returning branch
 		 * must not poison the fall-through path (common fail/return ladders). */
-		unsigned char *save = NULL, *then_dead = NULL, *else_dead = NULL;
-		unsigned char *save_o = NULL, *then_o = NULL, *else_o = NULL;
-		int save_n = 0, then_n = 0, else_n = 0;
-		int save_on = 0, then_on = 0, else_on = 0;
+		unsigned char *pre_d = NULL, *after_d = NULL;
+		unsigned char *then_dead = NULL, *else_dead = NULL;
+		unsigned char *pre_o = NULL, *after_o = NULL;
+		unsigned char *then_o = NULL, *else_o = NULL;
+		int pre_dn = 0, after_dn = 0, then_n = 0, else_n = 0;
+		int pre_on = 0, after_on = 0, then_on = 0, else_on = 0;
 		int then_exits, else_exits;
 		int push_fail_then = 0;
 		Symbol *nullsym, *nonsym;
@@ -3621,46 +3623,51 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 		pushcall = cond_push_call(n->a, &push_fail_then);
 		nullsym = cond_null_checked_sym(n->a);
 		nonsym = cond_nonnull_checked_sym(n->a);
-		/* Snapshot before cond: push in the condition retains optimistically. */
-		save = esc_snapshot_dead(st, &save_n);
-		save_o = esc_snapshot_owned(st, &save_on);
+		/* pre: before cond (push failure must not keep an optimistic retain). */
+		pre_d = esc_snapshot_dead(st, &pre_dn);
+		pre_o = esc_snapshot_owned(st, &pre_on);
 		esc_check_expr_use(c, st, n->a);
 		esc_walk_stmt(c, st, n->a);
+		/* after: cond side effects ([[retains]], push retain, releases) stick. */
+		after_d = esc_snapshot_dead(st, &after_dn);
+		after_o = esc_snapshot_owned(st, &after_on);
 		/* Null path drops ownership: then for == NULL / !p, else for != NULL. */
 		if (nullsym)
 			esc_clear_owned(st, nullsym);
 		/*
-		 * Push retain: cond walk already cleared on success. Failure arm must
-		 * restore pre-cond owned bits so a failed push still owns the elem.
+		 * Push: cond retained optimistically. Failure arm restores pre-cond
+		 * owned; success arm keeps after-cond.
 		 */
 		if (pushcall && push_fail_then)
-			esc_restore_owned(st, save_o, save_on);
+			esc_restore_owned(st, pre_o, pre_on);
 		else if (pushcall && !push_fail_then)
 			esc_apply_push_retain(c, st, pushcall);
 		esc_walk_stmt(c, st, n->b);
 		then_exits = stmt_always_exits(n->b);
 		then_dead = esc_snapshot_dead(st, &then_n);
 		then_o = esc_snapshot_owned(st, &then_on);
-		esc_restore_dead(st, save, save_n);
-		esc_restore_owned(st, save_o, save_on);
+		esc_restore_dead(st, after_d, after_dn);
+		esc_restore_owned(st, after_o, after_on);
 		if (nonsym)
 			esc_clear_owned(st, nonsym);
-		/* if (!push(…)): else is success — retain. if (push(…)): else is failure. */
-		if (pushcall && push_fail_then)
-			esc_apply_push_retain(c, st, pushcall);
+		/* if (push(…)) else: failure — restore pre. if (!push) else: already after. */
+		if (pushcall && !push_fail_then)
+			esc_restore_owned(st, pre_o, pre_on);
 		esc_walk_stmt(c, st, n->c);
 		else_exits = stmt_always_exits(n->c);
 		else_dead = esc_snapshot_dead(st, &else_n);
 		else_o = esc_snapshot_owned(st, &else_on);
 		if (then_exits && (else_exits || n->c == NULL)) {
-			esc_restore_dead(st, save, save_n);
-			esc_restore_owned(st, save_o, save_on);
 			/*
-			 * if (!push(…)) return; — fall-through is success, so retain
-			 * after restoring the pre-if owned snapshot.
+			 * Fall-through after then-exits: keep cond retains
+			 * (if (!take(p)) return; must leave p retained).
+			 * if (!push) return; — after already retained in cond.
 			 */
-			if (pushcall && push_fail_then && n->c == NULL && !else_exits)
-				esc_apply_push_retain(c, st, pushcall);
+			esc_restore_dead(st, after_d, after_dn);
+			esc_restore_owned(st, after_o, after_on);
+			if (pushcall && !push_fail_then && n->c == NULL && !else_exits)
+				/* if (push) { exit… }; fall-through is failure */
+				esc_restore_owned(st, pre_o, pre_on);
 		} else if (then_exits) {
 			esc_restore_dead(st, else_dead, else_n);
 			esc_restore_owned(st, else_o, else_on);
@@ -3669,23 +3676,24 @@ esc_walk_stmt(Compiler* c, EscapeState* st, Node* n) {
 			esc_restore_owned(st, then_o, then_on);
 		} else if (n->c == NULL) {
 			/*
-			 * Implicit else is the false branch. For p != NULL, nonsym
-			 * already cleared owned before the empty else snapshot.
-			 * For !push, retain was applied before the empty else walk.
+			 * Implicit else is the false branch (= after-cond, with
+			 * nonsym / push adjustments already applied above).
 			 */
-			esc_union_dead(st, save, save_n, then_dead, then_n);
-			if (nonsym || (pushcall && push_fail_then))
+			esc_union_dead(st, after_d, after_dn, then_dead, then_n);
+			if (nonsym || pushcall)
 				esc_union_owned(st, else_o, else_on, then_o, then_on);
 			else
-				esc_union_owned(st, save_o, save_on, then_o, then_on);
+				esc_union_owned(st, after_o, after_on, then_o, then_on);
 		} else {
 			esc_union_dead(st, then_dead, then_n, else_dead, else_n);
 			esc_union_owned(st, then_o, then_on, else_o, else_on);
 		}
-		free(save);
+		free(pre_d);
+		free(after_d);
 		free(then_dead);
 		free(else_dead);
-		free(save_o);
+		free(pre_o);
+		free(after_o);
 		free(then_o);
 		free(else_o);
 		break;
