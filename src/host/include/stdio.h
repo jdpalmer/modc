@@ -74,6 +74,7 @@ int vsprintf(char *restrict s, const char *restrict format, va_list arg);
 int vsscanf(const char *restrict s, const char *restrict format, va_list arg);
 
 int fgetc(FILE *stream);
+char *gets(char *s); /* removed in C11; declared for diagnostics — banned in .mc */
 char *fgets(char *restrict s, int n, FILE *restrict stream);
 int fputc(int c, FILE *stream);
 int fputs(const char *restrict s, FILE *restrict stream);

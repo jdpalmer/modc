@@ -98,10 +98,15 @@ constness. See [const.md](const.md).
 
 ## Printf / scanf formats
 
-Calls to the hosted `printf` / `fprintf` / `sprintf` / `snprintf` and
-`scanf` / `fscanf` / `sscanf` family require a **string-literal** format in
-`.mc` (a cast around a literal is fine). The literal is checked for arity and
-argument types. A non-literal format is a compile-time error.
+Calls to the hosted `printf` / `fprintf` / `snprintf` and `scanf` / `fscanf` /
+`sscanf` family require a **string-literal** format in `.mc` (a cast around a
+literal is fine). The literal is checked for arity and argument types. A
+non-literal format is a compile-time error.
+
+In `.mc`, classic unbounded sinks are rejected outright: `gets`, `strcpy`,
+`strcat`, `sprintf`, and `vsprintf`. Use `fgets`, `strncpy` / `memcpy`,
+`snprintf` / `vsnprintf`, or length-aware `char[..]` helpers instead. Headers
+may still declare the banned names for C interop.
 
 ### `%s` and `char[..]`
 

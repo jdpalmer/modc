@@ -3021,6 +3021,7 @@ type_expr_call(Compiler* c, Node* n) {
 					return type_poison(c, n);
 			check_call_args(c, n->span, ft, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
+			check_unsafe_string_call(c, n);
 			check_format_call(c, n, ft);
 		}
 		n->type = instantiate_poly_return(c, ft, n->children, n->children_len);
@@ -3034,6 +3035,7 @@ type_expr_call(Compiler* c, Node* n) {
 					return type_poison(c, n);
 			check_call_args(c, n->span, ft->base, n->children, n->children_len,
 					n->a && n->a->symbol && n->a->symbol->is_overload);
+			check_unsafe_string_call(c, n);
 			check_format_call(c, n, ft->base);
 		}
 		n->type = instantiate_poly_return(c, ft->base, n->children, n->children_len);
