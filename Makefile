@@ -76,11 +76,20 @@ $(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+# Build test/$(2) to $(BUILD)/$(1), require non-zero exit; $(3) is '|'-separated stderr needles (optional).
+define expect_abort
+	./modc build -o $(BUILD)/$(1) test/$(2)
+	@$(BUILD)/$(1) >$(BUILD)/$(1).out 2>$(BUILD)/$(1).err; test $$? -ne 0
+	@if [ -n '$(3)' ]; then \
+		needles='$(3)'; IFS='|'; for n in $$needles; do \
+			grep -q "$$n" $(BUILD)/$(1).err || exit 1; \
+		done; \
+	fi
+endef
+
 check: $(MODC)
 	@mkdir -p $(BUILD)
 	./modc test test
-	./modc test test/bounds_ok_test.mc
-	./modc test test/null_recv_ok_test.mc
 	./modc test test/special/cli_args_test.mc -- a b
 	./modc test -M test test/testdriver
 	./modc selftest
@@ -94,37 +103,18 @@ check: $(MODC)
 		>$(BUILD)/dead_init_fail_check.out 2>$(BUILD)/dead_init_fail_check.err; \
 		test $$? -eq 0
 	@! grep -q "initializer of" $(BUILD)/dead_init_fail_check.err
-	./modc build -o $(BUILD)/bounds_oob test/bounds_oob.mc
-	@$(BUILD)/bounds_oob >$(BUILD)/bounds_oob.out 2>$(BUILD)/bounds_oob.err; test $$? -ne 0
-	@grep -q 'bounds: index' $(BUILD)/bounds_oob.err
-	@grep -q 'index == len' $(BUILD)/bounds_oob.err
-	@grep -q 'off-by-one' $(BUILD)/bounds_oob.err
-	./modc build -o $(BUILD)/bounds_param_oob test/bounds_param_oob.mc
-	@$(BUILD)/bounds_param_oob >$(BUILD)/bounds_param_oob.out 2>$(BUILD)/bounds_param_oob.err; test $$? -ne 0
-	@grep -q 'bounds: index' $(BUILD)/bounds_param_oob.err
-	./modc build -o $(BUILD)/bounds_subrange_oob test/bounds_subrange_oob.mc
-	@$(BUILD)/bounds_subrange_oob >$(BUILD)/bounds_subrange_oob.out 2>$(BUILD)/bounds_subrange_oob.err; test $$? -ne 0
-	@grep -q 'bounds: index' $(BUILD)/bounds_subrange_oob.err
-	./modc build -o $(BUILD)/bounds_subrange_order_oob test/bounds_subrange_order_oob.mc
-	@$(BUILD)/bounds_subrange_order_oob >$(BUILD)/bounds_subrange_order_oob.out 2>$(BUILD)/bounds_subrange_order_oob.err; test $$? -ne 0
-	@grep -q 'bounds: index' $(BUILD)/bounds_subrange_order_oob.err
-	./modc build -o $(BUILD)/null_recv_oob test/null_recv_oob.mc
-	@$(BUILD)/null_recv_oob >$(BUILD)/null_recv_oob.out 2>$(BUILD)/null_recv_oob.err; test $$? -ne 0
-	@grep -q 'null method receiver' $(BUILD)/null_recv_oob.err
+	$(call expect_abort,bounds_oob,bounds_oob.mc,bounds: index|index == len|off-by-one)
+	$(call expect_abort,bounds_param_oob,bounds_param_oob.mc,bounds: index)
+	$(call expect_abort,bounds_subrange_oob,bounds_subrange_oob.mc,bounds: index)
+	$(call expect_abort,bounds_subrange_order_oob,bounds_subrange_order_oob.mc,bounds: index)
+	$(call expect_abort,null_recv_oob,null_recv_oob.mc,null method receiver)
 	# --release omits traps (null recv should not print the checked message)
 	./modc build --release -o $(BUILD)/null_recv_release test/null_recv_oob.mc
 	@$(BUILD)/null_recv_release >$(BUILD)/null_recv_release.out 2>$(BUILD)/null_recv_release.err; test $$? -ne 0
 	@! grep -q 'null method receiver' $(BUILD)/null_recv_release.err
-	./modc build -o $(BUILD)/crash_panic test/crash_panic_die.mc
-	@$(BUILD)/crash_panic >/dev/null 2>&1; test $$? -ne 0
-	./modc build -o $(BUILD)/crash_cleanup test/crash_cleanup_die.mc
-	@$(BUILD)/crash_cleanup >$(BUILD)/crash_cleanup.out 2>$(BUILD)/crash_cleanup.err; test $$? -ne 0
-	@grep -q cleaned $(BUILD)/crash_cleanup.err
-	@grep -q after-cleanup $(BUILD)/crash_cleanup.err
-	./modc build -o $(BUILD)/crash_signal test/crash_signal_die.mc
-	@$(BUILD)/crash_signal >$(BUILD)/crash_signal.out 2>$(BUILD)/crash_signal.err; test $$? -ne 0
-	@grep -q cleaned $(BUILD)/crash_signal.err
-	@grep -q 'crash: SIGSEGV' $(BUILD)/crash_signal.err
+	$(call expect_abort,crash_panic,crash_panic_die.mc,)
+	$(call expect_abort,crash_cleanup,crash_cleanup_die.mc,cleaned|after-cleanup)
+	$(call expect_abort,crash_signal,crash_signal_die.mc,cleaned|crash: SIGSEGV)
 
 # Optional host integration (vendor, cache, format, doc, includes).
 check-special: $(MODC)

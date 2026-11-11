@@ -47,9 +47,8 @@ int separate_bool_still_ok() {
 }
 
 int by_value_in_if() {
-	Box b = { 0 };
+	Box b = { .x = 1 };
 
-	b.x = 1;
 	if (!take_box_move(b)) {
 		return 1;
 	}

@@ -264,7 +264,7 @@ overload int range_at(Triple t, size_t i) {
 }
 ```
 
-See `test/range_for.mc` and `test/range_hooks.mc`. Overload rules are in [methods.md](methods.md).
+See `test/range_for_test.mc` and `test/range_hooks_test.mc`. Overload rules are in [methods.md](methods.md).
 
 ## Const and strings
 
@@ -319,6 +319,6 @@ A `pool p { … }` statement is bump allocation into a region. `p.alloc(T)` and
 `p.join`, `p.replace`, `p.append` / `p.push` rewrite slice headers in place;
 `p.cstr(s)` mints a NUL C string in the pool. Views stay valid until block end
 / `p.free()` / `p.reset()`. Heap twins: `alloc(T)` / `alloc(T, n)` and
-`cstr(s)`. See `test/pool_pkg.mc`.
+`cstr(s)`. See `test/pool_pkg_test.mc`.
 
 `path`, `fs`, and `os` sit beside `str`: slash paths, `File` handles, and process helpers, with `(T, bool)` results rather than POSIX or Win32 types. See [os.md](os.md).
