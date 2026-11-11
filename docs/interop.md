@@ -52,9 +52,11 @@ the stub, then link against the real libc, libm, or `kernel32`.
 
 The stubs are a **deliberate subset**: freestanding/hosted C (`stdio`, `stdlib`,
 `math`, …), POSIX pieces needed by the `fs` / `os` packages (`unistd`, `fcntl`,
-`sys/stat`, `dirent`, `poll`, `time`, `sys/wait`, `signal`), and a thin Win32
-surface (`windows.h` with the `*A` APIs those packages call). Prefer growing a
-stub when a package needs a new call; use `#pragma modc c_sources(...)` for large
+`sys/stat`, `dirent`, `poll`, `time`, `sys/wait`, `signal`), and on non-Windows
+also `mkdtemp` / `mkstemp`, `access` / `dup`, `realpath` / `readlink` /
+`symlink`, `chmod` / `ftruncate`, `execvp` / `execlp`. Thin Win32 surface
+(`windows.h` with the `*A` APIs those packages call). Prefer growing a stub
+when a package needs a new call; use `#pragma modc c_sources(...)` for large
 native code. Parsing full installed Windows/GTK SDK trees is **not** a goal—
 stubs plus ordinary C headers are the supported surface. In particular, do not
 `#include` the system `<math.h>` on Apple (it uses `_Float16`); use the curated

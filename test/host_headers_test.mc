@@ -71,6 +71,32 @@ int host_headers() {
 	if (environ == NULL) {
 		return 14;
 	}
+#ifndef _WIN32
+	{
+		char *(*md)(char *) = mkdtemp;
+		int (*ms)(char *) = mkstemp;
+		char *(*rp)(const char *, char *) = realpath;
+		int (*acc)(const char *, int) = access;
+		int (*dp)(int) = dup;
+		ssize_t (*rl)(const char *, char *, size_t) = readlink;
+		int (*sy)(const char *, const char *) = symlink;
+		int (*cm)(const char *, mode_t) = chmod;
+		int (*ft)(int, off_t) = ftruncate;
+		(void)md;
+		(void)ms;
+		(void)rp;
+		(void)acc;
+		(void)dp;
+		(void)rl;
+		(void)sy;
+		(void)cm;
+		(void)ft;
+		(void)execvp;
+		(void)execlp;
+		(void)F_OK;
+		(void)R_OK;
+	}
+#endif
 	assert(1);
 	return 0;
 }

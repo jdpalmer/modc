@@ -78,3 +78,6 @@ struct stat {
 
 int stat(const char *path, struct stat *st);
 int mkdir(const char *path, mode_t mode);
+#ifndef _WIN32
+int chmod(const char *path, mode_t mode); /* also in <unistd.h> */
+#endif

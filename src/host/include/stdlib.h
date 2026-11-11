@@ -65,6 +65,14 @@ int unsetenv(const char *name);
 void quick_exit(int status);
 int system(const char *command);
 
+#ifndef _WIN32
+/* Mutate a XXXXXX template in place; return tmpl or NULL — not [[provides]]. */
+char *mkdtemp(char *tmpl);
+int mkstemp(char *tmpl);
+/* resolved may be NULL (malloc) or a PATH_MAX buffer; not tagged [[provides]]. */
+char *realpath(const char *restrict path, char *restrict resolved);
+#endif
+
 /* Returns a pointer into base; const? preserves call-site constness. */
 const? void *bsearch(const void *key, const? void *base, size_t nmemb, size_t size,
     int (*compar)(const void *, const void *));

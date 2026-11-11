@@ -39,6 +39,13 @@ pid_t getpid(void);
 #define STDERR_FILENO 2
 #endif
 
+#ifndef F_OK
+#define F_OK 0
+#define X_OK 1
+#define W_OK 2
+#define R_OK 4
+#endif
+
 #ifdef _WIN32
 /* PE: environ is not dllimport data (same class as stdin/err); UCRT accessor.
  * Deferred if ever stubbed: _fmode, _pgmptr, _doserrno, _sys_nerr/_sys_errlist,
@@ -47,4 +54,18 @@ char ***__p__environ(void);
 #define environ (*__p__environ())
 #else
 extern char **environ;
+
+int access(const char *path, int mode);
+int dup(int fd);
+int chmod(const char *path, mode_t mode);
+int ftruncate(int fd, off_t length);
+ssize_t readlink(const char *restrict path, char *restrict buf, size_t bufsiz);
+int symlink(const char *path1, const char *path2);
+char *realpath(const char *restrict path, char *restrict resolved);
+int execvp(const char *file, char *const argv[]);
+int execlp(const char *file, const char *arg, ...);
+
+/* Also in <stdlib.h>. */
+char *mkdtemp(char *tmpl);
+int mkstemp(char *tmpl);
 #endif
