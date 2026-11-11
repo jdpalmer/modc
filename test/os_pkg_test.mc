@@ -112,6 +112,38 @@ int test_look_path() {
 	return rc;
 }
 
+int test_dirs_host() {
+	int rc = 0;
+
+	pool p {
+		{
+			auto (view, ok) = os_home(&p);
+			if (!ok || len(view) == 0) {
+				rc = 1;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = os_user_config_dir(&p);
+			if (!ok || len(view) == 0) {
+				rc = 2;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = os_cache_dir(&p);
+			if (!ok || len(view) == 0) {
+				rc = 3;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = os_hostname(&p);
+			if (!ok || len(view) == 0) {
+				rc = 4;
+			}
+		}
+	}
+	return rc;
+}
+
 /* Poll.add_* retains File/Cmd pointers; keep them in static storage for the test. */
 static Cmd poll_cmd;
 static File poll_out;
@@ -274,11 +306,14 @@ int os_pkg_run() {
 	if (test_look_path() != 0) {
 		return 5;
 	}
-	if (test_cmd_echo() != 0) {
+	if (test_dirs_host() != 0) {
 		return 6;
 	}
-	if (test_cmd_true() != 0) {
+	if (test_cmd_echo() != 0) {
 		return 7;
+	}
+	if (test_cmd_true() != 0) {
+		return 8;
 	}
 	return 0;
 }

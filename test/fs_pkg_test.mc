@@ -649,8 +649,14 @@ int test_temp() {
 						rc = 10;
 					} else {
 						f.close();
-						if (!fs_remove(name)) {
-							rc = 11;
+						{
+							auto (abs, aok) = fs_realpath(&p, name);
+							if (!aok || len(abs) == 0 || abs[0] != '/') {
+								fs_remove(name);
+								rc = 11;
+							} else if (!fs_remove(name)) {
+								rc = 12;
+							}
 						}
 					}
 				}

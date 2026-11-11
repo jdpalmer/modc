@@ -227,6 +227,176 @@ bool os_set_env(const char[..] key, const char[..] val) {
 #endif
 }
 
+/* Mint a host env path (logical form) into p. */
+static(char[..], bool) os_env_dir([[region]] Pool* p, const char* key) {
+	char host[OsCap] = { 0 };
+	char logical[OsCap] = { 0 };
+	char[..] out = { 0 };
+
+	if (p == NULL || key == NULL || *key == 0) {
+		return (os_empty(), false);
+	}
+#ifdef _WIN32
+	{
+		DWORD n = GetEnvironmentVariableA(key, host, OsCap);
+
+		if (n == 0 || n >= OsCap) {
+			return (os_empty(), false);
+		}
+		{
+			auto (view, ok) = path_from_sys(logical, ranged(host, n));
+
+			if (!ok) {
+				return (os_empty(), false);
+			}
+			{
+				size_t end = len(view);
+
+				while (end > 1 && view[end - 1] == '/') {
+					end--;
+				}
+				if (!p.copy(&out, ranged(ptr(view), end))) {
+					return (os_empty(), false);
+				}
+				return (out, true);
+			}
+		}
+	}
+#else
+	{
+		const char* v = getenv(key);
+
+		if (v == NULL || *v == 0) {
+			return (os_empty(), false);
+		}
+		{
+			size_t n = strlen(v);
+
+			if (n >= OsCap) {
+				return (os_empty(), false);
+			}
+			memcpy(host, v, n);
+			host[n] = 0;
+			{
+				auto (view, ok) = path_from_sys(logical, ranged(host, n));
+
+				if (!ok) {
+					return (os_empty(), false);
+				}
+				{
+					size_t end = len(view);
+
+					while (end > 1 && view[end - 1] == '/') {
+						end--;
+					}
+					if (!p.copy(&out, ranged(ptr(view), end))) {
+						return (os_empty(), false);
+					}
+					return (out, true);
+				}
+			}
+		}
+	}
+#endif
+}
+
+/* User home directory as a logical path. */
+(char[..], bool) os_home([[region]] Pool* p) {
+#ifdef _WIN32
+	return os_env_dir(p, "USERPROFILE");
+#else
+	return os_env_dir(p, "HOME");
+#endif
+}
+
+/* User config directory (XDG_CONFIG_HOME or ~/.config; APPDATA on Win32). */
+(char[..], bool) os_user_config_dir([[region]] Pool* p) {
+	if (p == NULL) {
+		return (os_empty(), false);
+	}
+#ifdef _WIN32
+	return os_env_dir(p, "APPDATA");
+#else
+	{
+		auto (xdg, ok) = os_env_dir(p, "XDG_CONFIG_HOME");
+
+		if (ok) {
+			return (xdg, true);
+		}
+	}
+	{
+		auto (home, ok) = os_home(p);
+
+		if (!ok) {
+			return (os_empty(), false);
+		}
+		return path_join(p, home, ".config");
+	}
+#endif
+}
+
+/* User cache directory (XDG_CACHE_HOME or ~/.cache; LOCALAPPDATA on Win32). */
+(char[..], bool) os_cache_dir([[region]] Pool* p) {
+	if (p == NULL) {
+		return (os_empty(), false);
+	}
+#ifdef _WIN32
+	return os_env_dir(p, "LOCALAPPDATA");
+#else
+	{
+		auto (xdg, ok) = os_env_dir(p, "XDG_CACHE_HOME");
+
+		if (ok) {
+			return (xdg, true);
+		}
+	}
+	{
+		auto (home, ok) = os_home(p);
+
+		if (!ok) {
+			return (os_empty(), false);
+		}
+		return path_join(p, home, ".cache");
+	}
+#endif
+}
+
+/* Host name minted into p. */
+(char[..], bool) os_hostname([[region]] Pool* p) {
+	char host[OsCap] = { 0 };
+	char[..] out = { 0 };
+
+	if (p == NULL) {
+		return (os_empty(), false);
+	}
+#ifdef _WIN32
+	{
+		DWORD n = OsCap;
+
+		if (!GetComputerNameA(host, &n) || n == 0) {
+			return (os_empty(), false);
+		}
+		if (!p.copy(&out, ranged(host, n))) {
+			return (os_empty(), false);
+		}
+		return (out, true);
+	}
+#else
+	if (gethostname(host, OsCap) != 0) {
+		return (os_empty(), false);
+	}
+	host[OsCap - 1] = 0;
+	{
+		size_t n = strlen(host);
+
+		if (!p.copy(&out, ranged(host, n))) {
+			return (os_empty(), false);
+		}
+		return (out, true);
+	}
+#endif
+}
+
 bool os_chdir(const char[..] path) {
 #ifdef _WIN32
 	char host[OsCap] = { 0 };

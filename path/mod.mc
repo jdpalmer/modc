@@ -1,13 +1,13 @@
 // path — slash-separated logical paths. No I/O.
 //
-// Paths use '/' only. path_to_sys / path_from_sys convert separators (and a
-// leading drive letter) on Win32; they are identity elsewhere. Writers fill a
-// caller buffer (cap(dst) is room) and return a view into that buffer.
+// Paths use '/' only. path_join / path_clean mint into a caller [[region]] Pool.
+// path_to_sys / path_from_sys convert separators (and a leading drive letter) on
+// Win32 (identity elsewhere) into a caller buffer — host-bridge writers.
 // Slice helpers return views into the input. T[..] is opaque: use len/cap/ranged.
 //
-// On failure, if cap(dst) > 0 the first byte is set to NUL and no partial path
-// is written. Success returns ranged(dst, n, cap(dst)) with a trailing
-// NUL when one extra byte remains.
+// Buffer writers: on failure, if cap(dst) > 0 the first byte is set to NUL and
+// no partial path is written. Success returns ranged(dst, n, cap(dst)) with a
+// trailing NUL when one extra byte remains.
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -109,8 +109,26 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 	return end;
 }
 
-// Write a/b into dst. Returns a view of the written path, or empty on failure.
-(char[..], bool) path_join(char[..] dst, const char[..] a, const char[..] b) {
+static(char[..], bool) path_mint([[region]] Pool* p, const char* src, size_t n) {
+	char[..] out = { 0 };
+
+	if (p == NULL) {
+		return (path_empty(), false);
+	}
+	if (n == 0) {
+		if (!p.copy(&out, "")) {
+			return (path_empty(), false);
+		}
+		return (out, true);
+	}
+	if (!p.copy(&out, ranged((char*)(void*)src, n))) {
+		return (path_empty(), false);
+	}
+	return (out, true);
+}
+
+// Join a/b into a path minted in p.
+(char[..], bool) path_join([[region]] Pool* p, const char[..] a, const char[..] b) {
 	char tmp[PathMax] = { 0 };
 	size_t n = 0;
 	int aroot = 0;
@@ -134,7 +152,7 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 		n = an;
 	}
 	if (bt == 0) {
-		return path_put(dst, tmp, n);
+		return path_mint(p, tmp, n);
 	}
 	if (n > 0 && !(n == 1 && tmp[0] == '/')) {
 		if (n + 1 > PathMax) {
@@ -149,36 +167,36 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 	}
 	memcpy(tmp + n, ptr(b[bi ..]), bt);
 	n += bt;
-	return path_put(dst, tmp, n);
+	return path_mint(p, tmp, n);
 }
 
-// Collapse //, '.', and '..'. Returns a view of the cleaned path.
-(char[..], bool) path_clean(char[..] dst, const char[..] p) {
+// Collapse //, '.', and '..'. Path view is minted into p.
+(char[..], bool) path_clean([[region]] Pool* p, const char[..] path) {
 	char tmp[PathMax] = { 0 };
 	size_t n = 0;
 	size_t i = 0;
-	int abs = path_is_abs(p) ? 1: 0;
+	int abs = path_is_abs(path) ? 1: 0;
 	if (abs) {
 		tmp[n++] = '/';
 	}
-	while (i < len(p)) {
+	while (i < len(path)) {
 		size_t start = 0;
 		size_t clen = 0;
-		while (i < len(p) && path_slash(p[i])) {
+		while (i < len(path) && path_slash(path[i])) {
 			i++;
 		}
-		if (i >= len(p)) {
+		if (i >= len(path)) {
 			break;
 		}
 		start = i;
-		while (i < len(p) && !path_slash(p[i])) {
+		while (i < len(path) && !path_slash(path[i])) {
 			i++;
 		}
 		clen = i - start;
-		if (clen == 1 && p[start] == '.') {
+		if (clen == 1 && path[start] == '.') {
 			continue;
 		}
-		if (clen == 2 && p[start] == '.' && p[start + 1] == '.') {
+		if (clen == 2 && path[start] == '.' && path[start + 1] == '.') {
 			size_t floor = abs ? 1: 0;
 			if (n <= floor) {
 				continue;
@@ -203,10 +221,10 @@ static size_t path_trim_tail(const char[..] p, size_t n, int* root) {
 		if (clen > PathMax - n) {
 			return (path_empty(), false);
 		}
-		memcpy(tmp + n, ptr(p[start ..]), clen);
+		memcpy(tmp + n, ptr(path[start ..]), clen);
 		n += clen;
 	}
-	return path_put(dst, tmp, n);
+	return path_mint(p, tmp, n);
 }
 
 // Host form of a logical path. Win32: '/' → '\\', and '/C:/…' → 'C:\…'.

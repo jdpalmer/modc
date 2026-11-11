@@ -54,8 +54,9 @@ The stubs are a **deliberate subset**: freestanding/hosted C (`stdio`, `stdlib`,
 `math`, …), POSIX pieces needed by the `fs` / `os` packages (`unistd`, `fcntl`,
 `sys/stat`, `dirent`, `poll`, `time`, `sys/wait`, `signal`), and on non-Windows
 also `mkdtemp` / `mkstemp`, `access` / `dup`, `realpath` / `readlink` /
-`symlink`, `chmod` / `ftruncate`, `execvp` / `execlp`. Thin Win32 surface
-(`windows.h` with the `*A` APIs those packages call). Prefer growing a stub
+`symlink`, `chmod` / `ftruncate`, `execvp` / `execlp`, `gethostname`. Thin
+Win32 surface (`windows.h` with the `*A` APIs those packages call, including
+`GetFullPathNameA` / `GetComputerNameA`). Prefer growing a stub
 when a package needs a new call; use `#pragma modc c_sources(...)` for large
 native code. Parsing full installed Windows/GTK SDK trees is **not** a goal—
 stubs plus ordinary C headers are the supported surface. In particular, do not

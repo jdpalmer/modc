@@ -1427,6 +1427,13 @@ export_load(Compiler* c, const char* path, const char* pkg_dir) {
 				continue;
 			if (tok_is_dash(tagbuf) || is_synth_tag(tagbuf))
 				continue;
+			/* Builtin Pool — collapse export stubs onto the compiler type. */
+			if (c->types.type_pool && strcmp(tagbuf, "Pool") == 0) {
+				map[ltypes[i].id] = c->types.type_pool;
+				ltypes[i].type = c->types.type_pool;
+				ltypes[i].reused = 1;
+				continue;
+			}
 			s = symbol_lookup_tag(c, tagbuf);
 			if (s == NULL || s->type == NULL)
 				continue;

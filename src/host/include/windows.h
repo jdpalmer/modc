@@ -208,6 +208,8 @@ BOOL SetEnvironmentVariableA(const char *name, const char *val);
 DWORD GetCurrentDirectoryA(DWORD n, char *buf);
 BOOL SetCurrentDirectoryA(const char *path);
 DWORD GetTempPathA(DWORD n, char *buf);
+DWORD GetFullPathNameA(const char *path, DWORD n, char *buf, char **file);
+BOOL GetComputerNameA(char *buf, DWORD *n);
 void Sleep(DWORD ms);
 BOOL QueryPerformanceCounter(int64_t *c);
 BOOL QueryPerformanceFrequency(int64_t *f);

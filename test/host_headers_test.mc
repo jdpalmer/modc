@@ -93,6 +93,7 @@ int host_headers() {
 		(void)ft;
 		(void)execvp;
 		(void)execlp;
+		(void)gethostname;
 		(void)F_OK;
 		(void)R_OK;
 	}

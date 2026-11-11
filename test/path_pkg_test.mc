@@ -40,156 +40,150 @@ int test_abs_dir_base() {
 }
 
 int test_join() {
-	char buf[64] = { 0 };
-	char sentinel = 'Z';
-	{
-		auto (view, ok) = path_join(buf, "a", "b");
-		if (!ok || !expect_z(view, "a/b")) {
-			return 1;
-		}
-	}
-	{
-		auto (view, ok) = path_join(buf, "a/", "/b");
-		if (!ok || !expect_z(view, "a/b")) {
-			return 2;
-		}
-	}
-	{
-		auto (view, ok) = path_join(buf, "a", "/b");
-		if (!ok || !expect_z(view, "a/b")) {
-			return 3;
-		}
-	}
-	{
-		auto (view, ok) = path_join(buf, "", "/b");
-		if (!ok || !expect_z(view, "/b")) {
-			return 4;
-		}
-	}
-	{
-		auto (view, ok) = path_join(buf, "/", "b");
-		if (!ok || !expect_z(view, "/b")) {
-			return 5;
-		}
-	}
-	{
-		auto (view, ok) = path_join(buf, "/", "");
-		if (!ok || !expect_z(view, "/")) {
-			return 6;
-		}
-	}
-	{
-		auto (view, ok) = path_join(buf, "", "");
-		if (!ok || !expect_z(view, "")) {
-			return 7;
-		}
-	}
-	char[..] empty = ranged(&sentinel, 0);
-	{
-		auto (view, ok) = path_join(empty, "a", "b");
-		(void)view;
-		if (ok || sentinel != 'Z') {
-			return 8;
-		}
-	}
-	{
-		char tiny[4] = { 0 };
-		tiny[0] = 'x';
-		tiny[1] = 'y';
+	int rc = 0;
+
+	pool p {
 		{
-			auto (view, ok) = path_join(tiny, "abcd", "e");
-			(void)view;
-			if (ok || tiny[0] != 0) {
-				return 9;
+			auto (view, ok) = path_join(&p, "a", "b");
+			if (!ok || !expect_z(view, "a/b")) {
+				rc = 1;
 			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_join(&p, "a/", "/b");
+			if (!ok || !expect_z(view, "a/b")) {
+				rc = 2;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_join(&p, "a", "/b");
+			if (!ok || !expect_z(view, "a/b")) {
+				rc = 3;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_join(&p, "", "/b");
+			if (!ok || !expect_z(view, "/b")) {
+				rc = 4;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_join(&p, "/", "b");
+			if (!ok || !expect_z(view, "/b")) {
+				rc = 5;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_join(&p, "/", "");
+			if (!ok || !expect_z(view, "/")) {
+				rc = 6;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_join(&p, "", "");
+			if (!ok || !expect_z(view, "")) {
+				rc = 7;
+			}
+		}
+	}
+	if (rc != 0) {
+		return rc;
+	}
+	{
+		auto (view, ok) = path_join(0, "a", "b");
+		(void)view;
+		if (ok) {
+			return 8;
 		}
 	}
 	return 0;
 }
 
 int test_clean() {
-	char buf[64] = { 0 };
-	{
-		auto (view, ok) = path_clean(buf, "a//b");
-		if (!ok || !expect_z(view, "a/b")) {
-			return 1;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "./a");
-		if (!ok || !expect_z(view, "a")) {
-			return 2;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "a/./b");
-		if (!ok || !expect_z(view, "a/b")) {
-			return 3;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "a/../b");
-		if (!ok || !expect_z(view, "b")) {
-			return 4;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "/a/../b");
-		if (!ok || !expect_z(view, "/b")) {
-			return 5;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "a/b/..");
-		if (!ok || !expect_z(view, "a")) {
-			return 6;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "../a");
-		if (!ok || !expect_z(view, "a")) {
-			return 7;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "/../a");
-		if (!ok || !expect_z(view, "/a")) {
-			return 8;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "a/../../b");
-		if (!ok || !expect_z(view, "b")) {
-			return 9;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "/");
-		if (!ok || !expect_z(view, "/")) {
-			return 10;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, ".");
-		if (!ok || !expect_z(view, "")) {
-			return 11;
-		}
-	}
-	{
-		auto (view, ok) = path_clean(buf, "..");
-		if (!ok || !expect_z(view, "")) {
-			return 12;
-		}
-	}
-	{
-		char tiny[3] = { 0 };
-		tiny[0] = 'x';
+	int rc = 0;
+
+	pool p {
 		{
-			auto (view, ok) = path_clean(tiny, "foo/bar");
-			(void)view;
-			if (ok || tiny[0] != 0) {
-				return 13;
+			auto (view, ok) = path_clean(&p, "a//b");
+			if (!ok || !expect_z(view, "a/b")) {
+				rc = 1;
 			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "./a");
+			if (!ok || !expect_z(view, "a")) {
+				rc = 2;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "a/./b");
+			if (!ok || !expect_z(view, "a/b")) {
+				rc = 3;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "a/../b");
+			if (!ok || !expect_z(view, "b")) {
+				rc = 4;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "/a/../b");
+			if (!ok || !expect_z(view, "/b")) {
+				rc = 5;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "a/b/..");
+			if (!ok || !expect_z(view, "a")) {
+				rc = 6;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "../a");
+			if (!ok || !expect_z(view, "a")) {
+				rc = 7;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "/../a");
+			if (!ok || !expect_z(view, "/a")) {
+				rc = 8;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "a/../../b");
+			if (!ok || !expect_z(view, "b")) {
+				rc = 9;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "/");
+			if (!ok || !expect_z(view, "/")) {
+				rc = 10;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, ".");
+			if (!ok || !expect_z(view, "")) {
+				rc = 11;
+			}
+		}
+		if (rc == 0) {
+			auto (view, ok) = path_clean(&p, "..");
+			if (!ok || !expect_z(view, "")) {
+				rc = 12;
+			}
+		}
+	}
+	if (rc != 0) {
+		return rc;
+	}
+	{
+		auto (view, ok) = path_clean(0, "foo/bar");
+		(void)view;
+		if (ok) {
+			return 13;
 		}
 	}
 	return 0;

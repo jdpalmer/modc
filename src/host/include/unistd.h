@@ -32,6 +32,7 @@ void _exit(int status);
 
 int isatty(int fd);
 pid_t getpid(void);
+int gethostname(char *name, size_t namelen);
 
 #ifndef STDIN_FILENO
 #define STDIN_FILENO 0

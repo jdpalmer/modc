@@ -20,21 +20,22 @@ import "tty";
 
 ## `path`
 
-Logical paths always use `/`. Writers fill a caller buffer (`cap(dst)` is room)
-and return `(char[..], bool)` — a view into that buffer plus success. Slice
+Logical paths always use `/`. `path_join` / `path_clean` mint into a caller
+`[[region]] Pool`. Host-bridge writers (`path_to_sys` / `path_from_sys`) fill a
+caller buffer (`cap(dst)` is room) and return a view into that buffer. Slice
 helpers return views into the input and do not allocate. `T[..]` is opaque: use
 `len` / `cap` / `ptr`.
 
-On failure, if `cap(dst) > 0` the first byte is set to NUL and no partial path
-is written. `cap(dst) == 0` is left unchanged. A successful write stores the
-path bytes and, when one extra byte remains, a trailing NUL. Pass `char[N]` or
-`ranged(p, 0, n)` for writable space.
+Buffer writers: on failure, if `cap(dst) > 0` the first byte is set to NUL and
+no partial path is written. `cap(dst) == 0` is left unchanged. A successful
+write stores the path bytes and, when one extra byte remains, a trailing NUL.
+Pass `char[N]` or `ranged(p, 0, n)` for writable space.
 
 - `bool path_is_abs(const char[..] p)` — true if `p` starts with `/`. Drive letters are not absolute until `path_from_sys`.
 - `const? char[..] path_dir(const? char[..] p)` — view; `""` if none; `"/"` if root.
 - `const? char[..] path_base(const? char[..] p)` — view; trailing slashes ignored; `"/"` for root.
-- `(char[..], bool) path_join(char[..] dst, const char[..] a, const char[..] b)` — write `a/b` into `dst`, collapsing slashes at the boundary. An absolute `b` does not replace `a`; leading slashes on `b` are dropped. If `a` is empty and `b` started with `/`, the result stays absolute.
-- `(char[..], bool) path_clean(char[..] dst, const char[..] p)` — collapse `//`, `.`, and `..`. `..` does not climb above root or the start of a relative path.
+- `(char[..], bool) path_join([[region]] Pool *p, const char[..] a, const char[..] b)` — mint `a/b` into `p`, collapsing slashes at the boundary. An absolute `b` does not replace `a`; leading slashes on `b` are dropped. If `a` is empty and `b` started with `/`, the result stays absolute.
+- `(char[..], bool) path_clean([[region]] Pool *p, const char[..] path)` — mint a cleaned path into `p` (`//`, `.`, and `..` collapsed). `..` does not climb above root or the start of a relative path.
 - `(char[..], bool) path_to_sys(char[..] dst, const char[..] p)` — host form. Identity except on Win32, where `/` becomes `\` and a logical drive `/C:/…` becomes `C:\…`.
 - `(char[..], bool) path_from_sys(char[..] dst, const char[..] sys)` — logical form. Identity except on Win32, where `\` becomes `/` and a host drive `C:\…` becomes `/C:/…` (so `path_is_abs` is true).
 
@@ -112,6 +113,8 @@ bool fs_rename(const char[..] from, const char[..] to);
 bool fs_mkdir(const char[..] path);           /* one level; no mkdir -p */
 (char[..], bool) fs_mkdir_temp([[region]] Pool *p, const char[..] dir, const char[..] pattern);
 (File, char[..], bool) fs_create_temp([[region]] Pool *p, const char[..] dir, const char[..] pattern);
+(char[..], bool) fs_realpath([[region]] Pool *p, const char[..] path);
+(char[..], bool) fs_readlink([[region]] Pool *p, const char[..] path);
 ```
 
 An open file descriptor of 0 is stored in a heap blob, never as `native`
@@ -161,6 +164,10 @@ with `str_dup` / heap alloc if it must escape. The caller removes the path with
 `fs_remove` (empty directories only today). `fs_create_temp` also returns an
 open `File` (`[[provides]]`; close it).
 
+`fs_realpath` resolves to an absolute logical path (follows symlinks).
+`fs_readlink` returns the symlink target as a logical path (unsupported on
+Win32 in this cut — returns `!ok`).
+
 Not in this cut: permissions, owner, atime, `lstat`, symlink kind, `fstat`, recursive walk, or `mmap`. Win32 I/O uses `CreateFile` / `FindFirstFile` and follows the same result rules. `path_to_sys` is applied before each call, so callers pass logical slash paths.
 
 ## `os`
@@ -169,6 +176,10 @@ Not in this cut: permissions, owner, atime, `lstat`, symlink kind, `fstat`, recu
 - `bool os_set_env(const char[..] key, const char[..] val)` — empty `val` unsets. False on failure, or if a NUL-terminated copy cannot be made (internal stack buffer, 4 KiB).
 - `(char[..], bool) os_temp_dir([[region]] Pool *p)` — default temporary directory as a logical slash path minted into `p` (`$TMPDIR` or `/tmp` on POSIX; `GetTempPath` on Win32). Does not create the directory. Trailing slashes are trimmed except for a root path.
 - `(char[..], bool) os_cwd([[region]] Pool *p)` — current directory as a logical slash path minted into `p`. False if the call fails or `p` is null.
+- `(char[..], bool) os_home([[region]] Pool *p)` — user home (`$HOME` / `USERPROFILE`).
+- `(char[..], bool) os_user_config_dir([[region]] Pool *p)` — `$XDG_CONFIG_HOME` or `~/.config`; `APPDATA` on Win32.
+- `(char[..], bool) os_cache_dir([[region]] Pool *p)` — `$XDG_CACHE_HOME` or `~/.cache`; `LOCALAPPDATA` on Win32.
+- `(char[..], bool) os_hostname([[region]] Pool *p)` — host name (`gethostname` / `GetComputerName`).
 - `bool os_chdir(const char[..] path)` — `path` is logical; Win32 converts with `path_to_sys`.
 - `void os_sleep_ms(int64_t ms)` — `ms < 0` is treated as 0. Values above one billion milliseconds are clamped.
 - `int64_t os_mono_ns()` — monotonic nanoseconds since an arbitrary epoch; 0 if unavailable.

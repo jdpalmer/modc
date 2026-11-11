@@ -1125,52 +1125,58 @@ static(char[..], bool) fs_temp_base(char[..] rootbuf, const char[..] dir) {
 (char[..], bool) fs_mkdir_temp([[region]] Pool* p, const char[..] dir, const char[..] pattern) {
 	char rootbuf[FsPathMax] = { 0 };
 	char leaf[256] = { 0 };
-	char cand[FsPathMax] = { 0 };
 
 	if (p == NULL) {
 		return (fs_empty(), false);
 	}
 	{
 		auto (base, rok) = fs_temp_base(rootbuf, dir);
+		int tries = 0;
 
 		if (!rok) {
 			return (fs_empty(), false);
 		}
-		{
-			int tries = 0;
+		for (; tries < 10000; tries++) {
+			size_t ln = fs_temp_leaf(pattern, leaf);
+			char[..] out = { 0 };
+			int got = 0;
+			int stop = 0;
 
-			for (; tries < 10000; tries++) {
-				size_t ln = fs_temp_leaf(pattern, leaf);
+			if (ln == 0) {
+				break;
+			}
+			{
+				char[..] leafv = ranged(leaf, ln);
 
-				if (ln == 0) {
-					break;
-				}
-				{
-					char[..] leafv = ranged(leaf, ln);
-					auto (joined, jok) = path_join(cand, base, leafv);
+				pool once {
+					auto (joined, jok) = path_join(&once, base, leafv);
 
 					if (!jok) {
-						break;
-					}
-					if (fs_mkdir(joined)) {
-						char[..] out = { 0 };
-
+						stop = 1;
+					} else if (fs_mkdir(joined)) {
 						if (!p.copy(&out, joined)) {
 							fs_remove(joined);
-							return (fs_empty(), false);
+							stop = 1;
+						} else {
+							got = 1;
 						}
-						return (out, true);
 					}
-				}
 #ifdef _WIN32
-				if (GetLastError() != ERROR_ALREADY_EXISTS) {
-					break;
-				}
+					else if (GetLastError() != ERROR_ALREADY_EXISTS) {
+						stop = 1;
+					}
 #else
-				if (errno != EEXIST) {
-					break;
-				}
+					else if (errno != EEXIST) {
+						stop = 1;
+					}
 #endif
+				}
+			}
+			if (got) {
+				return (out, true);
+			}
+			if (stop) {
+				break;
 			}
 		}
 	}
@@ -1192,107 +1198,191 @@ static(char[..], bool) fs_temp_base(char[..] rootbuf, const char[..] dir) {
 	{
 		char rootbuf[FsPathMax] = { 0 };
 		char leaf[256] = { 0 };
-		char cand[FsPathMax] = { 0 };
 		auto (base, rok) = fs_temp_base(rootbuf, dir);
+		int tries = 0;
 
 		if (!rok) {
 			return (f, fs_empty(), false);
 		}
-		{
-			int tries = 0;
+		for (; tries < 10000; tries++) {
+			size_t ln = fs_temp_leaf(pattern, leaf);
+			char[..] out = { 0 };
+			void* keep = NULL;
+			int got = 0;
+			int stop = 0;
 
-			for (; tries < 10000; tries++) {
-				size_t ln = fs_temp_leaf(pattern, leaf);
+			if (ln == 0) {
+				break;
+			}
+			{
+				char[..] leafv = ranged(leaf, ln);
 
-				if (ln == 0) {
-					break;
-				}
-				{
-					char[..] leafv = ranged(leaf, ln);
-					auto (joined, jok) = path_join(cand, base, leafv);
+				pool once {
+					auto (joined, jok) = path_join(&once, base, leafv);
 
 					if (!jok) {
-						break;
-					}
+						stop = 1;
+					} else {
 #ifdef _WIN32
-					{
 						char zbuf[FsPathMax] = { 0 };
 
 						if (!fs_syspath(joined, zbuf, FsPathMax)) {
-							break;
-						}
-						{
+							stop = 1;
+						} else {
 							HANDLE h = CreateFileA(zbuf, GENERIC_READ | GENERIC_WRITE,
 									FsWinShare, 0, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0);
 
 							if (fs_win_bad(h)) {
-								if (GetLastError() == ERROR_FILE_EXISTS) {
-									continue;
+								if (GetLastError() != ERROR_FILE_EXISTS) {
+									stop = 1;
 								}
-								break;
-							}
-							{
+							} else {
 								void* blob = fs_win_from_handle(h, 1);
-								char[..] out = { 0 };
 
 								if (blob == NULL) {
 									CloseHandle(h);
-									break;
-								}
-								if (!p.copy(&out, joined)) {
+									stop = 1;
+								} else if (!p.copy(&out, joined)) {
 									fs_win_close(blob);
 									return (f, fs_empty(), false);
+								} else {
+									keep = blob;
+									got = 1;
 								}
-								f.native = blob;
-								return (f, out, true);
 							}
 						}
-					}
 #else
-					{
 						char zbuf[FsPathMax] = { 0 };
 
 						if (!fs_syspath(joined, zbuf, FsPathMax)) {
-							break;
-						}
-						{
+							stop = 1;
+						} else {
 							int fd = open(zbuf, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC,
 									384); /* 0600 */
 
 							if (fd < 0) {
-								if (errno == EEXIST) {
-									continue;
+								if (errno != EEXIST) {
+									stop = 1;
 								}
-								break;
-							}
-							{
+							} else {
 								FsFd* blob = (FsFd *)malloc(sizeof(FsFd));
-								char[..] out = { 0 };
 
 								if (blob == NULL) {
 									close(fd);
 									unlink(zbuf);
-									break;
-								}
-								blob.fd = fd;
-								blob.owns = 1;
-								if (!p.copy(&out, joined)) {
+									stop = 1;
+								} else if (!p.copy(&out, joined)) {
 									close(fd);
 									free(blob);
 									unlink(zbuf);
 									return (f, fs_empty(), false);
+								} else {
+									blob.fd = fd;
+									blob.owns = 1;
+									keep = blob;
+									got = 1;
 								}
-								f.native = blob;
-								return (f, out, true);
 							}
 						}
-					}
 #endif
+					}
 				}
+			}
+			if (got) {
+				f.native = keep;
+				return (f, out, true);
+			}
+			if (stop) {
+				break;
 			}
 		}
 	}
 	return (f, fs_empty(), false);
+}
+
+/* Absolute logical path for path (follows symlinks). Minted into p. */
+(char[..], bool) fs_realpath([[region]] Pool* p, const char[..] path) {
+	char zbuf[FsPathMax] = { 0 };
+	char host[FsPathMax] = { 0 };
+	char logical[FsPathMax] = { 0 };
+	char[..] out = { 0 };
+
+	if (p == NULL || !fs_syspath(path, zbuf, FsPathMax)) {
+		return (fs_empty(), false);
+	}
+#ifdef _WIN32
+	{
+		DWORD n = GetFullPathNameA(zbuf, FsPathMax, host, 0);
+
+		if (n == 0 || n >= FsPathMax) {
+			return (fs_empty(), false);
+		}
+		{
+			auto (view, ok) = path_from_sys(logical, ranged(host, n));
+			if (!ok) {
+				return (fs_empty(), false);
+			}
+			if (!p.copy(&out, view)) {
+				return (fs_empty(), false);
+			}
+			return (out, true);
+		}
+	}
+#else
+	if (realpath(zbuf, host) == NULL) {
+		return (fs_empty(), false);
+	}
+	{
+		size_t n = strlen(host);
+		auto (view, ok) = path_from_sys(logical, ranged(host, n));
+
+		if (!ok) {
+			return (fs_empty(), false);
+		}
+		if (!p.copy(&out, view)) {
+			return (fs_empty(), false);
+		}
+		return (out, true);
+	}
+#endif
+}
+
+/* Symlink target as a logical path. Minted into p. */
+(char[..], bool) fs_readlink([[region]] Pool* p, const char[..] path) {
+	char zbuf[FsPathMax] = { 0 };
+	char host[FsPathMax] = { 0 };
+	char logical[FsPathMax] = { 0 };
+	char[..] out = { 0 };
+
+	if (p == NULL || !fs_syspath(path, zbuf, FsPathMax)) {
+		return (fs_empty(), false);
+	}
+#ifdef _WIN32
+	(void)host;
+	(void)logical;
+	(void)out;
+	return (fs_empty(), false);
+#else
+	{
+		ssize_t n = readlink(zbuf, host, FsPathMax - 1);
+
+		if (n < 0) {
+			return (fs_empty(), false);
+		}
+		host[n] = 0;
+		{
+			auto (view, ok) = path_from_sys(logical, ranged(host, (size_t)n));
+
+			if (!ok) {
+				return (fs_empty(), false);
+			}
+			if (!p.copy(&out, view)) {
+				return (fs_empty(), false);
+			}
+			return (out, true);
+		}
+	}
+#endif
 }
 
 #ifndef _WIN32
