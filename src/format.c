@@ -2,9 +2,10 @@
  * printf/scanf format checking, printf-family lowering, and [[deprecated]]
  * call diagnostics in .mc.
  *
- * Format must be a string literal in .mc (non-literals are an error). Bare %s
- * with char[..] rewrites to %.*s + len + ptr. Fixed char[N] decays to a
- * pointer (NUL C string). Non-bare %s with char[..] is an error.
+ * Format checking is driven by [[format(printf|scanf, N)]] on hermetic (or
+ * user) prototypes — N is 1-based. Format must be a string literal in .mc.
+ * Bare %s with char[..] rewrites to %.*s + len + ptr. Fixed char[N] decays to
+ * a pointer (NUL C string). Non-bare %s with char[..] is an error.
  * printf("…\n") → puts; printf("%c", x) → putchar.
  */
 #include "ast.h"
@@ -13,38 +14,14 @@
 #include <string.h>
 
 enum {
-	FmtPrint = 0,
-	FmtScan = 1
+	FmtPrint = 1, /* matches Type.format_kind */
+	FmtScan = 2
 };
 
 typedef struct {
-	const char* name;
 	int fmt_idx; /* 0-based index of format among call args */
 	int kind;    /* FmtPrint or FmtScan */
 } FmtEnt;
-
-static const FmtEnt fmt_table[] = {
-    {"printf", 0, FmtPrint},
-    {"scanf", 0, FmtScan},
-    {"fprintf", 1, FmtPrint},
-    {"fscanf", 1, FmtScan},
-    {"sprintf", 1, FmtPrint},
-    {"sscanf", 1, FmtScan},
-    {"snprintf", 2, FmtPrint},
-    {NULL, 0, 0},
-};
-
-static const FmtEnt*
-fmt_lookup(const char* name) {
-	int i;
-
-	if (name == NULL)
-		return NULL;
-	for (i = 0; fmt_table[i].name; i++)
-		if (strcmp(fmt_table[i].name, name) == 0)
-			return &fmt_table[i];
-	return NULL;
-}
 
 static Node*
 mk_name(Span sp, const char* name) {
@@ -708,37 +685,39 @@ check_deprecated_call(Compiler* c, Node* call) {
 }
 
 void check_format_call(Compiler* c, Node* call, Type* ft) {
-	const FmtEnt* ent;
+	FmtEnt ent;
 	const char* name;
 	Node* fmt;
 	Node* lit;
 
-	(void)ft;
 	if (c == NULL || call == NULL || call->a == NULL)
 		return;
 	if (!user_source(c, call->span))
 		return;
-	if (call->a->kind != NdName || call->a->s == NULL)
+	if (ft == NULL || !is_func(ft) || ft->format_kind == 0)
 		return;
-	name = call->a->s;
-	ent = fmt_lookup(name);
-	if (ent == NULL)
+	ent.kind = ft->format_kind;
+	ent.fmt_idx = ft->format_arg;
+	if (ent.kind != FmtPrint && ent.kind != FmtScan)
 		return;
-	if (ent->fmt_idx >= call->children_len || call->children[ent->fmt_idx] == NULL)
+	if (ent.fmt_idx < 0 || ent.fmt_idx >= call->children_len ||
+	    call->children[ent.fmt_idx] == NULL)
 		return;
-	fmt = call->children[ent->fmt_idx];
+	fmt = call->children[ent.fmt_idx];
 	lit = fmt_literal_node(fmt);
 	if (lit == NULL || lit->kind != NdStr) {
 		error_at(c, fmt->span, "format string must be a string literal");
 		return;
 	}
 
-	if (ent->kind == FmtPrint && strcmp(name, "printf") == 0) {
+	name = (call->a->kind == NdName && call->a->s) ? call->a->s : "";
+	/* printf-only lowering (not fprintf / snprintf). */
+	if (ent.kind == FmtPrint && ent.fmt_idx == 0 && strcmp(name, "printf") == 0) {
 		if (call->children_len == 1 && try_lower_puts(c, call, lit))
 			return;
 		if (try_lower_putchar(c, call, lit, call->children, call->children_len,
-				      ent->fmt_idx))
+				      ent.fmt_idx))
 			return;
 	}
-	check_and_rewrite(c, call, ft, ent, lit);
+	check_and_rewrite(c, call, ft, &ent, lit);
 }

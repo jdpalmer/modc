@@ -260,6 +260,9 @@ struct Type {
 	char* param_region;
 	/* TyFunc: [[provides]] — callee hands the caller an owning pointer/T[..]. */
 	int provides;
+	/* TyFunc: [[format(printf|scanf, N)]] — N is 1-based; format_arg is 0-based. */
+	int format_kind; /* 0 none; 1 printf-style; 2 scanf-style */
+	int format_arg;
 	// Tag name for struct/union/enum.
 	char* tag;
 	// Struct/union fields (or enum members as fields in some paths).

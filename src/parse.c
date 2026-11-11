@@ -275,11 +275,15 @@ enum {
 	AtReleases = 1u << 4,
 	AtRegion = 1u << 5,
 	AtProvides = 1u << 6,
-	AtDeprecated = 1u << 7
+	AtDeprecated = 1u << 7,
+	AtFormat = 1u << 8
 };
 
 /* Optional message from [[deprecated("…")]]; consumed by apply_decl_attrs. */
 static char* pending_deprecated_msg;
+/* [[format(printf|scanf, N)]] — kind 1=printf, 2=scanf; idx is 1-based until apply. */
+static int pending_format_kind;
+static int pending_format_idx;
 static Initializer* parse_init(Compiler* c);
 static void parse_decl_or_def(Compiler* c, int in_func);
 static void parse_static_assert(Compiler* c);
@@ -707,6 +711,49 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 						eat(c, PnRparen);
 					}
 					continue;
+				} else if (strcmp(a, "format") == 0) {
+					*flags |= AtFormat;
+					if (at(c, PnLparen)) {
+						Tok* style;
+						Tok* idx;
+
+						take(c); /* ( */
+						style = peek(c);
+						pending_format_kind = 0;
+						pending_format_idx = 0;
+						if (style->kind == TkIdent && style->s) {
+							if (strcmp(style->s, "printf") == 0)
+								pending_format_kind = 1;
+							else if (strcmp(style->s, "scanf") == 0)
+								pending_format_kind = 2;
+							else
+								error_tok(c, style,
+									  "[[format]] style must be printf or scanf");
+							take(c);
+						} else
+							error_tok(c, style,
+								  "expected printf or scanf in [[format]]");
+						if (!eat(c, PnComma))
+							error_tok(c, peek(c),
+								  "expected ',' in [[format]]");
+						idx = peek(c);
+						if (idx->kind == TkNumber && idx->int_val >= 1 &&
+						    idx->int_val <= 255) {
+							pending_format_idx = (int)idx->int_val;
+							take(c);
+						} else {
+							error_tok(c, idx,
+								  "[[format]] expects a 1-based parameter index");
+							pending_format_kind = 0;
+							pending_format_idx = 0;
+						}
+						while (!at(c, PnRparen) && peek(c)->kind != TkEof)
+							take(c);
+						eat(c, PnRparen);
+					} else
+						error_tok(c, peek(c),
+							  "[[format]] requires (printf|scanf, N)");
+					continue;
 				}
 				/* unsequenced / reproducible / unknown: ignore */
 			}
@@ -739,6 +786,8 @@ apply_decl_attrs(Compiler* c, Symbol* s, unsigned flags) {
 	if (s == NULL) {
 		free(pending_deprecated_msg);
 		pending_deprecated_msg = NULL;
+		pending_format_kind = 0;
+		pending_format_idx = 0;
 		return;
 	}
 	if ((flags & AtMaybeUnused) && s->kind == SkVar)
@@ -782,6 +831,20 @@ apply_decl_attrs(Compiler* c, Symbol* s, unsigned flags) {
 					 "[[provides]] requires a pointer, T[..], aggregate, or tuple return");
 		}
 	}
+	if ((flags & AtFormat) && s->kind == SkFunc) {
+		if (s->type && is_func(s->type) && pending_format_kind && pending_format_idx >= 1) {
+			if (pending_format_idx > s->type->params_len)
+				error_at(c, s->span,
+					 "[[format]] parameter index %d out of range for '%s'",
+					 pending_format_idx, s->name ? s->name : "");
+			else {
+				s->type->format_kind = pending_format_kind;
+				s->type->format_arg = pending_format_idx - 1;
+			}
+		}
+	}
+	pending_format_kind = 0;
+	pending_format_idx = 0;
 }
 
 // Parse declaration specifiers: storage, qualifiers, and base type.

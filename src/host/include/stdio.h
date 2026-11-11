@@ -61,14 +61,15 @@ int pclose([[releases]] FILE *stream);
 void setbuf(FILE *restrict stream, char *restrict buf);
 int setvbuf(FILE *restrict stream, char *restrict buf, int mode, size_t size);
 
-int fprintf(FILE *restrict stream, const char *restrict format, ...);
-int fscanf(FILE *restrict stream, const char *restrict format, ...);
-int printf(const char *restrict format, ...);
-int scanf(const char *restrict format, ...);
-int snprintf(char *restrict s, size_t n, const char *restrict format, ...);
-[[deprecated("use snprintf")]] int sprintf(char *restrict s, const char *restrict format,
-					   ...);
-int sscanf(const char *restrict s, const char *restrict format, ...);
+[[format(printf, 2)]] int fprintf(FILE *restrict stream, const char *restrict format, ...);
+[[format(scanf, 2)]] int fscanf(FILE *restrict stream, const char *restrict format, ...);
+[[format(printf, 1)]] int printf(const char *restrict format, ...);
+[[format(scanf, 1)]] int scanf(const char *restrict format, ...);
+[[format(printf, 3)]] int snprintf(char *restrict s, size_t n, const char *restrict format,
+				   ...);
+[[deprecated("use snprintf"), format(printf, 2)]] int sprintf(
+    char *restrict s, const char *restrict format, ...);
+[[format(scanf, 2)]] int sscanf(const char *restrict s, const char *restrict format, ...);
 int vfprintf(FILE *restrict stream, const char *restrict format, va_list arg);
 int vfscanf(FILE *restrict stream, const char *restrict format, va_list arg);
 int vprintf(const char *restrict format, va_list arg);
