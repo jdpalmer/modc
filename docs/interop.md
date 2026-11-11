@@ -99,8 +99,9 @@ constness. See [const.md](const.md).
 ## Printf / scanf formats
 
 Calls to the hosted `printf` / `fprintf` / `sprintf` / `snprintf` and
-`scanf` / `fscanf` / `sscanf` family check a **string-literal** format for
-arity and argument types. Non-literal formats are not checked or rewritten.
+`scanf` / `fscanf` / `sscanf` family require a **string-literal** format in
+`.mc` (a cast around a literal is fine). The literal is checked for arity and
+argument types. A non-literal format is a compile-time error.
 
 ### `%s` and `char[..]`
 
@@ -124,9 +125,8 @@ does not implicitly convert to `char *`.
 
 ### Caveats
 
-1. **Literal formats only.** A non-literal format is neither checked nor
-   rewritten. Passing `char[..]` then behaves like a decayed / aggregate
-   vararg — do not rely on `%s` for unterminated views.
+1. **Literal formats only.** Non-literal formats are rejected in `.mc`. Build
+   the message with a literal conversion string, or format into a buffer first.
 2. **Embedded NULs.** `%.*s` prints at most `len` bytes but still stops at
    the first `'\0'`. Length-aware is not binary-safe.
 3. **`len` is cast to `int`.** Views larger than `INT_MAX` would truncate the

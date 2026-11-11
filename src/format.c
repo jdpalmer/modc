@@ -1,9 +1,10 @@
 /*
  * printf/scanf format checking and printf-family lowering.
  *
- * Literal formats only. Bare %s with char[..] rewrites to %.*s + len + ptr.
- * Fixed char[N] decays to a pointer (NUL C string). Non-bare %s with char[..]
- * is an error. printf("…\n") → puts; printf("%c", x) → putchar.
+ * Format must be a string literal in .mc (non-literals are an error). Bare %s
+ * with char[..] rewrites to %.*s + len + ptr. Fixed char[N] decays to a
+ * pointer (NUL C string). Non-bare %s with char[..] is an error.
+ * printf("…\n") → puts; printf("%c", x) → putchar.
  */
 #include "ast.h"
 #include <errno.h>
@@ -673,10 +674,19 @@ check_and_rewrite(Compiler* c, Node* call, Type* ft, const FmtEnt* ent, Node* fm
 	}
 }
 
+/* Peel casts so (const char*)"…" still counts as a literal format. */
+static Node*
+fmt_literal_node(Node* n) {
+	while (n && n->kind == NdCast)
+		n = n->a;
+	return n;
+}
+
 void check_format_call(Compiler* c, Node* call, Type* ft) {
 	const FmtEnt* ent;
 	const char* name;
 	Node* fmt;
+	Node* lit;
 
 	(void)ft;
 	if (c == NULL || call == NULL || call->a == NULL)
@@ -692,15 +702,18 @@ void check_format_call(Compiler* c, Node* call, Type* ft) {
 	if (ent->fmt_idx >= call->children_len || call->children[ent->fmt_idx] == NULL)
 		return;
 	fmt = call->children[ent->fmt_idx];
-	if (fmt->kind != NdStr)
+	lit = fmt_literal_node(fmt);
+	if (lit == NULL || lit->kind != NdStr) {
+		error_at(c, fmt->span, "format string must be a string literal");
 		return;
+	}
 
 	if (ent->kind == FmtPrint && strcmp(name, "printf") == 0) {
-		if (call->children_len == 1 && try_lower_puts(c, call, fmt))
+		if (call->children_len == 1 && try_lower_puts(c, call, lit))
 			return;
-		if (try_lower_putchar(c, call, fmt, call->children, call->children_len,
+		if (try_lower_putchar(c, call, lit, call->children, call->children_len,
 				      ent->fmt_idx))
 			return;
 	}
-	check_and_rewrite(c, call, ft, ent, fmt);
+	check_and_rewrite(c, call, ft, ent, lit);
 }
