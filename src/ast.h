@@ -570,8 +570,8 @@ struct CompOpt {
 	int check_only;
 	/* Parse decls + signatures only; skip function bodies (FPC parse_only). */
 	int parse_only;
-	/* Runtime traps (on by default): index/subrange bounds + method null.
-	 * Cleared by --release. */
+	/* Runtime traps (on by default): index/subrange bounds, method null,
+	 * and count*elemsz overflow at alloc/growth sinks. Cleared by --release. */
 	int runtime_check;
 	// Codegen / ABI target (Target*).
 	int target;

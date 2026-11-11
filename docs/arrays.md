@@ -124,6 +124,8 @@ package (message, cleanups, abort). Pass `--release` to omit them (production):
 - `a[lo..hi]` / `s[lo..hi]` — require `lo <= hi` and `hi <=` parent length
   (end exclusive; `a[2..]` checks `2 <= len`)
 - method entry — pointer receiver must be non-null (`__modc_null_fail`)
+- `alloc(T, n)` / `reserve` / `push` / `append` (and pool twins) — trap when
+  `count * sizeof(T)` would wrap (`__modc_size_fail`)
 
 In `.mc` sources, indexing a raw `T*` (or open `T[]`) is a compile-time error;
 use `T[N]`, `T[..]`, or `ranged(p, n)` first. Forming `*(p + i)` / `*(i + p)`

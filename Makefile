@@ -108,10 +108,15 @@ check: $(MODC)
 	$(call expect_abort,bounds_subrange_oob,bounds_subrange_oob.mc,bounds: index)
 	$(call expect_abort,bounds_subrange_order_oob,bounds_subrange_order_oob.mc,bounds: index)
 	$(call expect_abort,null_recv_oob,null_recv_oob.mc,null method receiver)
+	$(call expect_abort,size_overflow_oob,size_overflow_oob.mc,size: count)
 	# --release omits traps (null recv should not print the checked message)
 	./modc build --release -o $(BUILD)/null_recv_release test/null_recv_oob.mc
 	@$(BUILD)/null_recv_release >$(BUILD)/null_recv_release.out 2>$(BUILD)/null_recv_release.err; test $$? -ne 0
 	@! grep -q 'null method receiver' $(BUILD)/null_recv_release.err
+	# --release: oversized alloc soft-fails (NULL) instead of size trap
+	./modc build --release -o $(BUILD)/size_overflow_release test/size_overflow_oob.mc
+	@$(BUILD)/size_overflow_release >$(BUILD)/size_overflow_release.out 2>$(BUILD)/size_overflow_release.err; test $$? -eq 0
+	@! grep -q 'size: count' $(BUILD)/size_overflow_release.err
 	$(call expect_abort,crash_panic,crash_panic_die.mc,)
 	$(call expect_abort,crash_cleanup,crash_cleanup_die.mc,cleaned|after-cleanup)
 	$(call expect_abort,crash_signal,crash_signal_die.mc,cleaned|crash: SIGSEGV)

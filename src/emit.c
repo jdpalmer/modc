@@ -969,6 +969,18 @@ emit_bounds_fail(Compiler* c, Val index, Val len, Span sp, int lok) {
 	emitlbl(lok);
 }
 
+// Call __modc_size_fail(file, line, count, elemsz) then continue at lok.
+static void
+emit_size_fail(Compiler* c, Val count, Val elemsz, Span sp, int lok) {
+	Val fp;
+
+	fp = emit_span_file_ptr(c, sp);
+	fprintf(outf, "\tcall $__modc_size_fail(l %s, w %d, l %s, l %s)\n",
+		fp.text, sp.line > 0 ? sp.line : 0, count.text, elemsz.text);
+	emitjmp(lok);
+	emitlbl(lok);
+}
+
 // Call __modc_null_fail(file, line) then continue at lok.
 static void
 emit_null_fail(Compiler* c, Span sp, int lok) {
@@ -1041,6 +1053,45 @@ emit_ule_bounds(Compiler* c, Val a, Val b, Span sp) {
 	emitjnz(ok.text, lok, ltrap);
 	emitlbl(ltrap);
 	emit_bounds_fail(c, a, b, sp, lok);
+}
+
+/*
+ * Trap when count * elemsz would wrap (unsigned). Skips elemsz == 0.
+ * Omitted when !runtime_check (--release).
+ */
+static void
+emit_size_mul_check(Compiler* c, Val count, Val elemsz, Span sp) {
+	Val okz, lim, ok;
+	int lok, lcheck, ltrap;
+
+	if (!c->opt.runtime_check)
+		return;
+	lok = newlbl();
+	lcheck = newlbl();
+	ltrap = newlbl();
+	okz = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w ceql %s, 0\n", okz.text, elemsz.text);
+	emitjnz(okz.text, lok, lcheck);
+	emitlbl(lcheck);
+	lim = vtmp('l', c->types.type_ullong);
+	fprintf(outf, "\t%s =l udiv -1, %s\n", lim.text, elemsz.text);
+	ok = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w culel %s, %s\n", ok.text, count.text, lim.text);
+	emitjnz(ok.text, lok, ltrap);
+	emitlbl(ltrap);
+	emit_size_fail(c, count, elemsz, sp, lok);
+}
+
+/* Load size_t len from a T[..] / __modc_slice header pointer (offset 8). */
+static Val
+emit_load_slice_len(Compiler* c, Val hdr) {
+	Val p, lenv;
+
+	p = vtmp('l', c->types.type_void_ptr);
+	fprintf(outf, "\t%s =l add %s, 8\n", p.text, hdr.text);
+	lenv = vtmp('l', c->types.type_ullong);
+	fprintf(outf, "\t%s =l loadl %s\n", lenv.text, p.text);
+	return lenv;
 }
 
 // Insert casts/extensions so a value matches the target QBE class.
@@ -1901,6 +1952,11 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 				if (args[ai].cls != 'l')
 					args[ai] = coerce(args[ai], 'l', c->types.type_ullong);
 			}
+			/* children: alloc_slice(esz,n) / pool_alloc_slice(pool,esz,n,align) */
+			if (strcmp(bn, "__modc_pool_alloc_slice") == 0 && na >= 3)
+				emit_size_mul_check(c, args[2], args[1], n->span);
+			else if (na >= 2)
+				emit_size_mul_check(c, args[1], args[0], n->span);
 			fprintf(outf, "\tcall %s(", tgt.text);
 			if (strcmp(bn, "__modc_pool_alloc_slice") == 0) {
 				/* (pool, out, elemsz, n, align) — children: pool,esz,n,align */
@@ -1993,6 +2049,91 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 			/* Runtime ABI: all __modc_* params are pointer- or size_t-sized. */
 			if (args[i].cls != 'l')
 				args[i] = coerce(args[i], 'l', c->types.type_ullong);
+		}
+		/* count*elemsz overflow traps (omit with --release). */
+		if (strcmp(bn, "__modc_reserve") == 0 && na >= 3) {
+			/* (s, elemsz, need) */
+			emit_size_mul_check(c, args[2], args[1], n->span);
+		} else if (strcmp(bn, "__modc_push") == 0 && na >= 2) {
+			Val lenv, need, ok;
+			int lok, ltrap;
+
+			lenv = emit_load_slice_len(c, args[0]);
+			need = vtmp('l', c->types.type_ullong);
+			fprintf(outf, "\t%s =l add %s, 1\n", need.text, lenv.text);
+			if (c->opt.runtime_check) {
+				ok = vtmp('w', NULL);
+				/* wrap if need < len */
+				fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, need.text,
+					lenv.text);
+				lok = newlbl();
+				ltrap = newlbl();
+				emitjnz(ok.text, ltrap, lok);
+				emitlbl(ltrap);
+				emit_size_fail(c, need, args[1], n->span, lok);
+			}
+			emit_size_mul_check(c, need, args[1], n->span);
+		} else if (strcmp(bn, "__modc_append") == 0 && na >= 3) {
+			Val nlen, mlen, newlen, ok;
+			int lok, ltrap;
+
+			nlen = emit_load_slice_len(c, args[0]);
+			mlen = emit_load_slice_len(c, args[2]);
+			newlen = vtmp('l', c->types.type_ullong);
+			fprintf(outf, "\t%s =l add %s, %s\n", newlen.text, nlen.text, mlen.text);
+			if (c->opt.runtime_check) {
+				ok = vtmp('w', NULL);
+				fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, newlen.text,
+					nlen.text);
+				lok = newlbl();
+				ltrap = newlbl();
+				emitjnz(ok.text, ltrap, lok);
+				emitlbl(ltrap);
+				emit_size_fail(c, newlen, args[1], n->span, lok);
+			}
+			emit_size_mul_check(c, newlen, args[1], n->span);
+		} else if (strcmp(bn, "__modc_pool_copy") == 0 && na >= 4) {
+			Val nlen;
+
+			nlen = emit_load_slice_len(c, args[3]);
+			emit_size_mul_check(c, nlen, args[2], n->span);
+		} else if (strcmp(bn, "__modc_pool_append") == 0 && na >= 4) {
+			Val nlen, mlen, newlen, ok;
+			int lok, ltrap;
+
+			nlen = emit_load_slice_len(c, args[1]);
+			mlen = emit_load_slice_len(c, args[3]);
+			newlen = vtmp('l', c->types.type_ullong);
+			fprintf(outf, "\t%s =l add %s, %s\n", newlen.text, nlen.text, mlen.text);
+			if (c->opt.runtime_check) {
+				ok = vtmp('w', NULL);
+				fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, newlen.text,
+					nlen.text);
+				lok = newlbl();
+				ltrap = newlbl();
+				emitjnz(ok.text, ltrap, lok);
+				emitlbl(ltrap);
+				emit_size_fail(c, newlen, args[2], n->span, lok);
+			}
+			emit_size_mul_check(c, newlen, args[2], n->span);
+		} else if (strcmp(bn, "__modc_pool_push") == 0 && na >= 3) {
+			Val lenv, need, ok;
+			int lok, ltrap;
+
+			lenv = emit_load_slice_len(c, args[1]);
+			need = vtmp('l', c->types.type_ullong);
+			fprintf(outf, "\t%s =l add %s, 1\n", need.text, lenv.text);
+			if (c->opt.runtime_check) {
+				ok = vtmp('w', NULL);
+				fprintf(outf, "\t%s =w cultl %s, %s\n", ok.text, need.text,
+					lenv.text);
+				lok = newlbl();
+				ltrap = newlbl();
+				emitjnz(ok.text, ltrap, lok);
+				emitlbl(ltrap);
+				emit_size_fail(c, need, args[2], n->span, lok);
+			}
+			emit_size_mul_check(c, need, args[2], n->span);
 		}
 		/* Prefer known runtime ABIs: AST type can be lost on re-typecheck. */
 		if (strcmp(bn, "__modc_release") == 0 || strcmp(bn, "__modc_pool_free") == 0 ||

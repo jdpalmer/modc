@@ -213,6 +213,31 @@ void __modc_bounds_fail(const char* file, int line, uint64_t index, uint64_t len
 	crash_die();
 }
 
+void __modc_size_fail(const char* file, int line, uint64_t count, uint64_t elemsz) {
+	size_t n = count;
+	size_t esz = elemsz;
+	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		crash_reporting = 1;
+		crash_run_cleanups();
+		{
+			int w = (file != NULL && *file != 0 && line > 0)
+					? snprintf(buf, CrashMsgCap,
+						   "%s:%d: size: count %zu * elemsz %zu overflows\n",
+						   file, line, n, esz)
+					: snprintf(buf, CrashMsgCap,
+						   "size: count %zu * elemsz %zu overflows\n", n, esz);
+			if (w > 0) {
+				if (w >= CrashMsgCap) {
+					w = CrashMsgCap - 1;
+				}
+				crash_write(buf, w);
+			}
+		}
+	}
+	crash_die();
+}
+
 void __modc_null_fail(const char* file, int line) {
 	if (crash_reporting == 0) {
 		char buf[CrashMsgCap] = { 0 };

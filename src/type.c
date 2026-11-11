@@ -2161,6 +2161,22 @@ mk_size_lit(Compiler* c, Span sp, int sz) {
 	return lit;
 }
 
+/* Constant count*elemsz must not wrap (alloc / pool.alloc). */
+static void
+check_const_count_mul(Compiler* c, Span sp, Node* narg, int esz) {
+	int64_t n;
+	uint64_t un, uesz;
+
+	if (c == NULL || narg == NULL || esz <= 0)
+		return;
+	if (!eval_rec(c, narg, &n))
+		return;
+	un = (uint64_t)n;
+	uesz = (uint64_t)esz;
+	if (un > UINT64_MAX / uesz)
+		error_at(c, sp, "allocation size overflows (count * element size)");
+}
+
 /* Coerce string/array/T[..] into a T[..] value so emit can spill a header ptr. */
 static Node*
 coerce_slice_arg(Compiler* c, Node* a, Type* elem) {
@@ -2283,6 +2299,7 @@ lower_pool_method(Compiler* c, Node* n, Node* recv, const char* method) {
 		narg = n->children[1];
 		if (narg && narg->type && !is_int(narg->type) && !is_error(narg->type))
 			error_at(c, n->span, "Pool.alloc count must be an integer");
+		check_const_count_mul(c, n->span, narg, type_size(c, et));
 		nm = mk_rt_name(n->span, "__modc_pool_alloc_slice");
 		call = node1(NdCall, n->span, nm);
 		node_add(call, recv);
@@ -2606,6 +2623,7 @@ type_expr_call(Compiler* c, Node* n) {
 		narg = n->children[1];
 		if (narg && narg->type && !is_int(narg->type) && !is_error(narg->type))
 			error_at(c, n->span, "alloc count must be an integer");
+		check_const_count_mul(c, n->span, narg, type_size(c, et));
 		nm = mk_rt_name(n->span, "__modc_alloc_slice");
 		call = node1(NdCall, n->span, nm);
 		node_add(call, esz);

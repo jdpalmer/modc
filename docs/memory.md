@@ -417,10 +417,11 @@ with `(int)len(slice)` and `ptr(slice)`.
 
 See [arrays.md](arrays.md) and [interop.md](interop.md).
 
-### Runtime checks (bounds and null receivers)
+### Runtime checks (bounds, null receivers, size overflow)
 
-Compile-time contracts catch ownership and escape mistakes. Two runtime traps
-catch indexing and method-call bugs unless you pass `--release`:
+Compile-time contracts catch ownership and escape mistakes. Runtime traps
+catch indexing, method-call, and allocation-size bugs unless you pass
+`--release`:
 
 - **Bounds:** `s[i]` and `s[lo..hi]` on `T[..]` / `T[N]` check against the
   length and trap on overflow (`__modc_bounds_fail`).
@@ -428,6 +429,10 @@ catch indexing and method-call bugs unless you pass `--release`:
   (`__modc_null_fail`). Callers must pass a live receiver. Methods must not
   null-check `r` at the start of the body; express “already closed” with an
   object field instead.
+- **Size overflow:** `alloc(T, n)`, `reserve`, `push` / `append`, and the
+  matching pool ops trap when `count * sizeof(T)` would wrap
+  (`__modc_size_fail`). Constant overflowing counts are a compile-time error.
+  With `--release`, the runtime soft-fails (NULL / false) instead of trapping.
 
 ```c
 void (File* f).close() {
