@@ -181,10 +181,11 @@ call. That is enough for `fopen`, `strlen`, and most C APIs. Use
 outlives the call (a field, global, registry, or similar).
 
 **`[[provides]]`** belongs on factories (`file_open`, `str_dup`, and similar).
-Hermetic libc prototypes carry the same attribute (`malloc` / `calloc` /
-`realloc` / `aligned_alloc` / `strdup` / `strndup`, `fopen` / `fdopen` /
-`popen` / `tmpfile`, `opendir`). Built-ins such as `alloc` and heap `cstr(s)`
-provide ownership even without a header Symbol.
+Hermetic libc prototypes carry the same attribute (and `[[nodiscard]]`) for
+`malloc` / `calloc` / `realloc` / `aligned_alloc` / `strdup` / `strndup`,
+`fopen` / `fdopen` / `popen` / `tmpfile` / `freopen`, and `opendir`. Built-ins
+such as `alloc` and heap `cstr(s)` provide ownership even without a header
+Symbol.
 
 **`[[releases]]`** belongs on cleanups (`str_free`, `f.close()`, and similar).
 Hermetic prototypes mark `free`, `fclose` / `pclose`, and `closedir`; the

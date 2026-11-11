@@ -47,17 +47,19 @@ extern FILE *stderr;
 
 int remove(const char *filename);
 int rename(const char *old, const char *new);
-[[provides]] FILE *tmpfile(void);
+[[nodiscard, provides]] FILE *tmpfile(void);
 char *tmpnam(char *s);
 
 int fclose([[releases]] FILE *stream);
 int fflush(FILE *stream);
-[[provides]] FILE *fopen(const char *restrict filename, const char *restrict mode);
-[[provides]] FILE *fdopen(int fd, const char *mode);
-[[provides]] FILE *popen(const char *command, const char *mode);
+[[nodiscard, provides]] FILE *fopen(const char *restrict filename,
+				    const char *restrict mode);
+[[nodiscard, provides]] FILE *fdopen(int fd, const char *mode);
+[[nodiscard, provides]] FILE *popen(const char *command, const char *mode);
 int pclose([[releases]] FILE *stream);
-[[provides]] FILE *freopen(const char *restrict filename, const char *restrict mode,
-			   [[releases]] FILE *restrict stream);
+[[nodiscard, provides]] FILE *freopen(const char *restrict filename,
+				      const char *restrict mode,
+				      [[releases]] FILE *restrict stream);
 void setbuf(FILE *restrict stream, char *restrict buf);
 int setvbuf(FILE *restrict stream, char *restrict buf, int mode, size_t size);
 

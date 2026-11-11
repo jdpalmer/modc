@@ -15,8 +15,8 @@ void *memccpy(void *restrict dest, const void *restrict src, int c, size_t n);
 [[deprecated("use strncpy, memcpy, or char[..] copy/append")]] char *strcpy(
     char *restrict dest, const char *restrict src);
 char *strncpy(char *restrict dest, const char *restrict src, size_t n);
-[[provides]] char *strdup(const char *s);
-[[provides]] char *strndup(const char *s, size_t n);
+[[nodiscard, provides]] char *strdup(const char *s);
+[[nodiscard, provides]] char *strndup(const char *s, size_t n);
 
 [[deprecated("use strncat, memcpy, or char[..] append")]] char *strcat(
     char *restrict dest, const char *restrict src);

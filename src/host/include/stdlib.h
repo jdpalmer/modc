@@ -44,11 +44,11 @@ unsigned long long strtoull(const char *restrict nptr, char **restrict endptr, i
 int rand(void);
 void srand(unsigned seed);
 
-[[provides]] void *aligned_alloc(size_t alignment, size_t size);
-[[provides]] void *calloc(size_t nmemb, size_t size);
+[[nodiscard, provides]] void *aligned_alloc(size_t alignment, size_t size);
+[[nodiscard, provides]] void *calloc(size_t nmemb, size_t size);
 void free([[releases]] void *ptr);
-[[provides]] void *malloc(size_t size);
-[[provides]] void *realloc([[releases]] void *ptr, size_t size);
+[[nodiscard, provides]] void *malloc(size_t size);
+[[nodiscard, provides]] void *realloc([[releases]] void *ptr, size_t size);
 
 void abort(void);
 int atexit(void (*func)(void));
