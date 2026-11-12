@@ -201,13 +201,13 @@ check-special: $(MODC)
 	@grep -Fq 'invalid rev' $(BUILD)/vendor_inject.out
 	@test ! -e /tmp/modc-vendor-pwned
 	# --- cache: miss, hit, one foreign invalidation ---
-	@rm -rf test/.modc-cache
+	./modc clean test/cli_build_test.mc >/dev/null
 	./modc build -v test/cli_build_test.mc -o $(BUILD)/cache_cli 2>&1 | tee $(BUILD)/cache_cli1.log
 	@grep -q 'cache miss graph' $(BUILD)/cache_cli1.log
 	./modc build -v test/cli_build_test.mc -o $(BUILD)/cache_cli 2>&1 | tee $(BUILD)/cache_cli2.log
 	@grep -q 'cache hit graph' $(BUILD)/cache_cli2.log
 	$(BUILD)/cache_cli
-	@rm -rf test/.modc-cache
+	./modc clean test/pkg_csrc_test.mc >/dev/null
 	./modc build -v test/pkg_csrc_test.mc -o $(BUILD)/cache_csrc 2>&1 | tee $(BUILD)/cache_csrc1.log
 	@grep -q 'cache miss foreign' $(BUILD)/cache_csrc1.log
 	@printf '%s\n' 'int c_add_one(int x); /* cache invalidation */' > test/pkg_csrc/shim/add_one.h
@@ -215,7 +215,7 @@ check-special: $(MODC)
 	@grep -q 'cache miss foreign' $(BUILD)/cache_csrc2.log
 	@printf '%s\n' 'int c_add_one(int x);' > test/pkg_csrc/shim/add_one.h
 	$(BUILD)/cache_csrc
-	# --- cache: partial rebuild must not clobber hit-pkg .deps / linkmeta ---
+	# --- cache: partial rebuild must not clobber hit-pkg .pkg.meta / .pkg.o ---
 	@rm -rf $(BUILD)/cache_stale
 	@mkdir -p $(BUILD)/cache_stale/roots/pkg_a $(BUILD)/cache_stale/roots/pkg_b \
 		$(BUILD)/cache_stale/roots/pkg_lib $(BUILD)/cache_stale/roots/pkg_other \
@@ -229,12 +229,15 @@ check-special: $(MODC)
 		> $(BUILD)/cache_stale/deps_app/main.mc
 	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
 		-o $(BUILD)/cache_stale/deps_out
+	@cp $(BUILD)/cache_stale/roots/pkg_a/.pkg.meta $(BUILD)/cache_stale/pkg_a.meta.bak
+	@cp $(BUILD)/cache_stale/roots/pkg_a/.pkg.o $(BUILD)/cache_stale/pkg_a.o.bak
 	@printf '%s\n' 'int b_val() { return 1; } /* touch */' \
 		> $(BUILD)/cache_stale/roots/pkg_b/mod.mc
 	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
 		-o $(BUILD)/cache_stale/deps_out -v 2>&1 | tee $(BUILD)/cache_stale/deps_partial.log
 	@grep -q 'cache hit pkg pkg_a' $(BUILD)/cache_stale/deps_partial.log
-	@grep -q secret.h $(BUILD)/cache_stale/deps_app/.modc-cache/pkg/pkg_a-*/deps
+	@cmp -s $(BUILD)/cache_stale/roots/pkg_a/.pkg.meta $(BUILD)/cache_stale/pkg_a.meta.bak
+	@cmp -s $(BUILD)/cache_stale/roots/pkg_a/.pkg.o $(BUILD)/cache_stale/pkg_a.o.bak
 	@printf '%s\n' 'enum { SECRET = 99 };' > $(BUILD)/cache_stale/roots/pkg_a/secret.h
 	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/deps_app/main.mc \
 		-o $(BUILD)/cache_stale/deps_out -v 2>&1 | tee $(BUILD)/cache_stale/deps_hdr.log
@@ -248,13 +251,15 @@ check-special: $(MODC)
 		> $(BUILD)/cache_stale/link_app/main.mc
 	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/link_app/main.mc \
 		-o $(BUILD)/cache_stale/link_out
+	@cp $(BUILD)/cache_stale/roots/pkg_lib/.pkg.meta $(BUILD)/cache_stale/pkg_lib.meta.bak
 	@printf '%s\n' 'int other_val() { return 1; } /* touch */' \
 		> $(BUILD)/cache_stale/roots/pkg_other/mod.mc
 	./modc build -M $(BUILD)/cache_stale/roots $(BUILD)/cache_stale/link_app/main.mc \
 		-o $(BUILD)/cache_stale/link_out -v 2>&1 | tee $(BUILD)/cache_stale/link_partial.log
 	@grep -q 'cache hit pkg pkg_lib' $(BUILD)/cache_stale/link_partial.log
 	@grep -q -- '-l m' $(BUILD)/cache_stale/link_partial.log
-	@grep -Fq 'L m' $(BUILD)/cache_stale/link_app/.modc-cache/linkmeta
+	@cmp -s $(BUILD)/cache_stale/roots/pkg_lib/.pkg.meta $(BUILD)/cache_stale/pkg_lib.meta.bak
+	@grep -Fq 'libs = m' $(BUILD)/cache_stale/roots/pkg_lib/.pkg.meta
 	$(BUILD)/cache_stale/link_out
 	# --- cache: body-only dep edit keeps importer hit; API change misses ---
 	@rm -rf $(BUILD)/cache_iface
@@ -319,7 +324,9 @@ check-special: $(MODC)
 	./modc build -M $(BUILD)/cache_pkgid $(BUILD)/cache_pkgid/app/main.mc \
 		-o $(BUILD)/cache_pkgid/out
 	$(BUILD)/cache_pkgid/out
-	@test $$(ls -d $(BUILD)/cache_pkgid/app/.modc-cache/pkg/util-*/meta | wc -l | tr -d ' ') -eq 2
+	@test -f $(BUILD)/cache_pkgid/left/util/.pkg.meta
+	@test -f $(BUILD)/cache_pkgid/right/util/.pkg.meta
+	@! cmp -s $(BUILD)/cache_pkgid/left/util/.pkg.meta $(BUILD)/cache_pkgid/right/util/.pkg.meta
 	@printf '%s\n' 'int left_util() { return 1; } /* touch */' \
 		> $(BUILD)/cache_pkgid/left/util/mod.mc
 	./modc build -M $(BUILD)/cache_pkgid $(BUILD)/cache_pkgid/app/main.mc \
@@ -327,7 +334,7 @@ check-special: $(MODC)
 	@grep -q 'cache miss pkg util-' $(BUILD)/cache_pkgid/touch.log
 	@grep -q 'cache hit pkg util-' $(BUILD)/cache_pkgid/touch.log
 	$(BUILD)/cache_pkgid/out
-	# --- cache: export bytes are path-stable (same API → identical digest) ---
+	# --- cache: .pkg.mc bytes are path-stable (same API → identical iface) ---
 	@rm -rf $(BUILD)/cache_expstab $(BUILD)/cache_expstab2
 	@mkdir -p $(BUILD)/cache_expstab/lib $(BUILD)/cache_expstab/app
 	@printf '%s\n' 'int add(int a, int b) { return a + b; }' \
@@ -336,17 +343,16 @@ check-special: $(MODC)
 		> $(BUILD)/cache_expstab/app/main.mc
 	./modc build -M $(BUILD)/cache_expstab $(BUILD)/cache_expstab/app/main.mc \
 		-o $(BUILD)/cache_expstab/out
-	@ex1=$$(ls $(BUILD)/cache_expstab/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 4$$' "$$ex1"; \
-		grep -q '^pkg -$$' "$$ex1"; \
-		mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app; \
-		cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc; \
-		cp $(BUILD)/cache_expstab/app/main.mc $(BUILD)/cache_expstab2/app/main.mc; \
-		./modc build -M $(BUILD)/cache_expstab2 $(BUILD)/cache_expstab2/app/main.mc \
-			-o $(BUILD)/cache_expstab2/out; \
-		ex2=$$(ls $(BUILD)/cache_expstab2/app/.modc-cache/pkg/lib-*/export | head -1); \
-		cmp -s "$$ex1" "$$ex2"
-	# --- cache: [[retains]] / return-flow bits survive export ---
+	@mkdir -p $(BUILD)/cache_expstab2/lib $(BUILD)/cache_expstab2/app
+	@cp $(BUILD)/cache_expstab/lib/mod.mc $(BUILD)/cache_expstab2/lib/mod.mc
+	@cp $(BUILD)/cache_expstab/app/main.mc $(BUILD)/cache_expstab2/app/main.mc
+	./modc build -M $(BUILD)/cache_expstab2 $(BUILD)/cache_expstab2/app/main.mc \
+		-o $(BUILD)/cache_expstab2/out
+	@cmp -s $(BUILD)/cache_expstab/lib/.pkg.mc $(BUILD)/cache_expstab2/lib/.pkg.mc
+	@grep -F 'iface =' $(BUILD)/cache_expstab/lib/.pkg.meta >$(BUILD)/cache_expstab/iface1.txt
+	@grep -F 'iface =' $(BUILD)/cache_expstab2/lib/.pkg.meta >$(BUILD)/cache_expstab/iface2.txt
+	@cmp -s $(BUILD)/cache_expstab/iface1.txt $(BUILD)/cache_expstab/iface2.txt
+	# --- cache: [[retains]] / [[borrows]] survive .pkg.mc round-trip ---
 	@rm -rf $(BUILD)/cache_retains
 	@mkdir -p $(BUILD)/cache_retains/lib $(BUILD)/cache_retains/app
 	@printf '%s\n' 'int *slot;' \
@@ -359,10 +365,8 @@ check-special: $(MODC)
 		> $(BUILD)/cache_retains/app/main.mc
 	./modc build -M $(BUILD)/cache_retains $(BUILD)/cache_retains/app/main.mc \
 		-o $(BUILD)/cache_retains/out
-	@ex=$$(ls $(BUILD)/cache_retains/app/.modc-cache/pkg/lib-*/export | head -1); \
-		grep -q '^modc-export 4$$' "$$ex"; \
-		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 1 0 [01] [01]$$' "$$ex"; \
-		grep -E '^T [0-9]+ func [0-9]+ 1 [01] [0-9]+ [01] -?[0-9]+ 0 1 [01] [01]$$' "$$ex"
+	@grep -Fq '[[retains]]' $(BUILD)/cache_retains/lib/.pkg.mc
+	@grep -Fq '[[borrows]]' $(BUILD)/cache_retains/lib/.pkg.mc
 	@printf '%s\n' 'import "lib";' \
 		'int bad() { int x = 0; keep(&x); return 0; }' \
 		> $(BUILD)/cache_retains/app/main.mc
