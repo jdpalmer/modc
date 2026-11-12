@@ -4,18 +4,25 @@ This guide describes how to get a working `modc` distribution on supported hosts
 
 ---
 
-## Packaged installation (TODO)
+## Packaged installation (Homebrew)
 
-**Not shipped yet.** The preferred way to install `modc` will be through common packaging systems (Homebrew, apt, Chocolatey, …) or standalone installation archives.
+On macOS (and Linux with Homebrew), install from the tap:
 
-When those exists, this section should cover:
+```sh
+brew install jdpalmer/tap/modc
+```
 
-- Download / package install
-- Where `modc`, hosted headers (`lib/modc/include/`), and stdlib packages (`lib/modc/pkg/`) land
-- Whether `qbe` is bundled or required separately
-- `modc --version` / path checks
+That pulls in Homebrew’s `qbe` and installs:
 
-Until then, **build from source** per the instructions below.
+```sh
+$(brew --prefix)/bin/modc
+$(brew --prefix)/lib/modc/VERSION     # CalVer stamp (must match `modc -V`)
+$(brew --prefix)/lib/modc/include/    # hosted include stubs
+$(brew --prefix)/lib/modc/pkg/        # shipped packages
+```
+
+Check with `modc -V`. Other packaging systems (apt, Chocolatey, …) are not
+shipped yet — use **build from source** below.
 
 ---
 
