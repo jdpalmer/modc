@@ -188,7 +188,8 @@ usage(const char* sub) {
 		fprintf(stderr,
 			"usage: modc clean [options] [path]\n"
 			"\n"
-			"Remove the .modc-cache directory for a project.\n"
+			"Remove package build products (.pkg.mc / .pkg.o / .pkg.meta) under\n"
+			"the project tree, and any leftover .modc-cache directory.\n"
 			"Path defaults to the current directory; same root rules as build\n"
 			"(modc.ini when present, else the entry directory).\n"
 			"\n"

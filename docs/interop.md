@@ -38,7 +38,7 @@ Dependencies are typically declared directly inside user source files:
 ```c
 #pragma modc c_libs(m)
 #pragma modc frameworks(OpenGL)
-#pragma modc c_sources(shim.c)   // compile/link foreign C/ObjC/C++
+#pragma modc c_sources(shim.c)   // fold foreign C/ObjC/C++ into .pkg.o
 ```
 
 To integrate external code, use `import` for pure %C packages while reserving `#include` paired with link pragmas for native C libraries and platform SDKs. Standard free functions without the `overload` modifier retain their original source symbol names to ensure seamless direct invocation from C, whereas object methods undergo name mangling using the `pkg_type_method` pattern.

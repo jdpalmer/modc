@@ -71,7 +71,7 @@ doc comment still print the signature.
 
 ## What it does not do
 
-`modc doc` does not read or write `.modc-cache`; it always re-parses and
+`modc doc` does not read or write `.pkg.*` artifacts; it always re-parses and
 type-checks (cached docs via export data may come later). It emits plain text
 on stdout, not HTML or markdown. It does not document `static` helpers, locals,
 or header-only symbols, and it does not require special comment markers beyond

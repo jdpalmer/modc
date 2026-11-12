@@ -21,7 +21,7 @@ MODC := $(ROOT)/modc
 MODC_VERSION := $(shell awk -F'"' '/^\#define MODC_VERSION / { print $$2; exit }' $(ROOT)/src/cli.h)
 
 # Keep Makefile.msvc OBJS basenames in sync when editing this list.
-SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c src/export.c
+SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c src/iface.c src/ini.c
 OBJS := $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
 
 CFLAGS += -DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
@@ -41,6 +41,7 @@ all: $(MODC)
 # Rewrite user .mc sources (skips format golden inputs; skips files the lexer rejects).
 format: $(MODC)
 	@find . -name '*.mc' \
+		! -name '.pkg.mc' ! -name '*.pkg.mc' \
 		! -path './build/*' \
 		! -path './test/format/messy.mc' \
 		! -path './test/format/str_style.mc' \
@@ -55,6 +56,7 @@ format-check: $(MODC)
 	@mkdir -p $(BUILD)
 	@err=0; \
 	find . -name '*.mc' \
+		! -name '.pkg.mc' ! -name '*.pkg.mc' \
 		! -path './build/*' \
 		! -path './test/format/messy.mc' \
 		! -path './test/format/str_style.mc' \

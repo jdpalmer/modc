@@ -252,8 +252,8 @@ struct Type {
 	char* param_maybe_unused;
 	// Per-param: [[retains]] — callee may keep the pointer/view past the call.
 	char* param_retains;
-	// Per-param: value may be returned (stack args OK; caller tracks result).
-	char* param_returned;
+	/* Per-param: [[borrows]] — result may be a view of / derived from this arg. */
+	char* param_borrows;
 	// Per-param: [[releases]] — callee ends the lifetime of this pointer/view.
 	char* param_releases;
 	// Per-param: [[region]] — pointer/view results are allocated from this arg.
@@ -576,6 +576,8 @@ struct CompOpt {
 	int check_only;
 	/* Parse decls + signatures only; skip function bodies (FPC parse_only). */
 	int parse_only;
+	/* Loading a generated .pkg.mc iface: allow prototypes; set pkg_root. */
+	int iface_import;
 	/* Runtime traps (on by default): index/subrange bounds, method null,
 	 * and count*elemsz overflow at alloc/growth sinks. Cleared by --release. */
 	int runtime_check;
@@ -636,8 +638,10 @@ struct CompPaths {
 	// #pragma modc frameworks → -framework
 	char** frameworks;
 	int frameworks_len;
-	// #pragma modc c_sources → host compile at link
+	/* #pragma modc c_sources → folded into owning package .pkg.o */
 	char** csources;
+	/* Parallel to csources: package root (pkg_file_root) that declared each. */
+	char** csource_pkgs;
 	int csources_len;
 	// -D from CLI; reapplied per TU
 	char** cli_defs;
@@ -892,6 +896,15 @@ int pkg_discover(Compiler* c, const char* root, char*** out_files, int* out_n);
 /* Append stdlib package sources (e.g. "crash") to a discovery list if missing. */
 int pkg_ensure(Compiler* c, const char* spec, char*** files, int* nfiles);
 int pkg_is_test_src(const char* path);
+/* True for generated ".pkg.mc" / "stem.pkg.mc" iface files. */
+int pkg_is_iface_src(const char* path);
+/*
+ * Paths for package build products beside the package:
+ * directory pkg → dir/.pkg.{mc,o,meta}; single-file → stem.pkg.{mc,o,meta}.
+ * Any out_* may be NULL. 0 ok.
+ */
+int pkg_artifact_paths(const char* pkg_root, char* mc_out, size_t mc_n, char* o_out,
+		       size_t o_n, char* meta_out, size_t meta_n);
 void pkg_file_root(const char* mcfile, char* out, size_t out_len);
 void pkg_mangle_from_root(const char* root, char* out, size_t out_len);
 void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len);
@@ -929,11 +942,10 @@ int cache_read_str(const char* path, char* out, size_t out_len);
 int cache_write_deps(const char* path, char** files, int nfiles);
 int cache_deps_valid(const char* path);
 int cache_depfile_to_deps(const char* depfile, const char* path);
-/* Write public API of package pkg_dir from Compiler into path. 0 ok. */
-int export_write_pkg(Compiler* c, const char* pkg_dir, const char* path);
-/* Load export file into Compiler (symbols/types). pkg_dir is the real package
- * root (export stores "-" instead of absolute paths). 0 ok. */
-int export_load(Compiler* c, const char* path, const char* pkg_dir);
+/* Write public API of pkg_dir as real interface %C source (prototypes, no bodies). */
+int iface_write_pkg(Compiler* c, const char* pkg_dir, const char* path);
+/* Load generated .pkg.mc into Compiler (parse; symbols only). 0 ok. */
+int iface_load(Compiler* c, const char* path, const char* pkg_dir);
 char* fmt_source(Compiler* c);
 
 #endif

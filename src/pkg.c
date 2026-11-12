@@ -387,8 +387,20 @@ pkg_add_csource(Compiler* c, const char* from_file, const char* relpath) {
 	for (i = 0; i < c->paths.csources_len; i++)
 		if (strcmp(c->paths.csources[i], path) == 0)
 			return 0;
-	if (c->paths.csources_len % 8 == 0)
-		c->paths.csources = xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
+	if (c->paths.csources_len % 8 == 0) {
+		c->paths.csources =
+			xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
+		c->paths.csource_pkgs = xrealloc(c->paths.csource_pkgs,
+						 (c->paths.csources_len + 8) * sizeof(char*));
+	}
+	{
+		char owner[HOST_PATH_MAX], oabs[HOST_PATH_MAX];
+
+		pkg_file_root(from_file, owner, sizeof(owner));
+		if (host_abspath(owner, oabs, sizeof(oabs)) == 0)
+			snprintf(owner, sizeof(owner), "%s", oabs);
+		c->paths.csource_pkgs[c->paths.csources_len] = xstrdup(owner);
+	}
 	c->paths.csources[c->paths.csources_len++] = xstrdup(path);
 	return 0;
 }
@@ -404,6 +416,21 @@ has_src_ext(const char* name) {
 	return n > 3 && strcmp(name + n - 3, ".mc") == 0;
 }
 
+/* Generated package iface: ".pkg.mc" or "stem.pkg.mc" — not a source. */
+int
+pkg_is_iface_src(const char* path) {
+	const char* base;
+	size_t n;
+
+	if (path == NULL)
+		return 0;
+	base = host_path_basename(path);
+	n = strlen(base);
+	if (n == 6 && strcmp(base, ".pkg.mc") == 0)
+		return 1;
+	return n >= 7 && strcmp(base + n - 7, ".pkg.mc") == 0;
+}
+
 // True for *_test.mc files excluded from normal package discovery.
 int pkg_is_test_src(const char* path) {
 	const char* base;
@@ -415,6 +442,41 @@ int pkg_is_test_src(const char* path) {
 	n = strlen(base);
 	/* at least "x_test.mc" */
 	return n >= 9 && strcmp(base + n - 8, "_test.mc") == 0;
+}
+
+int
+pkg_artifact_paths(const char* pkg_root, char* mc_out, size_t mc_n, char* o_out,
+		   size_t o_n, char* meta_out, size_t meta_n) {
+	char abs[HOST_PATH_MAX], dir[HOST_PATH_MAX], stem[HOST_PATH_MAX];
+	const char* base;
+	char* dot;
+
+	if (pkg_root == NULL || pkg_root[0] == 0)
+		return 1;
+	if (host_abspath(pkg_root, abs, sizeof(abs)) != 0)
+		snprintf(abs, sizeof(abs), "%s", pkg_root);
+	if (host_is_file(abs)) {
+		host_dirname(abs, dir, sizeof(dir));
+		base = host_path_basename(abs);
+		snprintf(stem, sizeof(stem), "%s", base);
+		dot = strrchr(stem, '.');
+		if (dot && strcmp(dot, ".mc") == 0)
+			*dot = 0;
+		if (mc_out && mc_n)
+			snprintf(mc_out, mc_n, "%s/%s.pkg.mc", dir, stem);
+		if (o_out && o_n)
+			snprintf(o_out, o_n, "%s/%s.pkg.o", dir, stem);
+		if (meta_out && meta_n)
+			snprintf(meta_out, meta_n, "%s/%s.pkg.meta", dir, stem);
+		return 0;
+	}
+	if (mc_out && mc_n)
+		snprintf(mc_out, mc_n, "%s/.pkg.mc", abs);
+	if (o_out && o_n)
+		snprintf(o_out, o_n, "%s/.pkg.o", abs);
+	if (meta_out && meta_n)
+		snprintf(meta_out, meta_n, "%s/.pkg.meta", abs);
+	return 0;
 }
 
 // True if dir has an immediate subdirectory that itself contains .mc sources
@@ -445,7 +507,8 @@ dir_has_pkg_subdir(const char* dir) {
 			if (sn[0] == '.')
 				continue;
 			n = strlen(sn);
-			if (n >= 3 && strcmp(sn + n - 3, ".mc") == 0) {
+			if (n >= 3 && strcmp(sn + n - 3, ".mc") == 0 &&
+			    !pkg_is_iface_src(sn)) {
 				snprintf(child, sizeof(child), "%s/%s", path, sn);
 				if (host_is_file(child)) {
 					host_closedir(sub);
@@ -466,9 +529,10 @@ dir_has_pkg_subdir(const char* dir) {
 // (e.g. test/pkg_log.mc next to test/pkg_math/) use the file path itself so
 // package-private static does not leak across unrelated .mc files.
 void pkg_file_root(const char* mcfile, char* out, size_t out_len) {
-	char dir[HOST_PATH_MAX], mod[HOST_PATH_MAX];
+	char dir[HOST_PATH_MAX], mod[HOST_PATH_MAX], stem[HOST_PATH_MAX];
 	HostDir* d;
 	const char* name;
+	const char* base;
 	int nmc;
 	size_t n;
 
@@ -478,6 +542,25 @@ void pkg_file_root(const char* mcfile, char* out, size_t out_len) {
 	if (mcfile == NULL || mcfile[0] == 0)
 		return;
 	dirname_copy(mcfile, dir, sizeof(dir));
+	/* Generated iface files belong to the package they describe. */
+	if (pkg_is_iface_src(mcfile)) {
+		base = host_path_basename(mcfile);
+		n = strlen(base);
+		if (strcmp(base, ".pkg.mc") == 0) {
+			snprintf(out, out_len, "%s", dir);
+			return;
+		}
+		if (n > 7 && strcmp(base + n - 7, ".pkg.mc") == 0) {
+			snprintf(stem, sizeof(stem), "%.*s", (int)(n - 7), base);
+			snprintf(mod, sizeof(mod), "%s/%s.mc", dir, stem);
+			if (host_is_file(mod)) {
+				snprintf(out, out_len, "%s", mod);
+				return;
+			}
+		}
+		snprintf(out, out_len, "%s", dir);
+		return;
+	}
 	snprintf(mod, sizeof(mod), "%s/mod.mc", dir);
 	if (host_is_file(mod)) {
 		snprintf(out, out_len, "%s", dir);
@@ -491,6 +574,8 @@ void pkg_file_root(const char* mcfile, char* out, size_t out_len) {
 				continue;
 			n = strlen(name);
 			if (n < 3 || strcmp(name + n - 3, ".mc") != 0)
+				continue;
+			if (pkg_is_iface_src(name))
 				continue;
 			nmc++;
 			if (nmc > 1)
@@ -773,10 +858,10 @@ list_mc_files(const char* root, int (*want)(const char*), int empty_ok, char*** 
 	return (n == 0 && !empty_ok) ? 1 : 0;
 }
 
-// Non-test sources: keep .mc that are not *_test.mc.
+// Non-test, non-iface sources.
 static int
 want_pkg_src(const char* name) {
-	return !pkg_is_test_src(name);
+	return !pkg_is_test_src(name) && !pkg_is_iface_src(name);
 }
 
 // List non-test .mc sources in a package directory (or return a single file).

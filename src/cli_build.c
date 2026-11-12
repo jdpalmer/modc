@@ -4,6 +4,7 @@
  * Compilation pipeline: [lex → pp → parse → type check → emit → QBE]
  */
 #include "cli.h"
+#include "ini.h"
 #include <stdarg.h>
 #include <time.h>
 #ifndef _WIN32
@@ -25,10 +26,12 @@ typedef struct {
 	char dir[HOST_PATH_MAX];
 	char id[128];
 	uint64_t impl;
-	uint64_t iface; /* public API digest (export file hash); 0 = unknown */
+	uint64_t iface; /* public API digest (.pkg.mc hash); 0 = unknown */
 	uint64_t key;
 	char hex[24];
+	char ifacepath[HOST_PATH_MAX];
 	char objpath[HOST_PATH_MAX];
+	char metapath[HOST_PATH_MAX];
 	int hit;
 	/* Must parse/emit this package (not reuse cached .o). */
 	int need_emit;
@@ -292,8 +295,8 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 	type_init(c);
 	for (i = 0; i < nexports; i++) {
 		if (exports[i] &&
-		    export_load(c, exports[i], export_dirs ? export_dirs[i] : NULL) != 0) {
-			fprintf(stderr, "modc: failed to load export %s\n", exports[i]);
+		    iface_load(c, exports[i], export_dirs ? export_dirs[i] : NULL) != 0) {
+			fprintf(stderr, "modc: failed to load iface %s\n", exports[i]);
 			return 1;
 		}
 	}
@@ -1002,89 +1005,174 @@ foreign_obj_key(Compiler* c, const char* src, const char* comp, const char* proj
 	return h;
 }
 
-// Compile or reuse cached objects for #pragma modc c_sources.
+/* True if csource i was declared by package pkg. */
 static int
-compile_foreign_sources(Compiler* c, CliOpts* o, const char* entry, const char* dir,
-			char objs[][512], int* nobj) {
-	const char* argv[MaxCmdArgs];
-	char srcdir[1024], crooot[HOST_PATH_MAX], cached[HOST_PATH_MAX];
-	char depfile[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
-	char hex[32], what[HOST_PATH_MAX], projroot[HOST_PATH_MAX];
-	int i, argc;
-	uint64_t key;
+csource_owned_by(Compiler* c, int i, BuildPkg* pkg) {
+	if (c == NULL || pkg == NULL || i < 0 || i >= c->paths.csources_len)
+		return 0;
+	if (c->paths.csource_pkgs == NULL || c->paths.csource_pkgs[i] == NULL)
+		return 0;
+	return strcmp(c->paths.csource_pkgs[i], pkg->dir) == 0;
+}
 
-	*nobj = 0;
-	crooot[0] = 0;
-	projroot[0] = 0;
-	cache_root_for(entry ? entry : ".", crooot, sizeof(crooot));
-	cache_project_root(entry ? entry : ".", projroot, sizeof(projroot));
+/* Content hash of c_sources owned by pkg (0 if none). */
+static uint64_t
+pkg_csources_hash(Compiler* c, BuildPkg* pkg) {
+	uint64_t h;
+	int i;
+
+	h = 0;
+	if (c == NULL || pkg == NULL)
+		return 0;
 	for (i = 0; i < c->paths.csources_len; i++) {
-		const char* comp;
+		if (!csource_owned_by(c, i, pkg))
+			continue;
+		h = cache_hash_mix(h, cache_hash_str(c->paths.csources[i]));
+		h = cache_mix_file(h, c->paths.csources[i]);
+	}
+	return h;
+}
 
-		if (!host_is_file(c->paths.csources[i])) {
-			fprintf(stderr, "modc: c_sources file not found: %s\n",
-				c->paths.csources[i]);
+/* Hash csource paths listed in a space-separated meta string. */
+static uint64_t
+hash_csource_list(const char* list) {
+	char buf[HOST_PATH_MAX];
+	const char* p;
+	size_t n;
+	uint64_t h;
+
+	h = 0;
+	if (list == NULL || list[0] == 0)
+		return 0;
+	for (p = list; *p;) {
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p == 0)
+			break;
+		n = 0;
+		while (p[n] && p[n] != ' ' && p[n] != '\t')
+			n++;
+		if (n >= sizeof(buf))
+			return 0;
+		memcpy(buf, p, n);
+		buf[n] = 0;
+		h = cache_hash_mix(h, cache_hash_str(buf));
+		h = cache_mix_file(h, buf);
+		p += n;
+	}
+	return h;
+}
+
+/* Compile one C/C++/ObjC source to out_o. 0 ok. */
+static int
+compile_one_foreign(Compiler* c, CliOpts* o, const char* src, const char* out_o) {
+	const char* argv[MaxCmdArgs];
+	const char* comp;
+	char srcdir[1024], what[HOST_PATH_MAX];
+	int argc, show;
+
+	if (!host_is_file(src)) {
+		fprintf(stderr, "modc: c_sources file not found: %s\n", src);
+		return 1;
+	}
+	comp = src_is_cxx(src) ? tool_cxx() : tool_cc(c);
+	if (comp == NULL)
+		return 1;
+	snprintf(what, sizeof(what), "foreign %s", src);
+	cache_log(o->verbose, "miss", what);
+	/* Avoid nesting under an outer progress_begin ("assembling …"). */
+	show = !progress_held;
+	if (show)
+		progress_begin("compiling %s", host_path_basename(src));
+	argc = 0;
+	if (add_arg(argv, &argc, comp) || add_arg(argv, &argc, "-c"))
+		goto toolong;
+#ifdef _WIN32
+	if (add_arg(argv, &argc, "-D_CRT_SECURE_NO_WARNINGS"))
+		goto toolong;
+#endif
+	if (add_compile_flags(c, argv, &argc))
+		goto toolong;
+	src_dirname(src, srcdir, sizeof(srcdir));
+	if (add_arg(argv, &argc, "-I") || add_arg(argv, &argc, srcdir))
+		goto toolong;
+	if (src_is_objc(src) && add_arg(argv, &argc, "-fobjc-arc"))
+		goto toolong;
+	if (add_arg(argv, &argc, src) || add_arg(argv, &argc, "-o") ||
+	    add_arg(argv, &argc, out_o))
+		goto toolong;
+	if (run_argv(o->verbose, argv) != 0) {
+		if (show)
+			progress_end();
+		return 1;
+	}
+	if (show)
+		progress_end();
+	return 0;
+toolong:
+	if (show)
+		progress_end();
+	fprintf(stderr, "modc: too many compile arguments\n");
+	return 1;
+}
+
+/* Relocatable link (ld -r) of nobjs into out. 0 ok. */
+static int
+relocatable_link(CliOpts* o, const char* out, char objs[][512], int nobjs) {
+	const char* argv[MaxCmdArgs];
+	int argc, i;
+
+	if (nobjs <= 0)
+		return 1;
+	if (nobjs == 1)
+		return cache_copy_file(objs[0], out);
+	argc = 0;
+	if (add_arg(argv, &argc, "ld") || add_arg(argv, &argc, "-r") ||
+	    add_arg(argv, &argc, "-o") || add_arg(argv, &argc, out)) {
+		fprintf(stderr, "modc: too many ld -r arguments\n");
+		return 1;
+	}
+	for (i = 0; i < nobjs; i++)
+		if (add_arg(argv, &argc, objs[i])) {
+			fprintf(stderr, "modc: too many ld -r arguments\n");
 			return 1;
 		}
-		if (*nobj >= MaxForeignObj) {
+	return run_argv(o->verbose, argv) != 0;
+}
+
+/*
+ * Compile this package's c_sources and ld -r them with qbe_obj into
+ * pkg->objpath (single .pkg.o).
+ */
+static int
+fold_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, const char* qbe_obj,
+		const char* dir, int pkg_index) {
+	char foreign[MaxForeignObj][512];
+	char parts[MaxForeignObj + 1][512];
+	int nforeign, nparts, i, fi;
+
+	nforeign = 0;
+	for (i = 0; i < c->paths.csources_len; i++) {
+		if (!csource_owned_by(c, i, pkg))
+			continue;
+		if (nforeign >= MaxForeignObj) {
 			fprintf(stderr, "modc: too many c_sources files\n");
 			return 1;
 		}
-		comp = src_is_cxx(c->paths.csources[i]) ? tool_cxx() : tool_cc(c);
-		if (comp == NULL)
+		snprintf(foreign[nforeign], sizeof(foreign[nforeign]),
+			 "%s/pkg%d_f%d.o", dir, pkg_index, nforeign);
+		if (compile_one_foreign(c, o, c->paths.csources[i], foreign[nforeign]) !=
+		    0)
 			return 1;
-		snprintf(objs[*nobj], 512, "%s/foreign%d.o", dir, *nobj);
-		key = foreign_obj_key(c, c->paths.csources[i], comp, projroot);
-		cache_hash_hex(key, hex, sizeof(hex));
-		snprintf(cached, sizeof(cached), "%s/foreign/%s.o", crooot, hex);
-		snprintf(depmeta, sizeof(depmeta), "%s.deps", cached);
-		snprintf(depfile, sizeof(depfile), "%s/foreign%d.d", dir, *nobj);
-		snprintf(what, sizeof(what), "foreign %s", c->paths.csources[i]);
-		if (host_is_file(cached) && cache_deps_valid(depmeta)) {
-			if (cache_copy_file(cached, objs[*nobj]) != 0)
-				return 1;
-			cache_log(o->verbose, "hit", what);
-			(*nobj)++;
-			continue;
-		}
-		cache_log(o->verbose, "miss", what);
-		progress_begin("compiling %s", host_path_basename(c->paths.csources[i]));
-		argc = 0;
-		if (add_arg(argv, &argc, comp) || add_arg(argv, &argc, "-c"))
-			goto toolong;
-#ifdef _WIN32
-		if (add_arg(argv, &argc, "-D_CRT_SECURE_NO_WARNINGS"))
-			goto toolong;
-#endif
-		if (add_compile_flags(c, argv, &argc) ||
-		    add_arg(argv, &argc, "-MMD") || add_arg(argv, &argc, "-MF") ||
-		    add_arg(argv, &argc, depfile))
-			goto toolong;
-		src_dirname(c->paths.csources[i], srcdir, sizeof(srcdir));
-		if (add_arg(argv, &argc, "-I") || add_arg(argv, &argc, srcdir))
-			goto toolong;
-		if (src_is_objc(c->paths.csources[i]) &&
-		    add_arg(argv, &argc, "-fobjc-arc"))
-			goto toolong;
-		if (add_arg(argv, &argc, c->paths.csources[i]) ||
-		    add_arg(argv, &argc, "-o") || add_arg(argv, &argc, objs[*nobj]))
-			goto toolong;
-		if (run_argv(o->verbose, argv) != 0) {
-			progress_end();
-			return 1;
-		}
-		progress_end();
-		if (cache_copy_file(objs[*nobj], cached) == 0 &&
-		    cache_depfile_to_deps(depfile, depmeta) != 0)
-			(void)host_unlink(cached);
-		(*nobj)++;
+		nforeign++;
 	}
-	return 0;
-
-toolong:
-	progress_end();
-	fprintf(stderr, "modc: too many compile arguments\n");
-	return 1;
+	if (nforeign == 0)
+		return cache_copy_file(qbe_obj, pkg->objpath);
+	snprintf(parts[0], sizeof(parts[0]), "%s", qbe_obj);
+	for (fi = 0; fi < nforeign; fi++)
+		snprintf(parts[1 + fi], sizeof(parts[1 + fi]), "%s", foreign[fi]);
+	nparts = 1 + nforeign;
+	return relocatable_link(o, pkg->objpath, parts, nparts);
 }
 
 // Link package objs + foreign objs + libs into outpath.
@@ -1473,64 +1561,99 @@ pkg_needs_hash(BuildPkg* pkgs, int npkgs, int i) {
 	return needsh;
 }
 
-/* Resolve iface: hash export at this key, else last-known iface in pkg/<id>/meta. */
+/* Resolve iface: hash per-package .pkg.mc when present. */
 static void
-pkg_resolve_ifaces(BuildPkg* pkgs, int npkgs, const char* crooot) {
+pkg_resolve_ifaces(BuildPkg* pkgs, int npkgs) {
 	int i;
-	char expath[HOST_PATH_MAX], metapath[HOST_PATH_MAX];
-	PkgMeta meta;
 
 	for (i = 0; i < npkgs; i++) {
 		pkgs[i].iface = 0;
-		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[i].id,
-			 pkgs[i].hex);
-		if (host_is_file(expath)) {
-			pkgs[i].iface = cache_hash_file(expath);
-			continue;
-		}
-		pkg_meta_path(metapath, sizeof(metapath), crooot, pkgs[i].id);
-		if (pkg_meta_load(metapath, &meta) == 0 && meta.have_iface && meta.iface != 0)
-			pkgs[i].iface = meta.iface;
+		if (host_is_file(pkgs[i].ifacepath))
+			pkgs[i].iface = cache_hash_file(pkgs[i].ifacepath);
 	}
 }
 
-/* Frontend hit: export + deps + needs. require_obj also needs pkg.o (build). */
+/* Frontend hit: .pkg.mc + .pkg.meta [build]/[needs]/csrc. require_obj also needs .pkg.o. */
 static void
-pkg_refresh_hits(BuildPkg* pkgs, int npkgs, const char* crooot, int require_obj) {
-	int i;
-	uint64_t needsh;
-	char depmeta[HOST_PATH_MAX], needspath[HOST_PATH_MAX], expath[HOST_PATH_MAX];
-	char stored[256], hex[24];
+pkg_refresh_hits(BuildPkg* pkgs, int npkgs, uint64_t knobs, int require_obj) {
+	int i, j, di, ok;
+	IniFile ini;
+	IniSect* build;
+	IniSect* needs;
+	IniSect* link;
+	const char* v;
+	uint64_t stored, csrc;
 
 	for (i = 0; i < npkgs; i++) {
 		pkgs[i].hit = 0;
-		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[i].id,
-			 pkgs[i].hex);
-		pkg_key_deps_path(depmeta, sizeof(depmeta), crooot, pkgs[i].id, pkgs[i].hex);
-		if (!host_is_file(expath))
-			continue;
-		if (!cache_deps_valid(depmeta))
+		if (!host_is_file(pkgs[i].ifacepath))
 			continue;
 		if (require_obj && !host_is_file(pkgs[i].objpath))
 			continue;
-		if (pkg_needs_incomplete(pkgs, npkgs, i))
+		memset(&ini, 0, sizeof(ini));
+		if (ini_load(&ini, pkgs[i].metapath) != 0)
 			continue;
-		snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
-			 pkgs[i].id, pkgs[i].hex);
-		needsh = pkg_needs_hash(pkgs, npkgs, i);
-		cache_hash_hex(needsh, hex, sizeof(hex));
-		stored[0] = 0;
-		if (cache_read_str(needspath, stored, sizeof(stored)) != 0)
+		build = ini_find_sect(&ini, "build");
+		if (build == NULL) {
+			ini_free(&ini);
 			continue;
-		if (strcmp(stored, hex) != 0)
+		}
+		v = ini_get(build, "knobs");
+		if (v == NULL || pkg_parse_hex(v, &stored) != 0 || stored != knobs) {
+			ini_free(&ini);
+			continue;
+		}
+		v = ini_get(build, "src");
+		if (v == NULL || pkg_parse_hex(v, &stored) != 0 || stored != pkgs[i].impl) {
+			ini_free(&ini);
+			continue;
+		}
+		v = ini_get(build, "iface");
+		if (v == NULL || pkg_parse_hex(v, &stored) != 0 ||
+		    stored != pkgs[i].iface) {
+			ini_free(&ini);
+			continue;
+		}
+		/* Folded c_sources: re-hash listed paths vs build.csrc. */
+		link = ini_find_sect(&ini, "link");
+		csrc = 0;
+		v = ini_get(build, "csrc");
+		if (v != NULL && pkg_parse_hex(v, &csrc) != 0) {
+			ini_free(&ini);
+			continue;
+		}
+		if (hash_csource_list(link ? ini_get(link, "csources") : NULL) != csrc) {
+			ini_free(&ini);
+			continue;
+		}
+		needs = ini_find_sect(&ini, "needs");
+		ok = 1;
+		for (j = 0; j < pkgs[i].nimports; j++) {
+			di = pkgs[i].imports[j];
+			if (pkgs[di].iface == 0) {
+				ok = 0;
+				break;
+			}
+			if (needs == NULL) {
+				ok = 0;
+				break;
+			}
+			v = ini_get(needs, pkgs[di].id);
+			if (v == NULL || pkg_parse_hex(v, &stored) != 0 ||
+			    stored != pkgs[di].iface) {
+				ok = 0;
+				break;
+			}
+		}
+		ini_free(&ini);
+		if (!ok)
 			continue;
 		pkgs[i].hit = 1;
 	}
 }
 
 static void
-pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot,
-	      int require_obj) {
+pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, int require_obj) {
 	int i;
 	uint64_t h;
 
@@ -1538,11 +1661,13 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, const char* crooot,
 		h = cache_hash_mix(pkgs[i].impl, knobs);
 		pkgs[i].key = h;
 		cache_hash_hex(h, pkgs[i].hex, sizeof(pkgs[i].hex));
-		snprintf(pkgs[i].objpath, sizeof(pkgs[i].objpath), "%s/pkg/%s-%s/pkg.o",
-			 crooot, pkgs[i].id, pkgs[i].hex);
+		(void)pkg_artifact_paths(pkgs[i].dir, pkgs[i].ifacepath,
+					 sizeof(pkgs[i].ifacepath), pkgs[i].objpath,
+					 sizeof(pkgs[i].objpath), pkgs[i].metapath,
+					 sizeof(pkgs[i].metapath));
 	}
-	pkg_resolve_ifaces(pkgs, npkgs, crooot);
-	pkg_refresh_hits(pkgs, npkgs, crooot, require_obj);
+	pkg_resolve_ifaces(pkgs, npkgs);
+	pkg_refresh_hits(pkgs, npkgs, knobs, require_obj);
 	for (i = 0; i < npkgs; i++)
 		pkgs[i].need_emit = !pkgs[i].hit;
 }
@@ -1696,9 +1821,9 @@ fail:
 	return 1;
 }
 
-// Record an absolute c_sources path (linkmeta reload).
+/* Record an absolute c_sources path (meta reload). owner may be NULL. */
 static void
-add_csource_abs(Compiler* c, const char* path) {
+add_csource_abs(Compiler* c, const char* path, const char* owner) {
 	char abs[HOST_PATH_MAX];
 	size_t n;
 	int i;
@@ -1729,8 +1854,14 @@ add_csource_abs(Compiler* c, const char* path) {
 	for (i = 0; i < c->paths.csources_len; i++)
 		if (strcmp(c->paths.csources[i], abs) == 0)
 			return;
-	if (c->paths.csources_len % 8 == 0)
-		c->paths.csources = xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
+	if (c->paths.csources_len % 8 == 0) {
+		c->paths.csources =
+			xrealloc(c->paths.csources, (c->paths.csources_len + 8) * sizeof(char*));
+		c->paths.csource_pkgs = xrealloc(c->paths.csource_pkgs,
+						 (c->paths.csources_len + 8) * sizeof(char*));
+	}
+	c->paths.csource_pkgs[c->paths.csources_len] =
+		owner && owner[0] ? xstrdup(owner) : NULL;
 	c->paths.csources[c->paths.csources_len++] = xstrdup(abs);
 }
 
@@ -1762,7 +1893,7 @@ merge_link_meta(Compiler* c, const char* path) {
 		else if (line[0] == 'F' && line[1] == ' ')
 			pkg_add_framework(c, line + 2);
 		else if (line[0] == 'S' && line[1] == ' ')
-			add_csource_abs(c, line + 2);
+			add_csource_abs(c, line + 2, NULL);
 	}
 	free(text);
 	return 0;
@@ -1931,10 +2062,13 @@ job_parallelism(int nwork) {
 	return jobs;
 }
 
-// Assemble+compile jobs in parallel: barrier per stage (all qbe, then all cc).
-// Caller prints per-package "assembling" progress before emit.
+/*
+ * Assemble+compile jobs in parallel: barrier per stage (all qbe, then all cc),
+ * then fold each package's c_sources into .pkg.o via ld -r.
+ * Caller prints per-package "assembling" progress before emit.
+ */
 static int
-assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
+assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs, const char* dir) {
 	const char* qbe_tool;
 	const char* target;
 	const char* cc;
@@ -2000,7 +2134,8 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 		if (st)
 			return 1;
 		for (j = 0; j < batch; j++) {
-			if (cache_copy_file(jobs[i + j].obj, jobs[i + j].pkg->objpath) != 0)
+			if (fold_pkg_object(c, o, jobs[i + j].pkg, jobs[i + j].obj, dir,
+					    jobs[i + j].pkg_index) != 0)
 				return 1;
 			jobs[i + j].pkg->hit = 1;
 		}
@@ -2008,33 +2143,28 @@ assemble_pkg_jobs(Compiler* c, CliOpts* o, PkgAsmJob* jobs, int njobs) {
 	return 0;
 }
 
-/* Packages without need_emit + export artifact → load; need_emit sources → typecheck.
+static void add_csource_abs(Compiler* c, const char* path, const char* owner);
+
+/* Packages without need_emit + .pkg.mc → load; need_emit sources → typecheck.
  * tc_files aliases entries in files[]; exps/exp_dirs are xstrdup'd. Caller frees. */
 static int
-collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
-		  const char* crooot, char*** out_exps, char*** out_exp_dirs, int* out_nexp,
-		  char*** out_tc, int* out_ntc) {
+collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles, char*** out_exps,
+		  char*** out_exp_dirs, int* out_nexp, char*** out_tc, int* out_ntc) {
 	char** exps;
 	char** exp_dirs;
 	char** tc_files;
-	int* load_exp;
 	int nexp, ntc, pi, fi;
-	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX], expath[HOST_PATH_MAX];
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX];
 
-	load_exp = xmalloc((size_t)npkgs * sizeof(int));
-	memset(load_exp, 0, (size_t)npkgs * sizeof(int));
 	exps = xmalloc((size_t)npkgs * sizeof(char*));
 	exp_dirs = xmalloc((size_t)npkgs * sizeof(char*));
 	nexp = 0;
 	for (pi = 0; pi < npkgs; pi++) {
 		if (pkgs[pi].need_emit)
 			continue;
-		snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot, pkgs[pi].id,
-			 pkgs[pi].hex);
-		if (!host_is_file(expath))
+		if (!host_is_file(pkgs[pi].ifacepath))
 			continue;
-		load_exp[pi] = 1;
-		exps[nexp] = xstrdup(expath);
+		exps[nexp] = xstrdup(pkgs[pi].ifacepath);
 		exp_dirs[nexp] = xstrdup(pkgs[pi].dir);
 		nexp++;
 	}
@@ -2054,13 +2184,242 @@ collect_export_tc(BuildPkg* pkgs, int npkgs, char** files, int nfiles,
 		if (pi >= npkgs)
 			tc_files[ntc++] = files[fi];
 	}
-	free(load_exp);
 	*out_exps = exps;
 	*out_exp_dirs = exp_dirs;
 	*out_nexp = nexp;
 	*out_tc = tc_files;
 	*out_ntc = ntc;
 	return 0;
+}
+
+/* Join string list with spaces for .pkg.meta [link] values. Caller frees. */
+static char*
+join_space_list(char** items, int n) {
+	size_t len;
+	int i;
+	char* out;
+	char* p;
+
+	len = 1;
+	for (i = 0; i < n; i++)
+		len += strlen(items[i]) + (i ? 1 : 0);
+	out = xmalloc(len);
+	p = out;
+	for (i = 0; i < n; i++) {
+		size_t L;
+
+		if (i)
+			*p++ = ' ';
+		L = strlen(items[i]);
+		memcpy(p, items[i], L);
+		p += L;
+	}
+	*p = 0;
+	return out;
+}
+
+/* Space-join c_sources owned by pkg. Caller frees. */
+static char*
+join_pkg_csources(Compiler* c, BuildPkg* pkg) {
+	char** items;
+	int i, n;
+	char* out;
+
+	n = 0;
+	for (i = 0; i < c->paths.csources_len; i++)
+		if (csource_owned_by(c, i, pkg))
+			n++;
+	if (n == 0)
+		return xstrdup("");
+	items = xmalloc((size_t)n * sizeof(char*));
+	n = 0;
+	for (i = 0; i < c->paths.csources_len; i++)
+		if (csource_owned_by(c, i, pkg))
+			items[n++] = c->paths.csources[i];
+	out = join_space_list(items, n);
+	free(items);
+	return out;
+}
+
+/* Append space-separated names via pkg_add_clib / pkg_add_framework. */
+static void
+merge_space_clibs(Compiler* c, const char* s) {
+	char buf[HOST_PATH_MAX];
+	const char* p;
+	size_t n;
+
+	if (s == NULL)
+		return;
+	for (p = s; *p;) {
+		while (*p == ' ')
+			p++;
+		if (*p == 0)
+			break;
+		n = 0;
+		while (p[n] && p[n] != ' ' && n + 1 < sizeof(buf))
+			n++;
+		if (n == 0)
+			break;
+		memcpy(buf, p, n);
+		buf[n] = 0;
+		(void)pkg_add_clib(c, buf);
+		p += n;
+	}
+}
+
+static void
+merge_space_frameworks(Compiler* c, const char* s) {
+	char buf[HOST_PATH_MAX];
+	const char* p;
+	size_t n;
+
+	if (s == NULL)
+		return;
+	for (p = s; *p;) {
+		while (*p == ' ')
+			p++;
+		if (*p == 0)
+			break;
+		n = 0;
+		while (p[n] && p[n] != ' ' && n + 1 < sizeof(buf))
+			n++;
+		if (n == 0)
+			break;
+		memcpy(buf, p, n);
+		buf[n] = 0;
+		(void)pkg_add_framework(c, buf);
+		p += n;
+	}
+}
+
+/* owner is the package dir that declared these paths (for fold attribution). */
+static void
+merge_space_csources(Compiler* c, const char* s, const char* owner) {
+	char buf[HOST_PATH_MAX];
+	const char* p;
+	size_t n;
+
+	if (s == NULL)
+		return;
+	for (p = s; *p;) {
+		while (*p == ' ')
+			p++;
+		if (*p == 0)
+			break;
+		n = 0;
+		while (p[n] && p[n] != ' ' && n + 1 < sizeof(buf))
+			n++;
+		if (n == 0)
+			break;
+		memcpy(buf, p, n);
+		buf[n] = 0;
+		add_csource_abs(c, buf, owner);
+		p += n;
+	}
+}
+
+/* Union [link] libs/frameworks/csources from one .pkg.meta into c->paths. */
+static void
+pkg_merge_link_meta(Compiler* c, const char* metapath, const char* pkg_dir) {
+	IniFile ini;
+	IniSect* link;
+
+	if (metapath == NULL || !host_is_file(metapath))
+		return;
+	memset(&ini, 0, sizeof(ini));
+	if (ini_load(&ini, metapath) != 0)
+		return;
+	link = ini_find_sect(&ini, "link");
+	if (link) {
+		merge_space_clibs(c, ini_get(link, "libs"));
+		merge_space_frameworks(c, ini_get(link, "frameworks"));
+		/* Keep paths for needs_cxx_link; objects are already in .pkg.o. */
+		merge_space_csources(c, ini_get(link, "csources"), pkg_dir);
+	}
+	ini_free(&ini);
+}
+
+static void
+pkgs_merge_link_metas(Compiler* c, BuildPkg* pkgs, int npkgs) {
+	int i;
+
+	for (i = 0; i < npkgs; i++)
+		pkg_merge_link_meta(c, pkgs[i].metapath, pkgs[i].dir);
+}
+
+/* Write .pkg.meta for package i after iface rebuild (final iface digests). */
+static int
+pkg_write_build_meta(Compiler* c, BuildPkg* pkgs, int npkgs, int i, uint64_t knobs) {
+	IniFile ini;
+	char hex[24];
+	char* joined;
+	int j, di, r;
+	uint64_t csrc;
+
+	memset(&ini, 0, sizeof(ini));
+	if (ini_set(&ini, "build", "version", "1") != 0)
+		goto fail;
+	cache_hash_hex(knobs, hex, sizeof(hex));
+	if (ini_set(&ini, "build", "knobs", hex) != 0)
+		goto fail;
+	cache_hash_hex(pkgs[i].impl, hex, sizeof(hex));
+	if (ini_set(&ini, "build", "src", hex) != 0)
+		goto fail;
+	cache_hash_hex(pkgs[i].iface, hex, sizeof(hex));
+	if (ini_set(&ini, "build", "iface", hex) != 0)
+		goto fail;
+	csrc = pkg_csources_hash(c, &pkgs[i]);
+	cache_hash_hex(csrc, hex, sizeof(hex));
+	if (ini_set(&ini, "build", "csrc", hex) != 0)
+		goto fail;
+	for (j = 0; j < pkgs[i].nimports; j++) {
+		di = pkgs[i].imports[j];
+		cache_hash_hex(pkgs[di].iface, hex, sizeof(hex));
+		if (ini_set(&ini, "needs", pkgs[di].id, hex) != 0)
+			goto fail;
+	}
+	joined = join_space_list(c->paths.c_libs, c->paths.c_libs_len);
+	if (ini_set(&ini, "link", "libs", joined) != 0) {
+		free(joined);
+		goto fail;
+	}
+	free(joined);
+	joined = join_space_list(c->paths.frameworks, c->paths.frameworks_len);
+	if (ini_set(&ini, "link", "frameworks", joined) != 0) {
+		free(joined);
+		goto fail;
+	}
+	free(joined);
+	joined = join_pkg_csources(c, &pkgs[i]);
+	if (ini_set(&ini, "link", "csources", joined) != 0) {
+		free(joined);
+		goto fail;
+	}
+	free(joined);
+	r = ini_save(&ini, pkgs[i].metapath);
+	ini_free(&ini);
+	return r;
+fail:
+	ini_free(&ini);
+	return 1;
+}
+
+/* True if outpath exists and is at least as new as every package .pkg.o. */
+static int
+outfile_newer_than_objs(const char* outpath, BuildPkg* pkgs, int npkgs) {
+	long long out_m, obj_m;
+	unsigned long long sz;
+	int i;
+
+	if (host_file_stamp(outpath, &out_m, &sz) != 0)
+		return 0;
+	for (i = 0; i < npkgs; i++) {
+		if (host_file_stamp(pkgs[i].objpath, &obj_m, &sz) != 0)
+			return 0;
+		if (obj_m > out_m)
+			return 0;
+	}
+	return 1;
 }
 
 /* Drop symbols/types between cascade recompiles; keep link pragma lists. */
@@ -2099,24 +2458,20 @@ reset_frontend_state(Compiler* c) {
 }
 
 /*
- * Typecheck need_emit packages (load exports for the rest). Cascade when a
- * rebuilt package's export/API digest changes. Write export/meta/needs/deps.
+ * Typecheck need_emit packages (load .pkg.mc for the rest). Cascade when a
+ * rebuilt package's iface/API digest changes. Write .pkg.mc + .pkg.meta.
  * Does not emit objects. Logs hit/miss per package. 0 ok.
  */
 static int
 pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
-		      char** files, int nfiles, const char* crooot,
-		      const char* projroot) {
+		      char** files, int nfiles, uint64_t knobs, const char* projroot) {
 	char** tc_files;
 	char** exps;
 	char** exp_dirs;
 	int ntc, nexp, pi, demoted, pass, i, r;
 	uint64_t iface_at_start[MaxCachePkgs];
-	char expath[HOST_PATH_MAX], depmeta[HOST_PATH_MAX];
-	char metapath[HOST_PATH_MAX];
-	char needspath[HOST_PATH_MAX], needshex[24], what[HOST_PATH_MAX];
+	char what[HOST_PATH_MAX];
 	const char* verb;
-	uint64_t needs;
 
 	verb = o->check_only ? "checking" : "compiling";
 	for (pi = 0; pi < npkgs; pi++)
@@ -2126,7 +2481,7 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 	for (pass = 0; pass < MaxCachePkgs; pass++) {
 		if (pass > 0)
 			reset_frontend_state(c);
-		collect_export_tc(pkgs, npkgs, files, nfiles, crooot, &exps, &exp_dirs, &nexp,
+		collect_export_tc(pkgs, npkgs, files, nfiles, &exps, &exp_dirs, &nexp,
 				  &tc_files, &ntc);
 		if (ntc == 0) {
 			for (pi = 0; pi < nexp; pi++) {
@@ -2152,18 +2507,12 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 		for (pi = 0; pi < npkgs; pi++) {
 			if (!pkgs[pi].need_emit)
 				continue;
-			snprintf(expath, sizeof(expath), "%s/pkg/%s-%s/export", crooot,
-				 pkgs[pi].id, pkgs[pi].hex);
-			if (export_write_pkg(c, pkgs[pi].dir, expath) != 0) {
-				fprintf(stderr, "modc: failed to write export for %s\n",
+			if (iface_write_pkg(c, pkgs[pi].dir, pkgs[pi].ifacepath) != 0) {
+				fprintf(stderr, "modc: failed to write iface for %s\n",
 					pkgs[pi].id);
 				return 1;
 			}
-			pkgs[pi].iface = cache_hash_file(expath);
-			pkg_key_deps_path(depmeta, sizeof(depmeta), crooot, pkgs[pi].id,
-					  pkgs[pi].hex);
-			if (save_modc_deps(c, depmeta) != 0)
-				return 1;
+			pkgs[pi].iface = cache_hash_file(pkgs[pi].ifacepath);
 		}
 		for (pi = 0; pi < npkgs; pi++) {
 			int k;
@@ -2191,25 +2540,16 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 	}
 
 	for (i = 0; i < npkgs; i++) {
-		PkgMeta meta;
-
-		pkg_meta_path(metapath, sizeof(metapath), crooot, pkgs[i].id);
-		(void)pkg_meta_load(metapath, &meta);
-		meta.iface = pkgs[i].iface;
-		meta.have_iface = pkgs[i].iface != 0;
-		if (pkg_meta_save(metapath, &meta) != 0)
+		if (!pkgs[i].need_emit)
+			continue;
+		if (pkg_write_build_meta(c, pkgs, npkgs, i, knobs) != 0) {
+			fprintf(stderr, "modc: failed to write meta for %s\n", pkgs[i].id);
 			return 1;
+		}
 	}
 	for (i = 0; i < npkgs; i++) {
 		snprintf(what, sizeof(what), "pkg %s", pkgs[i].id);
 		cache_log(o->verbose, pkgs[i].need_emit ? "miss" : "hit", what);
-	}
-	for (i = 0; i < npkgs; i++) {
-		needs = pkg_needs_hash(pkgs, npkgs, i);
-		cache_hash_hex(needs, needshex, sizeof(needshex));
-		snprintf(needspath, sizeof(needspath), "%s/pkg/%s-%s/needs", crooot,
-			 pkgs[i].id, pkgs[i].hex);
-		(void)cache_write_str(needspath, needshex);
 	}
 	return 0;
 }
@@ -2293,19 +2633,19 @@ pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState
 		pkgs_free_files(st);
 		return 1;
 	}
-	pkg_fill_keys(st->pkgs, st->npkgs, st->knobs, st->crooot, require_obj);
+	pkg_fill_keys(st->pkgs, st->npkgs, st->knobs, require_obj);
 	return 0;
 }
 
 /*
- * Typecheck path using .modc-cache exports when valid (no codegen).
- * Hits require export+iface+deps+needs (object optional) under knobs that
- * include this modc binary stamp — a rebuilt driver cannot inherit a hit
- * from an older binary. Writes export artifacts for miss packages so later
+ * Typecheck path using per-package .pkg.mc when valid (no codegen).
+ * Hits require .pkg.mc + .pkg.meta [build]/[needs] under knobs that include
+ * this modc binary stamp — a rebuilt driver cannot inherit a hit from an
+ * older binary. Writes iface artifacts for miss packages so later
  * checks/builds can reuse them.
  *
  * Uses parse_only: decls + signatures (skip function bodies). That matches
- * FPC's interface parse — enough for API/export/cascade; body diagnostics
+ * FPC's interface parse — enough for API/iface/cascade; body diagnostics
  * (dead-init, releases, bounds of locals, …) run on build. Selftest still
  * uses compile_file (full parse). Do not treat check as a full safety gate.
  */
@@ -2329,26 +2669,20 @@ compile_check(Compiler* c, CliOpts* o, const char* path) {
 		return 0;
 	}
 	cache_log(o->verbose, "miss", "graph");
-	r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles, st.crooot,
+	r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles, st.knobs,
 				  st.projroot);
 	pkgs_free_files(&st);
 	c->opt.parse_only = prev_parse_only;
 	return r;
 }
 
-/* Compile path → cached package objs → foreign objs → link into outpath.
+/* Compile path → per-package .pkg.o (c_sources folded in) → link into outpath.
  * dir is an existing temp directory; caller cleans artifacts. */
 int
 compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, const char* outpath) {
 	PkgCacheState st;
 	int i, r;
-	uint64_t ghash;
-	char ghex[24], meta[HOST_PATH_MAX], meta_stable[HOST_PATH_MAX], stamp[HOST_PATH_MAX];
-	char stamphex[24], stored[64], what[HOST_PATH_MAX];
-	char foreign[MaxForeignObj][512];
 	char objs[MaxCachePkgs][512];
-	int nforeign;
-	uint64_t linkh;
 
 	/* Fail fast on bad MODC_CC / MODC_QBE even on a full graph cache hit. */
 	if (tool_cc(c) == NULL || tool_qbe() == NULL)
@@ -2367,64 +2701,28 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 #endif
 	if (pkgs_cache_prepare(c, path, 1, &st) != 0)
 		return 1;
-	ghash = graph_digest(st.pkgs, st.npkgs, st.knobs);
-	cache_hash_hex(ghash, ghex, sizeof(ghex));
-	snprintf(meta, sizeof(meta), "%s/prog/%s/linkmeta", st.crooot, ghex);
-	/* Stable path: ghex changes on partial rebuild, so seeding from meta
-	 * alone would miss hit packages' pragmas from the prior graph. */
-	snprintf(meta_stable, sizeof(meta_stable), "%s/linkmeta", st.crooot);
-	snprintf(stamp, sizeof(stamp), "%s/prog/%s/stamp", st.crooot, ghex);
 
-	if (pkgs_all_cache_hit(st.pkgs, st.npkgs) && host_is_file(meta) &&
-	    load_link_meta(c, meta) == 0) {
-		int foreign_ready;
-
+	if (pkgs_all_cache_hit(st.pkgs, st.npkgs)) {
 		pkgs_log_each(o, st.pkgs, st.npkgs, "hit");
 		for (i = 0; i < st.npkgs; i++)
 			snprintf(objs[i], sizeof(objs[i]), "%s", st.pkgs[i].objpath);
 		cache_log(o->verbose, "hit", "graph");
-		linkh = link_stamp_hash(c, o, st.pkgs, st.npkgs, outpath, st.projroot);
-		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
-		foreign_ready = 1;
-		for (i = 0; i < c->paths.csources_len; i++) {
-			char cached[HOST_PATH_MAX], depmeta[HOST_PATH_MAX], hex[32];
-			uint64_t key;
-
-			key = foreign_obj_key(c, c->paths.csources[i],
-					      src_is_cxx(c->paths.csources[i]) ? tool_cxx()
-									      : tool_cc(c),
-					      st.projroot);
-			cache_hash_hex(key, hex, sizeof(hex));
-			snprintf(cached, sizeof(cached), "%s/foreign/%s.o", st.crooot, hex);
-			snprintf(depmeta, sizeof(depmeta), "%s.deps", cached);
-			if (!host_is_file(cached) || !cache_deps_valid(depmeta))
-				foreign_ready = 0;
-			else {
-				snprintf(what, sizeof(what), "foreign %s", c->paths.csources[i]);
-				cache_log(o->verbose, "hit", what);
-			}
-		}
-		stored[0] = 0;
-		if (foreign_ready && host_is_file(outpath) &&
-		    cache_read_str(stamp, stored, sizeof(stored)) == 0 &&
-		    strcmp(stored, stamphex) == 0) {
+		c->paths.c_libs_len = 0;
+		c->paths.frameworks_len = 0;
+		c->paths.csources_len = 0;
+		pkgs_merge_link_metas(c, st.pkgs, st.npkgs);
+		if (host_is_file(outpath) &&
+		    outfile_newer_than_objs(outpath, st.pkgs, st.npkgs)) {
 			progress_msg("up to date");
 			pkgs_free_files(&st);
 			return 0;
 		}
 		progress_build_start();
-		if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0) {
-			progress_build_cancel();
-			pkgs_free_files(&st);
-			return 1;
-		}
-		r = link_modc_objs(c, o, outpath, objs, st.npkgs, foreign, nforeign);
-		if (r == 0) {
-			(void)cache_write_str(stamp, stamphex);
+		r = link_modc_objs(c, o, outpath, objs, st.npkgs, NULL, 0);
+		if (r == 0)
 			progress_build_done();
-		} else {
+		else
 			progress_build_cancel();
-		}
 		pkgs_free_files(&st);
 		return r;
 	}
@@ -2432,32 +2730,22 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 	cache_log(o->verbose, "miss", "graph");
 	progress_build_start();
 	{
-		int pi, partial;
+		int pi;
 		PkgAsmJob miss[MaxCachePkgs];
 		int nmiss;
 
-		/* Cached packages are not re-preprocessed, so their link pragmas
-		 * never reappear. Seed from the prior linkmeta, then let the
-		 * need_emit packages' PP add/override via pkg_add_*. */
-		partial = 0;
-		for (pi = 0; pi < st.npkgs; pi++)
-			if (!st.pkgs[pi].need_emit) {
-				partial = 1;
-				break;
-			}
+		/* Hit packages are not re-preprocessed; seed link pragmas from
+		 * their .pkg.meta [link], then let need_emit PP add via pkg_add_*. */
 		c->paths.c_libs_len = 0;
 		c->paths.frameworks_len = 0;
 		c->paths.csources_len = 0;
-		if (partial && host_is_file(meta_stable) &&
-		    merge_link_meta(c, meta_stable) != 0) {
-			fprintf(stderr, "modc: cannot read linkmeta %s\n", meta_stable);
-			progress_build_cancel();
-			pkgs_free_files(&st);
-			return 1;
-		}
+		for (pi = 0; pi < st.npkgs; pi++)
+			if (!st.pkgs[pi].need_emit)
+				pkg_merge_link_meta(c, st.pkgs[pi].metapath,
+						    st.pkgs[pi].dir);
 
 		r = pkgs_frontend_compile(c, o, st.pkgs, st.npkgs, st.files, st.nfiles,
-					  st.crooot, st.projroot);
+					  st.knobs, st.projroot);
 		if (r != 0) {
 			progress_build_cancel();
 			pkgs_free_files(&st);
@@ -2496,7 +2784,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 					pkgs_free_files(&st);
 					return 1;
 				}
-				if (assemble_pkg_jobs(c, o, &miss[i], 1) != 0) {
+				if (assemble_pkg_jobs(c, o, &miss[i], 1, dir) != 0) {
 					progress_end();
 					progress_build_cancel();
 					pkgs_free_files(&st);
@@ -2513,7 +2801,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 					return 1;
 				}
 			}
-			if (assemble_pkg_jobs(c, o, miss, nmiss) != 0) {
+			if (assemble_pkg_jobs(c, o, miss, nmiss, dir) != 0) {
 				progress_build_cancel();
 				pkgs_free_files(&st);
 				return 1;
@@ -2521,28 +2809,12 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 		}
 	}
 	pkgs_free_files(&st);
-	if (save_link_meta(c, o, meta) != 0) {
-		progress_build_cancel();
-		return 1;
-	}
-	if (save_link_meta(c, o, meta_stable) != 0) {
-		progress_build_cancel();
-		return 1;
-	}
 
-	if (compile_foreign_sources(c, o, path, dir, foreign, &nforeign) != 0) {
-		progress_build_cancel();
-		return 1;
-	}
-	r = link_modc_objs(c, o, outpath, objs, st.npkgs, foreign, nforeign);
-	if (r == 0) {
-		linkh = link_stamp_hash(c, o, st.pkgs, st.npkgs, outpath, st.projroot);
-		cache_hash_hex(linkh, stamphex, sizeof(stamphex));
-		(void)cache_write_str(stamp, stamphex);
+	r = link_modc_objs(c, o, outpath, objs, st.npkgs, NULL, 0);
+	if (r == 0)
 		progress_build_done();
-	} else {
+	else
 		progress_build_cancel();
-	}
 	return r;
 }
 

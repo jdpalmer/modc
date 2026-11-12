@@ -487,7 +487,8 @@ dir_has_mc(const char* dir) {
 		return 0;
 	while ((name = host_readdir(d)) != NULL) {
 		size_t n = strlen(name);
-		if (n > 3 && strcmp(name + n - 3, ".mc") == 0 && !pkg_is_test_src(name)) {
+		if (n > 3 && strcmp(name + n - 3, ".mc") == 0 && !pkg_is_test_src(name) &&
+		    !pkg_is_iface_src(name)) {
 			host_closedir(d);
 			return 1;
 		}
@@ -631,12 +632,68 @@ format_one(Compiler* c, const char* path) {
 	return 0;
 }
 
-// modc clean: remove the project .modc-cache directory.
+/* True if basename is a package build product (.pkg.mc / .pkg.o / .pkg.meta). */
+static int
+is_pkg_artifact_name(const char* name) {
+	size_t n;
+
+	if (name == NULL)
+		return 0;
+	if (strcmp(name, ".pkg.mc") == 0 || strcmp(name, ".pkg.o") == 0 ||
+	    strcmp(name, ".pkg.meta") == 0)
+		return 1;
+	n = strlen(name);
+	if (n >= 7 && strcmp(name + n - 7, ".pkg.mc") == 0)
+		return 1;
+	if (n >= 6 && strcmp(name + n - 6, ".pkg.o") == 0)
+		return 1;
+	if (n >= 9 && strcmp(name + n - 9, ".pkg.meta") == 0)
+		return 1;
+	return 0;
+}
+
+/* Recursively delete .pkg.* artifacts under dir. Returns count removed. */
+static int
+clean_pkg_artifacts(const char* dir, int verbose) {
+	HostDir* d;
+	const char* name;
+	char path[HOST_PATH_MAX];
+	int n;
+
+	n = 0;
+	d = host_opendir(dir);
+	if (d == NULL)
+		return 0;
+	while ((name = host_readdir(d)) != NULL) {
+		if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, name);
+		if (host_is_symlink(path))
+			continue;
+		if (host_is_dir(path)) {
+			if (strcmp(name, ".git") == 0 || strcmp(name, "build") == 0)
+				continue;
+			n += clean_pkg_artifacts(path, verbose);
+			continue;
+		}
+		if (!is_pkg_artifact_name(name))
+			continue;
+		if (host_unlink(path) == 0) {
+			n++;
+			if (verbose)
+				fprintf(stderr, "modc clean: removed %s\n", path);
+		}
+	}
+	host_closedir(d);
+	return n;
+}
+
+// modc clean: remove .pkg.* artifacts and any leftover .modc-cache.
 int
 cmd_clean(CliOpts* o, int argc, char** argv) {
-	char crooot[HOST_PATH_MAX];
+	char crooot[HOST_PATH_MAX], projroot[HOST_PATH_MAX];
 	const char* entry;
-	int i;
+	int i, n;
 
 	entry = ".";
 	for (i = 2; i < argc; i++) {
@@ -659,21 +716,22 @@ cmd_clean(CliOpts* o, int argc, char** argv) {
 		}
 		entry = argv[i];
 	}
-	if (cache_root_for(entry, crooot, sizeof(crooot)) != 0) {
-		fprintf(stderr, "modc clean: cannot resolve cache root\n");
+	if (cache_project_root(entry, projroot, sizeof(projroot)) != 0) {
+		fprintf(stderr, "modc clean: cannot resolve project root\n");
 		return 1;
 	}
-	if (!host_is_dir(crooot) && !host_exists(crooot)) {
+	n = clean_pkg_artifacts(projroot, o->verbose);
+	if (cache_root_for(entry, crooot, sizeof(crooot)) == 0 && host_is_dir(crooot)) {
+		if (host_rmtree(crooot) != 0) {
+			fprintf(stderr, "modc clean: cannot remove %s\n", crooot);
+			return 1;
+		}
 		if (o->verbose)
-			fprintf(stderr, "modc clean: nothing to remove (%s)\n", crooot);
-		return 0;
+			fprintf(stderr, "modc clean: removed %s\n", crooot);
+		n++;
 	}
-	if (host_rmtree(crooot) != 0) {
-		fprintf(stderr, "modc clean: cannot remove %s\n", crooot);
-		return 1;
-	}
-	if (o->verbose)
-		fprintf(stderr, "modc clean: removed %s\n", crooot);
+	if (o->verbose && n == 0)
+		fprintf(stderr, "modc clean: nothing to remove\n");
 	return 0;
 }
 

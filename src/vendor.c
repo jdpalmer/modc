@@ -5,32 +5,14 @@
  * vendor/ tree for the existing import resolver.
  */
 #include "ast.h"
+#include "ini.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include "host_os.h"
 
-enum { MaxIniSect = 128,
-       MaxIniKey = 32,
-       MaxLocked = 256,
-       MaxQueue = 256 };
-
-typedef struct {
-	char* key;
-	char* val;
-} IniKV;
-
-typedef struct {
-	char* name;
-	IniKV kv[MaxIniKey];
-	int nkv;
-} IniSect;
-
-typedef struct {
-	IniSect sect[MaxIniSect];
-	int nsect;
-} IniFile;
+enum { MaxLocked = 256, MaxQueue = 256 };
 
 typedef struct {
 	char* name;
@@ -175,136 +157,6 @@ path_within(const char* root, const char* path) {
 	n = strlen(rroot);
 	return strncmp(rroot, rpath, n) == 0 &&
 	       (rpath[n] == 0 || host_path_is_sep((unsigned char)rpath[n]));
-}
-
-// Release all heap storage owned by a parsed INI file.
-static void
-ini_free(IniFile* ini) {
-	int i, j;
-
-	for (i = 0; i < ini->nsect; i++) {
-		free(ini->sect[i].name);
-		for (j = 0; j < ini->sect[i].nkv; j++) {
-			free(ini->sect[i].kv[j].key);
-			free(ini->sect[i].kv[j].val);
-		}
-	}
-	ini->nsect = 0;
-}
-
-// Trim leading and trailing whitespace in place; returns the new start of the string.
-static char*
-trim(char* s) {
-	char* e;
-
-	while (*s && isspace((unsigned char)*s))
-		s++;
-	if (*s == 0)
-		return s;
-	e = s + strlen(s);
-	while (e > s && isspace((unsigned char)e[-1]))
-		e--;
-	*e = 0;
-	return s;
-}
-
-// Return the value for key in section s, or NULL if the key is missing.
-static const char*
-ini_get(IniSect* s, const char* key) {
-	int i;
-
-	if (s == NULL)
-		return NULL;
-	for (i = 0; i < s->nkv; i++)
-		if (s->kv[i].key && strcmp(s->kv[i].key, key) == 0)
-			return s->kv[i].val;
-	return NULL;
-}
-
-// Append a heap-copied key/value pair to a section; fails when the section is full.
-static int
-ini_add_kv(IniSect* s, const char* key, const char* val) {
-	if (s->nkv >= MaxIniKey)
-		return 1;
-	s->kv[s->nkv].key = xstrdup(key);
-	s->kv[s->nkv].val = xstrdup(val);
-	s->nkv++;
-	return 0;
-}
-
-// Create a new empty section in the INI file; returns NULL when the file is full.
-static IniSect*
-ini_add_sect(IniFile* ini, const char* name) {
-	IniSect* s;
-
-	if (ini->nsect >= MaxIniSect)
-		return NULL;
-	s = &ini->sect[ini->nsect++];
-	s->name = xstrdup(name);
-	s->nkv = 0;
-	return s;
-}
-
-// Parse modc.ini/modc.lock text into sections and key/value pairs.
-static int
-ini_parse(IniFile* ini, const char* text, const char* path) {
-	char *copy, *p, *line, *eq, *sectname;
-	IniSect* cur;
-
-	(void)path;
-	memset(ini, 0, sizeof(*ini));
-	copy = xstrdup(text);
-	cur = NULL;
-	for (p = copy; *p;) {
-		line = p;
-		p = strchr(p, '\n');
-		if (p) {
-			*p = 0;
-			p++;
-		}
-		line = trim(line);
-		if (line[0] == 0 || line[0] == '#' || line[0] == ';')
-			continue;
-		if (line[0] == '[') {
-			eq = strchr(line, ']');
-			if (eq == NULL) {
-				free(copy);
-				return 1;
-			}
-			*eq = 0;
-			sectname = trim(line + 1);
-			cur = ini_add_sect(ini, sectname);
-			if (cur == NULL) {
-				free(copy);
-				return 1;
-			}
-			continue;
-		}
-		if (cur == NULL)
-			continue;
-		eq = strchr(line, '=');
-		if (eq == NULL)
-			continue;
-		*eq = 0;
-		if (ini_add_kv(cur, trim(line), trim(eq + 1)))
-			return 1;
-	}
-	free(copy);
-	return 0;
-}
-
-// Read an INI file from disk and parse it into ini.
-static int
-ini_load(IniFile* ini, const char* path) {
-	char* text;
-	int err;
-
-	text = read_file(path, NULL);
-	if (text == NULL)
-		return 1;
-	err = ini_parse(ini, text, path);
-	free(text);
-	return err;
 }
 
 // True when path exists and is a directory.

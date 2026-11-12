@@ -175,6 +175,8 @@ skip_toplevel_semi(Compiler* c) {
 
 // Diagnose function prototypes in user .mc files (allowed only in headers).
 static void reject_user_prototype(Compiler* c, Span sp) {
+	if (c->opt.iface_import)
+		return;
 	if (user_source(c, sp))
 		error_at(c, sp,
 			 "function prototypes are not allowed in %%C user code (allowed in headers)");
@@ -276,7 +278,8 @@ enum {
 	AtRegion = 1u << 5,
 	AtProvides = 1u << 6,
 	AtDeprecated = 1u << 7,
-	AtFormat = 1u << 8
+	AtFormat = 1u << 8,
+	AtBorrows = 1u << 9
 };
 
 /* Optional message from [[deprecated("…")]]; consumed by apply_decl_attrs. */
@@ -435,7 +438,8 @@ parse_struct(Compiler* c, int kind, int outer_storage) {
 	}
 	expect(c, PnRbrace, "'}'");
 	t->complete = 1;
-	if (tag && user_source(c, sp) && c->paths.infile) {
+	if (tag && c->paths.infile &&
+	    (c->opt.iface_import || user_source(c, sp))) {
 		char root[1024];
 
 		pkg_file_root(c->paths.infile, root, sizeof(root));
@@ -692,6 +696,8 @@ eat_attr_specifier(Compiler* c, unsigned* flags) {
 					*flags |= AtReleases;
 				else if (strcmp(a, "region") == 0)
 					*flags |= AtRegion;
+				else if (strcmp(a, "borrows") == 0)
+					*flags |= AtBorrows;
 				else if (strcmp(a, "provides") == 0)
 					*flags |= AtProvides;
 				else if (strcmp(a, "deprecated") == 0) {
@@ -1038,15 +1044,17 @@ parse_declspec(Compiler* c, int* storage, int* saw_type) {
 	if (nshort)
 		return nunsigned ? c->types.type_ushort : c->types.type_short;
 	if (nlong >= 2) {
-		/* long long — fixed 64-bit; headers only (stdint uses this for int64_t). */
-		if (user_source(c, long_sp.file ? long_sp : peek(c)->span))
+		/* long long — fixed 64-bit; headers / .pkg.mc ifaces (stdint / size_t). */
+		if (!c->opt.iface_import &&
+		    user_source(c, long_sp.file ? long_sp : peek(c)->span))
 			error_at(c, long_sp.file ? long_sp : peek(c)->span,
 				 "long long is not used in %%C; use int64_t");
 		return nunsigned ? c->types.type_ullong : c->types.type_llong;
 	}
 	if (nlong == 1) {
-		/* Host ABI long — headers only (Win32 LLP64 vs Unix LP64). */
-		if (user_source(c, long_sp.file ? long_sp : peek(c)->span))
+		/* Host ABI long — headers / .pkg.mc ifaces (Win32 LLP64 vs Unix LP64). */
+		if (!c->opt.iface_import &&
+		    user_source(c, long_sp.file ? long_sp : peek(c)->span))
 			error_at(c, long_sp.file ? long_sp : peek(c)->span,
 				 "long is for headers; use int64_t");
 		return nunsigned ? c->types.type_ulong : c->types.type_long;
@@ -1088,6 +1096,7 @@ parse_param_list(Compiler* c, Type* ret) {
 	char retains[MaxParams];
 	char consumes[MaxParams];
 	char region[MaxParams];
+	char borrows[MaxParams];
 	int64_t fixed_len[MaxParams];
 	int n, va, storage, saw, i, too_many;
 	unsigned pattrs;
@@ -1134,6 +1143,7 @@ parse_param_list(Compiler* c, Type* ret) {
 			retains[n] = (char)!!(pattrs & AtRetains);
 			consumes[n] = (char)!!(pattrs & AtReleases);
 			region[n] = (char)!!(pattrs & AtRegion);
+			borrows[n] = (char)!!(pattrs & AtBorrows);
 			if (is_ranged(ty)) {
 				/* ranged array parameter: pass by value */
 			} else if (is_array(ty)) {
@@ -1181,6 +1191,8 @@ parse_param_list(Compiler* c, Type* ret) {
 			ty->param_releases[i] = consumes[i];
 		if (ty->param_region)
 			ty->param_region[i] = region[i];
+		if (ty->param_borrows)
+			ty->param_borrows[i] = borrows[i];
 	}
 	return ty;
 }
@@ -1612,6 +1624,8 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 			fn->param_releases[0] = (char)!!(recv_attrs & AtReleases);
 		if (fn->param_region)
 			fn->param_region[0] = (char)!!(recv_attrs & AtRegion);
+		if (fn->param_borrows)
+			fn->param_borrows[0] = (char)!!(recv_attrs & AtBorrows);
 		for (i = 0; i < ft->params_len; i++) {
 			if (ft->param_array)
 				fn->param_array[i + 1] = ft->param_array[i];
@@ -1621,8 +1635,8 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 				fn->param_maybe_unused[i + 1] = ft->param_maybe_unused[i];
 			if (ft->param_retains && fn->param_retains)
 				fn->param_retains[i + 1] = ft->param_retains[i];
-			if (ft->param_returned && fn->param_returned)
-				fn->param_returned[i + 1] = ft->param_returned[i];
+			if (ft->param_borrows && fn->param_borrows)
+				fn->param_borrows[i + 1] = ft->param_borrows[i];
 			if (ft->param_releases && fn->param_releases)
 				fn->param_releases[i + 1] = ft->param_releases[i];
 			if (ft->param_region && fn->param_region)

@@ -43,9 +43,10 @@ OBJS = \
 	$(BUILD)\vendor.o \
 	$(BUILD)\host_os.o \
 	$(BUILD)\cache.o \
-	$(BUILD)\export.o
+	$(BUILD)\iface.o \
+	$(BUILD)\ini.o
 
-HDRS = src\ast.h src\cli.h src\host_os.h
+HDRS = src\ast.h src\cli.h src\host_os.h src\ini.h
 
 all: $(MODC)
 

@@ -343,34 +343,29 @@ main()
 `#pragma modc c_libs(a, b)` tells `modc build` / `modc run` to add `-la -lb`.
 On Apple hosts, `#pragma modc frameworks(…)` does the same for frameworks.
 `#pragma modc c_sources(path, …)` compiles C-family source files (`.c`, `.m`,
-`.cpp`, `.cxx`, `.mm`) located relative to the declaring `.mc` file and links
-their object files. Only packages in the import graph contribute sources. C++
-shims must expose `extern "C"` entry points; override the host compilers with
-`MODC_CC` / `MODC_CXX` (defaults: `$CC`/`cc` and `$CXX`/`c++`).
+`.cpp`, `.cxx`, `.mm`) located relative to the declaring `.mc` file and folds
+them into that package's `.pkg.o` (`ld -r`). Only packages in the import graph
+contribute sources. C++ shims must expose `extern "C"` entry points; override
+the host compilers with `MODC_CC` / `MODC_CXX` (defaults: `$CC`/`cc` and
+`$CXX`/`c++`).
 
-Build artifacts are content-addressed and cached under `.modc-cache/` (next to
-`modc.ini` when present, otherwise next to the build entry). Unchanged packages
-and `c_sources` objects are reused across builds; keys include target OS,
-architecture, project-relative paths, and the contents of transitively included
-project headers. A package's object is keyed by its own sources; **importers**
-invalidate only when a dependency's public API (the cached `export` digest)
-changes—not on every dependency body edit. Source fingerprinting first checks
-per-file mtime+size recorded in `pkg/<id>/meta` and reuses the prior content
-hash when stamps match, so unchanged trees avoid re-reading file bytes. Package
-cache ids are `basename` plus a hash of the project-relative package path, so
-two packages that share a directory name (e.g. `left/util` and `right/util`)
-keep separate `meta` slots. Per-key artifacts live under `pkg/<id>-<hex>/`
-(`export`, `pkg.o`, `needs`, `deps`). Package `export` artifacts are path-stable
-(no absolute checkout paths; symbols sorted) so API digests do not thrash when a
-tree is moved or rebuilt via a different path.
-Packages under `vendor/` may **freeze hashing** to `modc.lock` when that
-package's `.modc-vendor-rev` matches the lock (same check as
-`modc vendor --check`): the compiler skips rehashing vendor sources while the
-lock is unchanged, but still requires valid `export` / `needs` / `deps` for a
-hit—like FPC `-Ur`. If the rev is missing or stale, hashing falls back to
-normal source stamps. Hand-editing `vendor/` without `modc vendor` or
-`modc clean` can leave objects reused until the lock changes. Purge old caches
-with `modc clean` or `rm -rf .modc-cache`.
+Each package builds three products beside the package directory (or
+`stem.pkg.*` next to a single-file package):
+
+- **`.pkg.mc`** — generated interface `%C` (public structs, prototypes,
+  attributes; no bodies). Importers parse this file for the API.
+- **`.pkg.o`** — compiled package object (including that package's
+  `c_sources`).
+- **`.pkg.meta`** — INI bookkeeping (`[build]` digests including folded
+  `csrc`, `[needs]` dependency iface hashes, `[link]` libs/frameworks/
+  csources), same dialect as `modc.ini`.
+
+Rebuild `.pkg.o` when sources, `c_sources`, compile knobs, or a dependency's
+`.pkg.mc` change. Impl-only edits do not cascade to importers. Packages under `vendor/`
+may **freeze** source hashing to `modc.lock` when `.modc-vendor-rev` matches
+(like FPC `-Ur`); hits still require a matching `.pkg.meta`. Generated
+`.pkg.*` files are gitignored; `modc clean` deletes them (and any leftover
+`.modc-cache`).
 
 Header inclusion priority follows [interop.md](interop.md) (`modc` stubs, then
 `-I` paths, then system headers). C header symbols remain strictly scoped to the
@@ -385,17 +380,18 @@ Most day-to-day commands already understand packages. `modc vendor` resolves
 `modc.ini` into `modc.lock` and `vendor/`. `modc check file.mc` resolves
 imports and type-checks the graph's **API surface** (types, signatures, globals;
 function bodies are skipped — same idea as FPC's interface parse), reusing
-`.modc-cache` package exports when valid under the same knobs as `build`
-(including a stamp of the running `modc` binary, so a rebuilt driver cannot
-inherit a hit from an older one). A check cache hit is not a full safety gate:
-body-level diagnostics (dead-init, releases, escapes, …) run on `modc build`,
-and `check` may exit 0 when only those body issues exist. Use `build` for
-non-zero exit on full typecheck failure.
+`.pkg.mc` when valid under the same knobs as `build` (including a stamp of
+the running `modc` binary, so a rebuilt driver cannot inherit a hit from an
+older one). A check hit is not a full safety gate: body-level diagnostics
+(dead-init, releases, escapes, …) run on `modc build`, and `check` may exit 0
+when only those body issues exist. Use `build` for non-zero exit on full
+typecheck failure.
 `modc build` (with a file, a directory, or `.` by default) compiles the root
 plus its packages, applies `c_libs` / frameworks, and links; directory roots
 omit `*_test.mc`. The project root is inferred automatically, so the usual
 project command is simply `modc build`; `-M .` remains accepted but is
-redundant. `modc clean` removes `.modc-cache/` for that project. `modc test`
+redundant. `modc clean` removes `.pkg.*` artifacts (and leftover `.modc-cache`).
+`modc test`
 discovers `*_test.mc` files and builds them with the usual project-root /
 `import` rules—see [modc-test.md](modc-test.md).
 `modc doc` extracts package API docs from comments above non-`static`

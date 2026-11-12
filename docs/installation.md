@@ -58,7 +58,7 @@ If you are hacking on `modc` itself, the in-tree `./modc` uses the repo’s `src
 
 ### Versioning
 
-`modc -V` reports a **calendar version** `YYYY.MM.rev` (for example `2026.11.01`), defined as `MODC_VERSION` in `src/cli.h`. Bump it only when you cut an installable/release pair (tag, `make install` you care about, or a published build) — not on every local commit or GitHub push. Local rebuilds still invalidate `.modc-cache` via the driver binary stamp.
+`modc -V` reports a **calendar version** `YYYY.MM.rev` (for example `2026.11.01`), defined as `MODC_VERSION` in `src/cli.h`. Bump it only when you cut an installable/release pair (tag, `make install` you care about, or a published build) — not on every local commit or GitHub push. Local rebuilds still invalidate `.pkg.*` via the driver binary stamp in `.pkg.meta`.
 
 ---
 

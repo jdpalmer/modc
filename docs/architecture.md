@@ -18,7 +18,7 @@ self-hosting.
 | Parse | `parse_unit` | Recursive descent; builds AST and symbols. `opt.parse_only` skips function bodies (`modc check` API surface). |
 | Type | `type_expr` (during parse) + `type_check_unit` | Conversions during parse; whole-unit passes after (skipped when `parse_only` — body diagnostics need `build`). `TyError` poison suppresses cascade diagnostics after a primary error. |
 | Emit | `emit_qbe` / `emit_qbe_pkg` | QBE IL text |
-| Link | `modc build` in `cli_build.c` | `qbe` → host `cc`; cache under `.modc-cache/` |
+| Link | `modc build` in `cli_build.c` | `qbe` → host `cc`; per-package `.pkg.o` |
 
 Package builds discover an import graph (`pkg_discover`), typecheck the
 stitched units once, then emit per-package objects when caching. See
@@ -44,7 +44,7 @@ stitched units once, then emit per-package objects when caching. See
 | [fmt.c](../src/fmt.c) | `modc format` ([modc-format.md](modc-format.md)) |
 | [cli.h](../src/cli.h) | Shared CLI types (`CliOpts`) and prototypes |
 | [main.c](../src/main.c) | CLI entry, usage, path/sysinc setup, flag parsing |
-| [cli_build.c](../src/cli_build.c) | Compile graph, package cache, foreign objs, link |
+| [cli_build.c](../src/cli_build.c) | Compile graph, package cache, fold `c_sources`, link |
 | [cli_cmd.c](../src/cli_cmd.c) | Subcommands (`check`, `emit`, `build`, `run`, …) |
 | [host_os.c](../src/host_os.c) / [host_os.h](../src/host_os.h) | Paths, dirs, processes (POSIX / Win32) |
 | [host/include/](../src/host/include/) | Hosted C stubs for `#include` interop |
@@ -68,8 +68,8 @@ The language frontend runs from lex through emit. Output is QBE text, or
 check-only with no emit.
 
 The CLI (`modc build` / `run` / `test`) invokes `qbe` and the host
-assembler/linker, compiles `#pragma modc c_sources`, applies frameworks and
-`-l`, and reuses `.modc-cache/`.
+assembler/linker, folds `#pragma modc c_sources` into each package `.pkg.o`,
+applies frameworks and `-l`, and reuses per-package `.pkg.*` artifacts.
 
 Install layout and how to build the compiler itself are in
 [installation.md](installation.md).

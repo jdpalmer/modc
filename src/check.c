@@ -2398,7 +2398,7 @@ expr_may_dead(EscapeState* st, Node* n) {
 					if (sym_is_released(st, s))
 						return 1;
 				}
-				if (ft->param_returned && ft->param_returned[j] &&
+				if (ft->param_borrows && ft->param_borrows[j] &&
 				    expr_may_dead(st, n->children[j]))
 					return 1;
 			}
@@ -2651,12 +2651,12 @@ expr_may_stack(EscapeState* st, Node* n) {
 		int j, lim;
 
 		ft = call_func_type(n);
-		if (ft && ft->param_returned) {
+		if (ft && ft->param_borrows) {
 			lim = n->children_len;
 			if (lim > ft->params_len)
 				lim = ft->params_len;
 			for (j = 0; j < lim; j++) {
-				if (ft->param_returned[j] &&
+				if (ft->param_borrows[j] &&
 				    expr_may_stack(st, n->children[j]))
 					return 1;
 			}
@@ -2863,14 +2863,14 @@ note_retains_param_bits(EscapeState* st, uint64_t bits) {
 }
 
 static void
-note_returned_param_bits(EscapeState* st, uint64_t bits) {
+note_borrows_param_bits(EscapeState* st, uint64_t bits) {
 	int i;
 
 	if (!st->infer || bits == 0 || st->fnty == NULL)
 		return;
 	for (i = 0; i < st->nparams && i < MaxParams; i++) {
 		if (bits & ((uint64_t)1 << i))
-			mark_param_flag(st, st->fnty->param_returned, i);
+			mark_param_flag(st, st->fnty->param_borrows, i);
 	}
 }
 
@@ -2970,7 +2970,7 @@ esc_add_region_deps_from_expr(EscapeState* st, Symbol* dst, Node* src) {
 				r = consume_target_sym(src->children[j]);
 				esc_add_region_dep(st, dst, r);
 			}
-			if (ft->param_returned && ft->param_returned[j])
+			if (ft->param_borrows && ft->param_borrows[j])
 				esc_add_region_deps_from_expr(st, dst, src->children[j]);
 		}
 	}
@@ -3499,7 +3499,7 @@ esc_on_escape_value(Compiler* c, EscapeState* st, Node* n, int via_return) {
 		return;
 	}
 	if (via_return) {
-		note_returned_param_bits(st, expr_param_bits(st, n));
+		note_borrows_param_bits(st, expr_param_bits(st, n));
 		if (expr_carries_owned(st, n)) {
 			if (!st->fn_provides) {
 				if (st->diag)
