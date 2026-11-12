@@ -372,6 +372,12 @@ host_access_read(const char* path) {
 	return _access(path, 4) == 0 ? 0 : -1;
 }
 
+/* 0 if path is writable; -1 otherwise. */
+int
+host_access_write(const char* path) {
+	return _access(path, 2) == 0 ? 0 : -1;
+}
+
 // Create one directory (not parents); 0 if created or already exists.
 int
 host_mkdir(const char* path) {
@@ -966,6 +972,12 @@ host_exists(const char* path) {
 int
 host_access_read(const char* path) {
 	return access(path, R_OK) == 0 ? 0 : -1;
+}
+
+/* 0 if path is writable; -1 otherwise. */
+int
+host_access_write(const char* path) {
+	return access(path, W_OK) == 0 ? 0 : -1;
 }
 
 // Create one directory (not parents); 0 if created or already exists.

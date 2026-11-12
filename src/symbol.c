@@ -171,14 +171,25 @@ symbol_set_home(Compiler* c, Symbol* s, Span sp) {
 }
 
 // Headers may use C's tag/ordinary homonyms (e.g. struct if_nameindex +
-// if_nameindex()). User .mc keeps a single unified namespace with no clash.
+// if_nameindex(), struct stat + stat()). User .mc keeps a single unified
+// namespace with no clash.
 static int
 header_tag_homonym_ok(Compiler* c, Symbol* old, Span sp) {
 	if (old == NULL)
 		return 0;
-	if (user_source(c, sp) || user_source(c, old->span))
+	if (!(old->kind == SkTag || old->kind == SkFunc || old->kind == SkVar))
 		return 0;
-	return old->kind == SkTag || old->kind == SkFunc || old->kind == SkVar;
+	/*
+	 * The declaration being added is in a header: allow pairing with a
+	 * same-spelling tag/func/var. Trust the new span (include tokens) even
+	 * when the earlier tag's span.file was attributed to the includer.
+	 */
+	if (!user_source(c, sp))
+		return 1;
+	/* Tag defined in a header beside an existing ordinary name. */
+	if (!user_source(c, old->span))
+		return 1;
+	return 0;
 }
 
 // Insert or update a symbol, handling tags, labels, shadowing, and redefs.

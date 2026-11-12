@@ -468,6 +468,35 @@ check-special: $(MODC)
 	@MODC_PKG=$(BUILD)/verstamp/pkg ./modc -V >$(BUILD)/verstamp_ok.out 2>$(BUILD)/verstamp_ok.err
 	@! grep -q 'stdlib at' $(BUILD)/verstamp_ok.err
 	@grep -q '$(MODC_VERSION)' $(BUILD)/verstamp_ok.out
+	# --- readonly stdlib freeze: bad knobs + unwritable dir → shipped hit ---
+	@rm -rf $(BUILD)/cache_rofreeze
+	@mkdir -p $(BUILD)/cache_rofreeze/pkg/lib $(BUILD)/cache_rofreeze/app
+	@printf '%s\n' 'int lib_val() { return 3; }' >$(BUILD)/cache_rofreeze/pkg/lib/mod.mc
+	@printf '%s\n' 'import "lib";' \
+		'int main() { return lib_val() == 3 ? 0 : 1; }' \
+		>$(BUILD)/cache_rofreeze/app/main.mc
+	MODC_PKG=$(BUILD)/cache_rofreeze/pkg ./modc build \
+		$(BUILD)/cache_rofreeze/app/main.mc -o $(BUILD)/cache_rofreeze/out
+	$(BUILD)/cache_rofreeze/out
+	@test -f $(BUILD)/cache_rofreeze/pkg/lib/.pkg.meta
+	@test -f $(BUILD)/cache_rofreeze/pkg/lib/.pkg.o
+	@cp $(BUILD)/cache_rofreeze/pkg/lib/.pkg.meta $(BUILD)/cache_rofreeze/lib.meta.bak
+	@cp $(BUILD)/cache_rofreeze/pkg/lib/.pkg.o $(BUILD)/cache_rofreeze/lib.o.bak
+	@printf '%s\n' 'knobs = 0000000000000000' >$(BUILD)/cache_rofreeze/badknob.txt
+	@awk 'BEGIN{done=0} /^knobs =/{print "knobs = 0000000000000000"; done=1; next} {print} END{exit done?0:1}' \
+		$(BUILD)/cache_rofreeze/pkg/lib/.pkg.meta >$(BUILD)/cache_rofreeze/lib.meta.bad
+	@mv $(BUILD)/cache_rofreeze/lib.meta.bad $(BUILD)/cache_rofreeze/pkg/lib/.pkg.meta
+	@chmod a-w $(BUILD)/cache_rofreeze/pkg/lib $(BUILD)/cache_rofreeze/pkg/lib/.pkg.meta \
+		$(BUILD)/cache_rofreeze/pkg/lib/.pkg.mc $(BUILD)/cache_rofreeze/pkg/lib/.pkg.o \
+		$(BUILD)/cache_rofreeze/pkg/lib/mod.mc
+	MODC_PKG=$(BUILD)/cache_rofreeze/pkg ./modc build -v \
+		$(BUILD)/cache_rofreeze/app/main.mc -o $(BUILD)/cache_rofreeze/out \
+		2>&1 | tee $(BUILD)/cache_rofreeze/freeze.log
+	@grep -q 'cache hit pkg lib' $(BUILD)/cache_rofreeze/freeze.log
+	@grep -Fq 'knobs = 0000000000000000' $(BUILD)/cache_rofreeze/pkg/lib/.pkg.meta
+	@cmp -s $(BUILD)/cache_rofreeze/pkg/lib/.pkg.o $(BUILD)/cache_rofreeze/lib.o.bak
+	$(BUILD)/cache_rofreeze/out
+	@chmod -R u+w $(BUILD)/cache_rofreeze/pkg/lib
 
 install: $(MODC)
 	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg
@@ -489,6 +518,26 @@ install: $(MODC)
 	# cp -R keeps the source tree's modes (often 600/700 under Dropbox); normalize.
 	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type d -exec chmod 755 {} +
 	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type f -exec chmod 644 {} +
+	# Source-tree .pkg.meta knobs include the build-tree driver/include paths.
+	# Rebuild once with the installed binary from an empty cwd so .pkg.* match
+	# the installed prefix. MODC_PKG/INCLUDE pin DESTDIR staging trees.
+	# Readonly stdlib freeze still covers knob drift (cc/qbe) for non-root users.
+	@tmpdir=`mktemp -d` && \
+	  printf '%s\n' \
+	    'import "str";' \
+	    'import "path";' \
+	    'import "fs";' \
+	    'import "os";' \
+	    'import "tty";' \
+	    'import "crash";' \
+	    'int main() { return 0; }' >$$tmpdir/stamp.mc && \
+	  (cd $$tmpdir && \
+	    MODC_PKG=$(DESTDIR)$(MODCLIB)/pkg \
+	    MODC_INCLUDE=$(DESTDIR)$(MODCLIB)/include \
+	    $(DESTDIR)$(BINDIR)/modc build stamp.mc -o stamp) && \
+	  rm -rf $$tmpdir && \
+	  find $(DESTDIR)$(MODCLIB)/pkg -type d -exec chmod 755 {} + && \
+	  find $(DESTDIR)$(MODCLIB)/pkg -type f -exec chmod 644 {} +
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/modc

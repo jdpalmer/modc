@@ -1652,8 +1652,54 @@ pkg_refresh_hits(BuildPkg* pkgs, int npkgs, uint64_t knobs, int require_obj) {
 	}
 }
 
+/*
+ * True when pkg_dir is under modc_pkg (installed or in-tree stdlib root).
+ * Uses realpath/abspath so symlink installs still match.
+ */
+static int
+pkg_under_modc_pkg(Compiler* c, const char* pkg_dir) {
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX];
+	size_t n;
+
+	if (c == NULL || c->paths.modc_pkg == NULL || c->paths.modc_pkg[0] == 0 ||
+	    pkg_dir == NULL || pkg_dir[0] == 0)
+		return 0;
+	if (host_realpath(c->paths.modc_pkg, root, sizeof(root)) != 0) {
+		if (host_abspath(c->paths.modc_pkg, root, sizeof(root)) != 0)
+			snprintf(root, sizeof(root), "%s", c->paths.modc_pkg);
+	}
+	if (host_realpath(pkg_dir, abs, sizeof(abs)) != 0) {
+		if (host_abspath(pkg_dir, abs, sizeof(abs)) != 0)
+			snprintf(abs, sizeof(abs), "%s", pkg_dir);
+	}
+	n = strlen(root);
+	while (n > 1 && (root[n - 1] == '/' || root[n - 1] == '\\'))
+		root[--n] = 0;
+	if (n == 0 || strncmp(abs, root, n) != 0)
+		return 0;
+	return abs[n] == 0 || host_path_is_sep((unsigned char)abs[n]);
+}
+
+/*
+ * Shipped stdlib hit: under modc_pkg, artifacts present, package dir not
+ * writable. Skips knob/meta rewrite so root-owned installs stay usable when
+ * the driver's knobs differ from the stamped .pkg.meta (cc/qbe path, etc.).
+ */
+static int
+pkg_stdlib_readonly_hit(Compiler* c, BuildPkg* pkg, int require_obj) {
+	if (pkg == NULL || !pkg_under_modc_pkg(c, pkg->dir))
+		return 0;
+	if (!host_is_file(pkg->ifacepath))
+		return 0;
+	if (require_obj && !host_is_file(pkg->objpath))
+		return 0;
+	if (host_access_write(pkg->dir) == 0)
+		return 0;
+	return 1;
+}
+
 static void
-pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, int require_obj) {
+pkg_fill_keys(Compiler* c, BuildPkg* pkgs, int npkgs, uint64_t knobs, int require_obj) {
 	int i;
 	uint64_t h;
 
@@ -1668,8 +1714,11 @@ pkg_fill_keys(BuildPkg* pkgs, int npkgs, uint64_t knobs, int require_obj) {
 	}
 	pkg_resolve_ifaces(pkgs, npkgs);
 	pkg_refresh_hits(pkgs, npkgs, knobs, require_obj);
-	for (i = 0; i < npkgs; i++)
+	for (i = 0; i < npkgs; i++) {
+		if (!pkgs[i].hit && pkg_stdlib_readonly_hit(c, &pkgs[i], require_obj))
+			pkgs[i].hit = 1;
 		pkgs[i].need_emit = !pkgs[i].hit;
+	}
 }
 
 // Record direct imports and transitive reachability among build packages.
@@ -2633,7 +2682,7 @@ pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState
 		pkgs_free_files(st);
 		return 1;
 	}
-	pkg_fill_keys(st->pkgs, st->npkgs, st->knobs, require_obj);
+	pkg_fill_keys(c, st->pkgs, st->npkgs, st->knobs, require_obj);
 	return 0;
 }
 

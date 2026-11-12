@@ -56,6 +56,13 @@ curated POSIX and thin Win32 headers used by `fs` / `os`. See
 
 If you are hacking on `modc` itself, the in-tree `./modc` uses the repo’s `src/host/include` and package dirs (no `VERSION` file — no mismatch warning). The installed binary finds headers/packages relative to its location (or `MODC_INCLUDE` / `MODC_PKG`). If an installed `lib/modc/VERSION` does not match the binary, `modc` prints a warning (re-install, or point `MODC_PKG` at a matching tree).
 
+`make install` restamps stdlib `.pkg.*` with the installed driver (empty temp
+cwd, `MODC_PKG` / `MODC_INCLUDE` pinned to the install prefix) so knobs match
+`$PREFIX`. If a stdlib package under `modc_pkg` already has `.pkg.mc` /
+`.pkg.o` and its directory is not writable, the driver treats it as a shipped
+hit and does not rewrite meta — so root-owned installs stay usable when host
+toolchain stamps in the knobs drift.
+
 ### Versioning
 
 `modc -V` reports a **calendar version** `YYYY.MM.rev` (for example `2026.11.01`), defined as `MODC_VERSION` in `src/cli.h`. Bump it only when you cut an installable/release pair (tag, `make install` you care about, or a published build) — not on every local commit or GitHub push. Local rebuilds still invalidate `.pkg.*` via the driver binary stamp in `.pkg.meta`.

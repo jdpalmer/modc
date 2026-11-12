@@ -33,6 +33,7 @@ int host_is_file(const char* path);
 int host_is_symlink(const char* path);
 int host_exists(const char* path);
 int host_access_read(const char* path); /* 0 if readable */
+int host_access_write(const char* path); /* 0 if writable */
 /* mtime (unix nanoseconds since epoch) + size for cache identity; 0 ok. */
 int host_file_stamp(const char* path, long long* mtime_nsec, unsigned long long* size);
 /* Resolve bare command name on PATH into out; 0 ok. */

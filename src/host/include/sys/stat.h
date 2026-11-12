@@ -7,10 +7,11 @@
 #include <sys/types.h>
 #include <time.h>
 
-/* S_IFMT / S_IFDIR / S_IFREG on Darwin and Linux. */
+/* S_IFMT / S_IFDIR / S_IFREG / S_IFLNK on Darwin and Linux (decimal; no octal). */
 #define S_IFMT 61440
 #define S_IFDIR 16384
 #define S_IFREG 32768
+#define S_IFLNK 40960
 
 #ifdef __APPLE__
 struct stat {
@@ -77,6 +78,9 @@ struct stat {
 #endif
 
 int stat(const char *path, struct stat *st);
+#ifndef _WIN32
+int lstat(const char *path, struct stat *st);
+#endif
 int mkdir(const char *path, mode_t mode);
 #ifndef _WIN32
 int chmod(const char *path, mode_t mode); /* also in <unistd.h> */
