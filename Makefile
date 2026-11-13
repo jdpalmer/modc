@@ -497,6 +497,12 @@ check-special: $(MODC)
 	@cmp -s $(BUILD)/cache_rofreeze/pkg/lib/.pkg.o $(BUILD)/cache_rofreeze/lib.o.bak
 	$(BUILD)/cache_rofreeze/out
 	@chmod -R u+w $(BUILD)/cache_rofreeze/pkg/lib
+	# --- install: MODC_BIN destination + runnable binary ---
+	@rm -rf $(BUILD)/install_bin
+	@mkdir -p $(BUILD)/install_bin
+	MODC_BIN=$(BUILD)/install_bin ./modc install test/cli_build_test.mc
+	@test -x $(BUILD)/install_bin/cli_build_test
+	$(BUILD)/install_bin/cli_build_test
 
 install: $(MODC)
 	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg

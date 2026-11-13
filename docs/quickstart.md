@@ -38,11 +38,14 @@ modc build                    # build current dir; default output build/<dir>
 modc build hello.mc           # → build/hello (override with -o)
 modc build hello.mc -o hello  # modc → modc-qbe → cc → binary
 modc build pkgdir/            # same for a package directory
+modc install                  # build and install into $MODC_BIN or ~/bin
 modc check hello.mc           # API/signature check only (not function bodies)
 modc emit hello.mc            # QBE IL to stdout
 modc run hello.mc             # build temp, run, delete
 modc build hello.mc -o hello -- -lglfw   # extra linker flags after --
 ```
+
+`modc install` is for developers: it builds the current package (or a path) for the host and copies the binary into `$MODC_BIN` if set, otherwise `~/bin` on POSIX or `%LOCALAPPDATA%\modc\bin` on Windows. Use `-o name` for the basename or `-o path` for an explicit destination. End users should prefer release binaries or Homebrew recipes.
 
 `modc check` type-checks the import graph's **API surface** (types, signatures, globals) and skips function bodies — same idea as an interface parse. It can exit **0** even when `build` would fail on body diagnostics (dead-init, releases, escapes, …). A hit means a package's generated `.pkg.mc` is still valid for **this** `modc` binary (the driver stamp is part of the build knobs). For “build until clean” loops and CI, use `modc build` (or `modc test` / selftest), not `check` alone.
 

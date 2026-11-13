@@ -390,7 +390,10 @@ typecheck failure.
 plus its packages, applies `c_libs` / frameworks, and links; directory roots
 omit `*_test.mc`. The project root is inferred automatically, so the usual
 project command is simply `modc build`; `-M .` remains accepted but is
-redundant. `modc clean` removes `.pkg.*` artifacts (and leftover `.modc-cache`).
+redundant. `modc install` builds for the host and publishes the binary into
+`$MODC_BIN` (or `~/bin` / `%LOCALAPPDATA%\modc\bin`) for developer PATH use;
+it is not a package registry or end-user installer. `modc clean` removes
+`.pkg.*` artifacts (and leftover `.modc-cache`).
 `modc test`
 discovers `*_test.mc` files and builds them with the usual project-root /
 `import` rules—see [modc-test.md](modc-test.md).

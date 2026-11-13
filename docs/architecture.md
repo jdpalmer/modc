@@ -45,7 +45,7 @@ stitched units once, then emit per-package objects when caching. See
 | [cli.h](../src/cli.h) | Shared CLI types (`CliOpts`) and prototypes |
 | [main.c](../src/main.c) | CLI entry, usage, path/sysinc setup, flag parsing |
 | [cli_build.c](../src/cli_build.c) | Compile graph, package cache, fold `c_sources`, link |
-| [cli_cmd.c](../src/cli_cmd.c) | Subcommands (`check`, `emit`, `build`, `run`, …) |
+| [cli_cmd.c](../src/cli_cmd.c) | Subcommands (`check`, `emit`, `build`, `run`, `install`, …) |
 | [host_os.c](../src/host_os.c) / [host_os.h](../src/host_os.h) | Paths, dirs, processes (POSIX / Win32) |
 | [host/include/](../src/host/include/) | Hosted C stubs for `#include` interop |
 

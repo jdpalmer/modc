@@ -184,6 +184,31 @@ usage(const char* sub) {
 			"  -h, --help       show help\n");
 		exit(sub ? 0 : 1);
 	}
+	if (sub && strcmp(sub, "install") == 0) {
+		fprintf(stderr,
+			"usage: modc install [options] [file.mc|dir] [-o name|path] [-- cc-args...]\n"
+			"\n"
+			"Build a host executable and install it for developer use.\n"
+			"Default destination: $MODC_BIN/<name>, or ~/bin/<name>\n"
+			"(%%LOCALAPPDATA%%/modc/bin on Windows).\n"
+			"With -o name, install as that basename; with -o path, install there.\n"
+			"End users should prefer release binaries or Homebrew recipes.\n"
+			"\n"
+			"Options:\n"
+			"  -o, --output NAME|PATH      install basename or full path\n"
+			"  -D, --define NAME[=VALUE]\n"
+			"  -I, --include-dir DIR\n"
+			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
+			"  -F DIR                      framework search path\n"
+			"      --no-system-includes\n"
+			"      --release\n"
+			"      --target host            only host installs are supported\n"
+			"  -h, --help\n"
+			"  -v, --verbose               print invoked commands\n"
+			"\n"
+			"Arguments after -- are passed to the linker.\n");
+		exit(sub ? 0 : 1);
+	}
 	if (sub && strcmp(sub, "clean") == 0) {
 		fprintf(stderr,
 			"usage: modc clean [options] [path]\n"
@@ -211,6 +236,7 @@ usage(const char* sub) {
 		"  modc doc   [options] [target]\n"
 		"  modc format file.mc...\n"
 		"  modc vendor [options]\n"
+		"  modc install [options] [file.mc|dir] [-o name|path]\n"
 		"  modc clean [options] [path]\n"
 		"  modc help [command]\n"
 		"\n"
@@ -241,7 +267,7 @@ version(void) {
 // True if s is a known top-level modc subcommand name.
 static int
 is_subcmd(const char* s) {
-	return s && (!strcmp(s, "check") || !strcmp(s, "emit") || !strcmp(s, "build") || !strcmp(s, "run") || !strcmp(s, "test") || !strcmp(s, "selftest") || !strcmp(s, "doc") || !strcmp(s, "format") || !strcmp(s, "vendor") || !strcmp(s, "clean") || !strcmp(s, "help"));
+	return s && (!strcmp(s, "check") || !strcmp(s, "emit") || !strcmp(s, "build") || !strcmp(s, "run") || !strcmp(s, "test") || !strcmp(s, "selftest") || !strcmp(s, "doc") || !strcmp(s, "format") || !strcmp(s, "vendor") || !strcmp(s, "install") || !strcmp(s, "clean") || !strcmp(s, "help"));
 }
 
 // Append a -I path to driver options (takes ownership of path pointer).
@@ -924,6 +950,8 @@ int main(int argc, char** argv) {
 		return cmd_format(&c, &o, argc, argv);
 	if (strcmp(sub, "vendor") == 0)
 		return vendor_cmd(argc, argv);
+	if (strcmp(sub, "install") == 0)
+		return cmd_install(&c, &o, argc, argv);
 	if (strcmp(sub, "clean") == 0)
 		return cmd_clean(&o, argc, argv);
 	usage(NULL);

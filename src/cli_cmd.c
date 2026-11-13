@@ -1,8 +1,9 @@
 /*
- * CLI subcommands: check, emit, build, run, test, doc, format, clean.
+ * CLI subcommands: check, emit, build, run, test, doc, format, install, clean.
  */
 #include "cli.h"
 #ifndef _WIN32
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -686,6 +687,180 @@ clean_pkg_artifacts(const char* dir, int verbose) {
 	}
 	host_closedir(d);
 	return n;
+}
+
+/* Default developer bin dir: $MODC_BIN, else ~/bin (POSIX) or
+ * %LOCALAPPDATA%/modc/bin (Windows). */
+static int
+install_default_bindir(char* out, size_t n) {
+	const char* e;
+
+	e = getenv("MODC_BIN");
+	if (e && e[0]) {
+		if (snprintf(out, n, "%s", e) >= (int)n)
+			return -1;
+		return 0;
+	}
+#ifdef _WIN32
+	e = getenv("LOCALAPPDATA");
+	if (e && e[0]) {
+		if (snprintf(out, n, "%s/modc/bin", e) >= (int)n)
+			return -1;
+		return 0;
+	}
+	e = getenv("USERPROFILE");
+	if (e && e[0]) {
+		if (snprintf(out, n, "%s/modc/bin", e) >= (int)n)
+			return -1;
+		return 0;
+	}
+#else
+	e = getenv("HOME");
+	if (e && e[0]) {
+		if (snprintf(out, n, "%s/bin", e) >= (int)n)
+			return -1;
+		return 0;
+	}
+#endif
+	return -1;
+}
+
+/* mkdir -p for every parent of path (file or dir). */
+static int
+install_mkdir_parents(const char* path) {
+	char buf[HOST_PATH_MAX];
+	size_t i, n, start;
+
+	if (path == NULL || path[0] == 0)
+		return -1;
+	if (snprintf(buf, sizeof(buf), "%s", path) >= (int)sizeof(buf))
+		return -1;
+	host_path_slashify(buf);
+	n = strlen(buf);
+	start = 1;
+#ifdef _WIN32
+	if (n >= 3 && buf[1] == ':' && buf[2] == '/')
+		start = 3;
+#endif
+	for (i = start; i < n; i++) {
+		if (buf[i] != '/')
+			continue;
+		buf[i] = 0;
+		if (buf[0] && host_mkdir(buf) != 0 && !host_is_dir(buf))
+			return -1;
+		buf[i] = '/';
+	}
+	return 0;
+}
+
+/* Basename for the installed binary (with .exe on Windows). */
+static char*
+install_bin_name(const char* path, int target) {
+	char* def;
+	const char* base;
+	char* name;
+
+	def = default_out_name(path, target);
+	base = host_path_basename(def);
+	name = xstrdup(base);
+	free(def);
+	return name;
+}
+
+// modc install: build and publish an executable into a developer bin dir.
+int
+cmd_install(Compiler* c, CliOpts* o, int argc, char** argv) {
+	char dir[HOST_PATH_MAX], bindir[HOST_PATH_MAX];
+	char dest[HOST_PATH_MAX], tmp[HOST_PATH_MAX];
+	char* name;
+	const char* outspec;
+	int i, r;
+
+	i = 2;
+	r = parse_common(c, o, &i, argc, argv, 1);
+	if (r < 0) {
+		usage("install");
+		return 0;
+	}
+	if (r != 0)
+		return 1;
+	apply_cli(c, o);
+	ensure_build_root(o);
+	if (o->files_len != 1) {
+		fprintf(stderr, "modc install: at most one input path (file or directory)\n");
+		return 1;
+	}
+	if (o->target != TargetHost) {
+		fprintf(stderr,
+			"modc install: only --target=host is supported "
+			"(use 'modc build --target=… -o …' for cross builds)\n");
+		return 1;
+	}
+
+	outspec = o->output;
+	name = NULL;
+	if (outspec && (host_path_is_abs(outspec) || host_path_has_sep(outspec))) {
+		if (snprintf(dest, sizeof(dest), "%s", outspec) >= (int)sizeof(dest)) {
+			fprintf(stderr, "modc install: -o path too long\n");
+			return 1;
+		}
+	} else {
+		if (install_default_bindir(bindir, sizeof(bindir)) != 0) {
+			fprintf(stderr,
+				"modc install: set MODC_BIN to a writable directory"
+#ifdef _WIN32
+				" (or LOCALAPPDATA / USERPROFILE)\n");
+#else
+				" (or HOME)\n");
+#endif
+			return 1;
+		}
+		if (outspec)
+			name = xstrdup(outspec);
+		else
+			name = install_bin_name(o->files[0], o->target);
+		if (snprintf(dest, sizeof(dest), "%s/%s", bindir, name) >= (int)sizeof(dest)) {
+			free(name);
+			fprintf(stderr, "modc install: install path too long\n");
+			return 1;
+		}
+		free(name);
+		name = NULL;
+	}
+	host_path_slashify(dest);
+	if (install_mkdir_parents(dest) != 0) {
+		fprintf(stderr, "modc install: cannot create directory for %s\n", dest);
+		return 1;
+	}
+	if (snprintf(tmp, sizeof(tmp), "%s.modc-tmp", dest) >= (int)sizeof(tmp)) {
+		fprintf(stderr, "modc install: temp path too long\n");
+		return 1;
+	}
+	if (o->verbose)
+		fprintf(stderr, "installing %s -> %s\n", o->files[0], dest);
+	if (host_mkdtemp(dir, sizeof(dir), "modc-build") != 0) {
+		fprintf(stderr, "modc: cannot create temp dir: %s\n", strerror(errno));
+		return 1;
+	}
+	r = compile_link_exe(c, o, o->files[0], dir, tmp);
+	cleanup_tmpdir(dir);
+	if (r != 0) {
+		(void)host_unlink(tmp);
+		return r;
+	}
+	if (host_publish_file(tmp, dest) != 0) {
+		fprintf(stderr, "modc install: cannot write %s: %s\n", dest, strerror(errno));
+		(void)host_unlink(tmp);
+		return 1;
+	}
+#ifndef _WIN32
+	if (chmod(dest, 0755) != 0) {
+		fprintf(stderr, "modc install: chmod %s: %s\n", dest, strerror(errno));
+		return 1;
+	}
+#endif
+	fprintf(stderr, "installed %s\n", dest);
+	return 0;
 }
 
 // modc clean: remove .pkg.* artifacts and any leftover .modc-cache.
