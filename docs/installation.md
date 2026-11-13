@@ -12,7 +12,7 @@ On macOS (and Linux with Homebrew), install from the tap:
 brew install jdpalmer/tap/modc
 ```
 
-That pulls in Homebrew’s `qbe` and installs:
+That pulls in `modc-qbe` (the patched QBE fork) and installs:
 
 ```sh
 $(brew --prefix)/bin/modc
@@ -29,6 +29,8 @@ shipped yet — use **build from source** below.
 ## Prerequisites
 
 `modc` requires a host C compiler both to build `modc` itself and also to assemble and link `modc build` output. `clang` and `gcc` are supported on Posix-like systems (e.g., MacOS, Linux), while Visual Studio with `clang` is required on Windows.
+
+Linking also needs **`modc-qbe`** on `PATH` (or `MODC_QBE` pointing at the binary) — the patched [QBE fork](https://github.com/jdpalmer/qbe), not upstream/`brew` `qbe`. Install with `brew install jdpalmer/tap/modc-qbe`, or build that repo and `make install`.
 
 ---
 
@@ -78,7 +80,7 @@ toolchain stamps in the knobs drift.
 
 ## Windows (VS Clang + nmake)
 
-On Windows you will need **Visual Studio** with Desktop C++ and the **Clang/LLVM** component. You will need `qbe` compiled for Windows and installed in your `PATH`.
+On Windows you will need **Visual Studio** with Desktop C++ and the **Clang/LLVM** component. You will need `modc-qbe` (the patched QBE fork) compiled for Windows and installed in your `PATH`.
 
 With these preequisites installed, open an **x64 Native Tools** / Developer shell and build with:
 
@@ -107,7 +109,7 @@ For a more complete guide on getting started with %C, please refer to [`quicksta
 
 ## Cross-compile Win64 from macOS (MinGW + CrossOver)
 
-Prerequisites: `x86_64-w64-mingw32-gcc` (e.g. `brew install mingw-w64`), `qbe`
+Prerequisites: `x86_64-w64-mingw32-gcc` (e.g. `brew install mingw-w64`), `modc-qbe`
 with `amd64_win`, and either [CrossOver](https://www.codeweavers.com/) or
 Homebrew `wine`/`wine64`.
 

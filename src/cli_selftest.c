@@ -625,7 +625,7 @@ selftest_run_one(Compiler* c, CliOpts* o, const char* mc) {
 	if (host_is_file(main_c)) {
 		qbe = getenv("MODC_QBE");
 		if (qbe == NULL || qbe[0] == 0)
-			qbe = "qbe";
+			qbe = "modc-qbe";
 		argv[0] = qbe;
 		argv[1] = "-o";
 		argv[2] = asm_out;

@@ -18,7 +18,7 @@ self-hosting.
 | Parse | `parse_unit` | Recursive descent; builds AST and symbols. `opt.parse_only` skips function bodies (`modc check` API surface). |
 | Type | `type_expr` (during parse) + `type_check_unit` | Conversions during parse; whole-unit passes after (skipped when `parse_only` — body diagnostics need `build`). `TyError` poison suppresses cascade diagnostics after a primary error. |
 | Emit | `emit_qbe` / `emit_qbe_pkg` | QBE IL text |
-| Link | `modc build` in `cli_build.c` | `qbe` → host `cc`; per-package `.pkg.o` |
+| Link | `modc build` in `cli_build.c` | `modc-qbe` → host `cc`; per-package `.pkg.o` |
 
 Package builds discover an import graph (`pkg_discover`), typecheck the
 stitched units once, then emit per-package objects when caching. See
@@ -67,7 +67,7 @@ stricter on user sources. Details are in [interop.md](interop.md).
 The language frontend runs from lex through emit. Output is QBE text, or
 check-only with no emit.
 
-The CLI (`modc build` / `run` / `test`) invokes `qbe` and the host
+The CLI (`modc build` / `run` / `test`) invokes `modc-qbe` and the host
 assembler/linker, folds `#pragma modc c_sources` into each package `.pkg.o`,
 applies frameworks and `-l`, and reuses per-package `.pkg.*` artifacts.
 

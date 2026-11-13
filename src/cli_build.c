@@ -730,14 +730,17 @@ tool_cc(Compiler* c) {
 #endif
 }
 
-// Path to the qbe binary (MODC_QBE or a real file on disk / PATH).
+// Path to modc-qbe (MODC_QBE override, else modc-qbe on disk / PATH).
+// Intentionally does not fall back to upstream "qbe" — wrong backends cause
+// subtle codegen bugs.
 static const char*
 tool_qbe(void) {
 	const char* q;
 	static char pathbuf[HOST_PATH_MAX];
+	static int missing_noted;
 	static const char* abs_cands[] = {
-		"/opt/homebrew/bin/qbe",
-		"/usr/local/bin/qbe",
+		"/opt/homebrew/bin/modc-qbe",
+		"/usr/local/bin/modc-qbe",
 		NULL
 	};
 	int i;
@@ -753,10 +756,10 @@ tool_qbe(void) {
 		return NULL;
 	}
 #ifdef _WIN32
-	if (host_is_file("qbe.exe"))
-		return "qbe.exe";
-	if (host_is_file("./qbe.exe"))
-		return "./qbe.exe";
+	if (host_is_file("modc-qbe.exe"))
+		return "modc-qbe.exe";
+	if (host_is_file("./modc-qbe.exe"))
+		return "./modc-qbe.exe";
 #endif
 	for (i = 0; abs_cands[i]; i++) {
 		if (tool_is_exe(abs_cands[i]))
@@ -771,7 +774,7 @@ tool_qbe(void) {
 			if (n > 0 && n < sizeof(piece)) {
 				memcpy(piece, path, n);
 				piece[n] = 0;
-				snprintf(pathbuf, sizeof(pathbuf), "%s/qbe", piece);
+				snprintf(pathbuf, sizeof(pathbuf), "%s/modc-qbe", piece);
 				if (tool_is_exe(pathbuf))
 					return pathbuf;
 			}
@@ -780,7 +783,13 @@ tool_qbe(void) {
 			path += n + 1;
 		}
 	}
-	return "qbe";
+	if (!missing_noted) {
+		fprintf(stderr,
+			"modc: modc-qbe not found (brew install jdpalmer/tap/modc-qbe, "
+			"or set MODC_QBE)\n");
+		missing_noted = 1;
+	}
+	return NULL;
 }
 
 // QBE -t triple for --target / host (or MODC_QBE_TARGET).
