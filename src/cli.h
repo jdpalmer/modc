@@ -17,7 +17,7 @@
 #endif
 
 /* Public CalVer: YYYY.MM.rev — bump only for install/tag/release, not every push. */
-#define MODC_VERSION "2026.11.01"
+#define MODC_VERSION "2026.11.02"
 
 /* Installed layout: $PREFIX/bin/modc + $PREFIX/lib/modc/{include,pkg}/ */
 #define MODC_REL_INCLUDE "../lib/modc/include"
