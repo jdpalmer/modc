@@ -53,7 +53,7 @@ usage(const char* sub) {
 		fprintf(stderr,
 			"usage: modc build [options] [file.mc|dir] [-o prog] [-- cc-args...]\n"
 			"\n"
-			"Compile and link: modc -> qbe -> system cc.\n"
+			"Compile and link: modc -> modc-qbe -> system cc.\n"
 			"With no path, builds the current directory (all .mc sources).\n"
 			"A directory is compiled like a package (mod.mc first if present).\n"
 			"\n"
@@ -199,7 +199,7 @@ usage(const char* sub) {
 		exit(sub ? 0 : 1);
 	}
 	fprintf(stderr,
-		"modc %s — the %%C compiler (modc -> qbe -> cc)\n"
+		"modc %s — the %%C compiler (modc -> modc-qbe -> cc)\n"
 		"\n"
 		"Usage:\n"
 		"  modc check [options] file...\n"

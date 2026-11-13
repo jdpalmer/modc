@@ -12,7 +12,7 @@
 # add $(BUILD)\name.o here — the compile rule is shared below.
 
 CC = clang
-QBE = qbe.exe
+QBE = modc-qbe.exe
 QBEFLAGS = -t amd64_win
 
 # Forward-slash paths for -D string macros (escape-friendly).
