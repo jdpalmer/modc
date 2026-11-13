@@ -103,6 +103,11 @@ cd helloworld
 modc build
 ```
 
+Developers who want the resulting binary on their `PATH` can use
+`modc install` (writes to `$MODC_BIN`, or `~/bin` / `%LOCALAPPDATA%\modc\bin`).
+That command is for local tooling workflows; end users should prefer release
+binaries or Homebrew recipes.
+
 For a more complete guide on getting started with %C, please refer to [`quickstart`](quickstart.md).
 
 ---
