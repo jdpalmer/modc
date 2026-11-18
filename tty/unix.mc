@@ -8,9 +8,9 @@ import "fs";
 #include <termios.h>
 #include <sys/ioctl.h>
 
-enum { TtySavedMax = 8 };
+static enum { TtySavedMax = 8 };
 
-struct TtySaved {
+static struct TtySaved {
 	int fd;
 	int valid;
 	struct termios saved;
@@ -42,6 +42,7 @@ static struct TtySaved* tty_slot(int fd, int create) {
 	return &tty_saved[free_i];
 }
 
+// True if f is an open terminal.
 bool tty_isatty(File* f) {
 	int fd = file_fd(f);
 	if (fd < 0) {
@@ -50,6 +51,7 @@ bool tty_isatty(File* f) {
 	return isatty(fd) != 0;
 }
 
+// Save the terminal mode and enter raw mode; false if f is not a terminal.
 bool tty_set_raw(File* f) {
 	int fd = file_fd(f);
 	if (fd < 0 || isatty(fd) == 0) {
@@ -70,6 +72,7 @@ bool tty_set_raw(File* f) {
 	return tcsetattr(fd, TCSANOW, &t) == 0;
 }
 
+// Restore the mode saved by tty_set_raw; false if none was saved.
 bool tty_set_cooked(File* f) {
 	int fd = file_fd(f);
 	if (fd < 0 || isatty(fd) == 0) {
@@ -86,6 +89,7 @@ bool tty_set_cooked(File* f) {
 	return true;
 }
 
+// Terminal rows and columns; false if f is not a terminal.
 (WinSize, bool) tty_size(File* f) {
 	int fd = file_fd(f);
 	struct winsize ws = { 0 };
@@ -99,18 +103,22 @@ bool tty_set_cooked(File* f) {
 	return (out, true);
 }
 
+// Borrowed File for standard input; close does not close fd 0.
 [[provides]] (File, bool) tty_stdin() {
 	return file_from_fd_borrow(STDIN_FILENO);
 }
 
+// Borrowed File for standard output; close does not close fd 1.
 [[provides]] (File, bool) tty_stdout() {
 	return file_from_fd_borrow(STDOUT_FILENO);
 }
 
+// Borrowed File for standard error; close does not close fd 2.
 [[provides]] (File, bool) tty_stderr() {
 	return file_from_fd_borrow(STDERR_FILENO);
 }
 
+// Re-apply terminal modes after ANSI output; no-op on POSIX.
 void tty_reapply_editor_mode(File* f) {
 	(void)f;
 }

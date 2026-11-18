@@ -17,9 +17,12 @@
 #include <signal.h>
 #endif
 
+// Maximum number of cleanups crash_init can register.
 enum { CrashMaxCleanups = 8 };
+// Capacity of the fatal-message buffer (bytes, including NUL).
 enum { CrashMsgCap = 512 };
 
+// Cleanup callback run (LIFO) before the process aborts.
 typedef void (*CrashCleanup)();
 
 static CrashCleanup crash_cleanups[CrashMaxCleanups];
@@ -152,6 +155,7 @@ static void crash_install_faults() {
 #endif
 }
 
+// Register a cleanup and install fault handlers; NULL only installs handlers.
 void crash_init(CrashCleanup fn) {
 	if (fn != NULL && crash_ncleanups < CrashMaxCleanups) {
 		crash_cleanups[crash_ncleanups] = fn;
@@ -297,11 +301,13 @@ static const char* crash_zmsg(const char[..] msg, char* buf, size_t cap) {
 	return buf;
 }
 
+// Write msg to stderr, run cleanups, and abort.
 overload void panic(const char[..] msg) {
 	char buf[CrashMsgCap] = { 0 };
 	__modc_fatal(NULL, 0, crash_zmsg(msg, buf, CrashMsgCap));
 }
 
+// Like panic(msg), prefixed with file:line.
 overload void panic(const char[..] file, int line, const char[..] msg) {
 	char fbuf[CrashMsgCap] = { 0 };
 	char mbuf[CrashMsgCap] = { 0 };

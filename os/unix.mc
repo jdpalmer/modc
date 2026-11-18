@@ -11,7 +11,7 @@
 
 /* Unix Cmd / Poll helpers for os/mod.mc. */
 
-enum {
+static enum {
 	OsIoInherit = 0,
 	OsIoNull = 1,
 	OsIoPipe = 2,
@@ -24,7 +24,7 @@ enum {
 	OsPathMax = 4096
 };
 
-struct OsCmd {
+static struct OsCmd {
 	char* file;
 	char* argv[OsArgMax];
 	int nargs;
@@ -40,7 +40,7 @@ struct OsCmd {
 	int status;
 };
 
-struct OsPollSlot {
+static struct OsPollSlot {
 	int is_cmd;
 	void* file;
 	/* File* */
@@ -53,14 +53,14 @@ struct OsPollSlot {
 	int ready;
 };
 
-struct OsPoll {
+static struct OsPoll {
 	struct OsPollSlot slot[OsPollMax];
 	int n;
 	int nready;
 	int ready_idx[OsPollMax];
 };
 
-void ocmd_clear_stdio(OsCmd* c) {
+static void ocmd_clear_stdio(OsCmd* c) {
 	int i = 0;
 	for (; i < 3; i++) {
 		c.mode[i] = OsIoInherit;
@@ -71,7 +71,7 @@ void ocmd_clear_stdio(OsCmd* c) {
 	}
 }
 
-[[provides]] OsCmd* ocmd_new() {
+[[provides]] static OsCmd* ocmd_new() {
 	OsCmd* c = (OsCmd *)malloc(sizeof(*c));
 	int i = 0;
 	if (c == 0) {
@@ -86,7 +86,7 @@ void ocmd_clear_stdio(OsCmd* c) {
 	return c;
 }
 
-void ocmd_free_args(OsCmd* c) {
+static void ocmd_free_args(OsCmd* c) {
 	int i = 0;
 	for (; i < c.nargs; i++) {
 		free(c.argv[i]);
@@ -97,7 +97,7 @@ void ocmd_free_args(OsCmd* c) {
 	c.file = 0;
 }
 
-void ocmd_free_env(OsCmd* c) {
+static void ocmd_free_env(OsCmd* c) {
 	int i = 0;
 	for (; i < c.nenv; i++) {
 		free(c.ekey[i]);
@@ -108,7 +108,7 @@ void ocmd_free_env(OsCmd* c) {
 	c.nenv = 0;
 }
 
-void ocmd_free([[releases]] OsCmd* c) {
+static void ocmd_free([[releases]] OsCmd* c) {
 	if (c == 0) {
 		return;
 	}
@@ -119,7 +119,7 @@ void ocmd_free([[releases]] OsCmd* c) {
 	free(c);
 }
 
-[[provides]] char* ocmd_strdup(const char *s, size_t n) {
+[[provides]] static char* ocmd_strdup(const char *s, size_t n) {
 	char* p = (char*)malloc(n + 1);
 	if (p == 0) {
 		return 0;
@@ -134,7 +134,7 @@ void ocmd_free([[releases]] OsCmd* c) {
 	return p;
 }
 
-int ocmd_init(OsCmd* c, const char *path, size_t pathn) {
+static int ocmd_init(OsCmd* c, const char *path, size_t pathn) {
 	if (c == 0 || path == 0 || pathn == 0) {
 		return 0;
 	}
@@ -153,7 +153,7 @@ int ocmd_init(OsCmd* c, const char *path, size_t pathn) {
 	return 1;
 }
 
-int ocmd_add_arg(OsCmd* c, const char *s, size_t n) {
+static int ocmd_add_arg(OsCmd* c, const char *s, size_t n) {
 	if (c == 0 || c.nargs + 1 >= OsArgMax) {
 		return 0;
 	}
@@ -166,7 +166,7 @@ int ocmd_add_arg(OsCmd* c, const char *s, size_t n) {
 	return 1;
 }
 
-int ocmd_set_dir(OsCmd* c, const char *d, size_t n) {
+static int ocmd_set_dir(OsCmd* c, const char *d, size_t n) {
 	free(c.dir);
 	c.dir = 0;
 	if (n == 0) {
@@ -176,7 +176,7 @@ int ocmd_set_dir(OsCmd* c, const char *d, size_t n) {
 	return c.dir != 0;
 }
 
-int ocmd_set_env(OsCmd* c, const char *k, size_t kn, const char *v, size_t vn) {
+static int ocmd_set_env(OsCmd* c, const char *k, size_t kn, const char *v, size_t vn) {
 	int i = 0;
 	if (c == 0 || kn == 0) {
 		return 0;
@@ -204,7 +204,7 @@ int ocmd_set_env(OsCmd* c, const char *k, size_t kn, const char *v, size_t vn) {
 	return 1;
 }
 
-int ocmd_stdio(OsCmd* c, int which, int mode) {
+static int ocmd_stdio(OsCmd* c, int which, int mode) {
 	if (c == 0 || which < 0 || which > 2) {
 		return 0;
 	}
@@ -220,7 +220,7 @@ int ocmd_stdio(OsCmd* c, int which, int mode) {
 }
 
 /* Returns parent fd via *parent_fd; child stored on cmd. Caller wraps parent. */
-int ocmd_pipe(OsCmd* c, int which, int* parent_fd) {
+static int ocmd_pipe(OsCmd* c, int which, int* parent_fd) {
 	int pfd[2] = { 0 };
 	if (c == 0 || parent_fd == 0 || which < 0 || which > 2) {
 		return 0;
@@ -241,11 +241,11 @@ int ocmd_pipe(OsCmd* c, int which, int* parent_fd) {
 	return 1;
 }
 
-int ocmd_path_is_abs(const char *p) {
+static int ocmd_path_is_abs(const char *p) {
 	return p != 0 && *p == '/';
 }
 
-int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
+static int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 	if (name == 0 || *name == 0 || dst == 0 || dstcap < 2) {
 		return 0;
 	}
@@ -296,7 +296,7 @@ int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 	return 0;
 }
 
-char** ocmd_build_env(OsCmd* c) {
+static char** ocmd_build_env(OsCmd* c) {
 	char** e = environ;
 	int n = 0;
 	if (e) {
@@ -368,7 +368,7 @@ char** ocmd_build_env(OsCmd* c) {
 	return env;
 }
 
-void ocmd_free_envp(char** env, OsCmd* c) {
+static void ocmd_free_envp(char** env, OsCmd* c) {
 	int i = 0;
 	int nparent = 0;
 	int nenv = 0;
@@ -409,12 +409,12 @@ void ocmd_free_envp(char** env, OsCmd* c) {
 	(void)c;
 }
 
-int ocmd_open_null(int wr) {
+static int ocmd_open_null(int wr) {
 	int fd = open("/dev/null", wr ? O_WRONLY: O_RDONLY);
 	return fd;
 }
 
-int ocmd_start(OsCmd* c) {
+static int ocmd_start(OsCmd* c) {
 	char resolved[OsPathMax] = { 0 };
 	if (c == 0 || c.file == 0 || c.started) {
 		return 0;
@@ -488,7 +488,7 @@ int ocmd_start(OsCmd* c) {
 	return 1;
 }
 
-int ocmd_status_code(int st) {
+static int ocmd_status_code(int st) {
 	if (WIFEXITED(st)) {
 		return WEXITSTATUS(st);
 	}
@@ -498,7 +498,7 @@ int ocmd_status_code(int st) {
 	return st;
 }
 
-int ocmd_wait(OsCmd* c, int* code) {
+static int ocmd_wait(OsCmd* c, int* code) {
 	int st = 0;
 	if (c == 0 || code == 0) {
 		return 0;
@@ -521,7 +521,7 @@ int ocmd_wait(OsCmd* c, int* code) {
 }
 
 /* Non-blocking reap for Poll. Returns 1 if exited (reaped). */
-int ocmd_poll_reap(OsCmd* c) {
+static int ocmd_poll_reap(OsCmd* c) {
 	int st = 0;
 	if (c == 0 || !c.started || c.reaped) {
 		return c && c.reaped;
@@ -538,7 +538,7 @@ int ocmd_poll_reap(OsCmd* c) {
 	return 1;
 }
 
-void ocmd_close(OsCmd* c) {
+static void ocmd_close(OsCmd* c) {
 	if (c == 0) {
 		return;
 	}
@@ -553,11 +553,11 @@ void ocmd_close(OsCmd* c) {
 	c.pid = -1;
 }
 
-void opoll_init(OsPoll* p) {
+static void opoll_init(OsPoll* p) {
 	memset(p, 0, sizeof(*p));
 }
 
-int opoll_add_file(OsPoll* p, void* file, int events) {
+static int opoll_add_file(OsPoll* p, void* file, int events) {
 	int i = 0;
 	if (p == 0 || file == 0 || p.n >= OsPollMax) {
 		return 0;
@@ -578,7 +578,7 @@ int opoll_add_file(OsPoll* p, void* file, int events) {
 	return 1;
 }
 
-int opoll_add_cmd(OsPoll* p, void* cmd_handle, void* ocmd) {
+static int opoll_add_cmd(OsPoll* p, void* cmd_handle, void* ocmd) {
 	int i = 0;
 	if (p == 0 || cmd_handle == 0 || ocmd == 0 || p.n >= OsPollMax) {
 		return 0;
@@ -599,7 +599,7 @@ int opoll_add_cmd(OsPoll* p, void* cmd_handle, void* ocmd) {
 	return 1;
 }
 
-void opoll_reset(OsPoll* p) {
+static void opoll_reset(OsPoll* p) {
 	if (p == 0) {
 		return;
 	}
@@ -620,7 +620,7 @@ void opoll_reset(OsPoll* p) {
    - takes int fd_for_slot[OsPollMax] (-1 for cmds)
    - returns nready
 */
-int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
+static int opoll_wait(OsPoll* p, int* fds, int timeout_ms) {
 	struct pollfd pf[OsPollMax] = { 0 };
 	int map[OsPollMax] = { 0 };
 	int np = 0;

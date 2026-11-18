@@ -34,11 +34,13 @@ dead. That is the same surface importers see via `import`. Functions,
 typedefs, package-visible variables, and complete named `struct` / `union` /
 `enum` types **defined in the target package** are listed. A comment above a
 tag-only definition (`struct T { … };` / `enum E { … };`) attaches to that
-tag. Output order is stable: types, then variables, then functions/methods;
-each group sorted by name (methods as `Recv.name`). Anonymous enum constants
-appear as `enum { Name = N }`. Header-only symbols, compiler builtins
-(`__modc_*`), package-private (`static`) types, and symbols from imports /
-other packages are omitted.
+tag. A comment above an anonymous `enum { … }` attaches to each enumerator.
+Leading `[[attributes]]` do not steal the doc comment. Output order is stable:
+types, then variables, then functions/methods; each group sorted by name
+(methods as `Recv.name`). Anonymous enum constants appear as
+`enum { Name = N }`. Header-only symbols, compiler builtins (`__modc_*`),
+package-private (`static`) types, and symbols from imports / other packages
+are omitted.
 
 ## Command
 

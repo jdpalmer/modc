@@ -4,9 +4,9 @@ import "fs";
 #include <windows.h>
 #include <stddef.h>
 
-enum { TtySavedMax = 8 };
+static enum { TtySavedMax = 8 };
 
-struct TtySaved {
+static struct TtySaved {
 	HANDLE h;
 	int valid;
 	DWORD saved_mode;
@@ -59,11 +59,13 @@ static struct TtySaved* tty_slot(HANDLE h, int create) {
 	return &tty_saved[free_i];
 }
 
+// True if f is an open console.
 bool tty_isatty(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
 	return tty_is_console(h) != 0;
 }
 
+// Save the console mode and enter raw mode (VT input, UTF-8); false if f is not a console.
 bool tty_set_raw(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
 	HANDLE hout = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -109,6 +111,7 @@ bool tty_set_raw(File* f) {
 	return true;
 }
 
+// Restore the mode saved by tty_set_raw; false if none was saved.
 bool tty_set_cooked(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
 	if (!tty_is_console(h)) {
@@ -157,6 +160,7 @@ void tty_reapply_editor_mode(File* f) {
 	}
 }
 
+// Console rows and columns; false if f is not a console.
 (WinSize, bool) tty_size(File* f) {
 	HANDLE h = (HANDLE)file_handle(f);
 	CONSOLE_SCREEN_BUFFER_INFO info = { 0 };
@@ -171,14 +175,17 @@ void tty_reapply_editor_mode(File* f) {
 	return (out, true);
 }
 
+// Borrowed File for standard input; close does not close the handle.
 [[provides]] (File, bool) tty_stdin() {
 	return file_from_handle_borrow(GetStdHandle(STD_INPUT_HANDLE));
 }
 
+// Borrowed File for standard output; close does not close the handle.
 [[provides]] (File, bool) tty_stdout() {
 	return file_from_handle_borrow(GetStdHandle(STD_OUTPUT_HANDLE));
 }
 
+// Borrowed File for standard error; close does not close the handle.
 [[provides]] (File, bool) tty_stderr() {
 	return file_from_handle_borrow(GetStdHandle(STD_ERROR_HANDLE));
 }

@@ -488,6 +488,14 @@ check-special: $(MODC)
 	@./modc doc --check -M test docpkg.add >/dev/null 2>$(BUILD)/doc_check_add.err; test $$? -eq 0
 	@./modc doc --check -M test docpkg.point_eq >/dev/null 2>$(BUILD)/doc_check_eq.err; test $$? -ne 0
 	@grep -Fq "undoc'd export 'point_eq'" $(BUILD)/doc_check_eq.err
+	# Stdlib packages are fully documented (or package-private).
+	@./modc doc --check str >/dev/null
+	@./modc doc --check path >/dev/null
+	@./modc doc --check fs >/dev/null
+	@./modc doc --check os >/dev/null
+	@./modc doc --check tty >/dev/null
+	@./modc doc --check crash >/dev/null
+	@./modc doc str.str_dup | grep -Fq 'Malloc a copy of src'
 	# --- includes: -F link + hermetic nosys ---
 	./modc build -Ftest/fwk_root test/fwk_include_ok.mc -o $(BUILD)/fwk_include-bin
 	$(BUILD)/fwk_include-bin

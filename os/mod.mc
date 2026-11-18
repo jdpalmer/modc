@@ -13,19 +13,22 @@ import "fs";
 #include <stdlib.h>
 #include <string.h>
 
-enum { OsCap = 4096 };
+static enum { OsCap = 4096 };
 
+// Cmd stdio stream selectors.
 enum {
 	StdIn = 0,
 	StdOut = 1,
 	StdErr = 2
 };
 
+// Cmd.stdio modes: inherit the parent's stream, or connect it to the null device.
 enum {
 	IoInherit = 0,
 	IoNull = 1
 };
 
+// Poll event bits (add_file events and ready_file results).
 enum {
 	PollIn = 1,
 	PollOut = 2,
@@ -33,10 +36,12 @@ enum {
 	PollErr = 8
 };
 
+// Child process (argv spawn, no shell); zero-init then init. Do not copy by value.
 struct Cmd {
 	static void* native;
 };
 
+// Readiness set over File and Cmd; do not copy by value.
 struct Poll {
 	static void* native;
 };
@@ -72,6 +77,7 @@ static int os_zcopy(const char[..] s, char* buf, size_t cap) {
 #include <poll.h>
 #endif
 
+// Look up key in the process environment; the view is valid until the next os_set_env of key.
 (bool, char[..]) os_env(const char[..] key) {
 #ifdef _WIN32
 	static char buf[OsCap] = { 0 };
@@ -105,6 +111,7 @@ static int os_zcopy(const char[..] s, char* buf, size_t cap) {
 #endif
 }
 
+// Set key to val; an empty val unsets it.
 bool os_set_env(const char[..] key, const char[..] val) {
 #ifdef _WIN32
 	char zkey[OsCap] = { 0 };
@@ -194,6 +201,7 @@ bool os_set_env(const char[..] key, const char[..] val) {
 #endif
 }
 
+// Current directory as a logical path minted into p.
 (char[..], bool) os_cwd([[region]] Pool* p) {
 	if (p == NULL) {
 		return (os_empty(), false);
@@ -397,6 +405,7 @@ static(char[..], bool) os_env_dir([[region]] Pool* p, const char* key) {
 #endif
 }
 
+// Change the current directory to a logical path.
 bool os_chdir(const char[..] path) {
 #ifdef _WIN32
 	char host[OsCap] = { 0 };
@@ -416,6 +425,7 @@ bool os_chdir(const char[..] path) {
 #endif
 }
 
+// Sleep for ms milliseconds; negative is 0.
 void os_sleep_ms(int64_t ms) {
 #ifdef _WIN32
 	unsigned u = 0;
@@ -436,6 +446,7 @@ void os_sleep_ms(int64_t ms) {
 #endif
 }
 
+// Monotonic nanoseconds from an arbitrary epoch; 0 if unavailable.
 int64_t os_mono_ns() {
 #ifdef _WIN32
 	static int64_t freq = 0;
@@ -463,10 +474,12 @@ int64_t os_mono_ns() {
 #endif
 }
 
+// Exit the process with code; does not return.
 void os_exit(int code) {
 	exit(code);
 }
 
+// Resolve name via PATH (or return it if it contains '/'), minted into p.
 (char[..], bool) os_look_path([[region]] Pool* p, const char[..] name) {
 	char host[OsPathMax] = { 0 };
 	char[..] out = { 0 };
@@ -493,6 +506,7 @@ void os_exit(int code) {
 	return (out, true);
 }
 
+// Set the program and its remaining argv; bare names are resolved via PATH on start.
 void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 	if (c.native != NULL) {
 		ocmd_free((OsCmd *)c.native);
@@ -524,6 +538,7 @@ void (Cmd* c).init(const char[..] path, const char[..]* args, size_t nargs) {
 	c.native = blob;
 }
 
+// Set the child's working directory; empty restores the default.
 bool (Cmd* c).dir(const char[..] d) {
 	if (c.native == NULL) {
 		return false;
@@ -535,6 +550,7 @@ bool (Cmd* c).dir(const char[..] d) {
 	return ocmd_set_dir(blob, (const char*)(void*)d, len(d)) != 0;
 }
 
+// Set an environment variable for the child.
 bool (Cmd* c).env(const char[..] key, const char[..] val) {
 	if (c.native == NULL || len(key) == 0) {
 		return false;
@@ -543,6 +559,7 @@ bool (Cmd* c).env(const char[..] key, const char[..] val) {
 	return ocmd_set_env(blob, (const char*)(void*)key, len(key), (const char*)(void*)val, len(val)) != 0;
 }
 
+// Set which (StdIn/StdOut/StdErr) to IoInherit or IoNull.
 bool (Cmd* c).stdio(int which, int mode) {
 	if (c.native == NULL) {
 		return false;
@@ -551,6 +568,7 @@ bool (Cmd* c).stdio(int which, int mode) {
 	return ocmd_stdio(blob, which, mode) != 0;
 }
 
+// Connect which to a pipe and return the parent's end; the caller closes it.
 [[provides]] (File, bool) (Cmd* c).pipe(int which) {
 	File f = { 0 };
 	if (c.native == NULL) {
@@ -590,6 +608,7 @@ bool (Cmd* c).stdio(int which, int mode) {
 #endif
 }
 
+// Spawn the child.
 bool (Cmd* c).start() {
 	if (c.native == NULL) {
 		return false;
@@ -598,6 +617,7 @@ bool (Cmd* c).start() {
 	return ocmd_start(blob) != 0;
 }
 
+// Block until the child exits and return its exit code.
 (int, bool) (Cmd* c).wait() {
 	int code = 0;
 	if (c.native == NULL) {
@@ -610,6 +630,7 @@ bool (Cmd* c).start() {
 	return (code, true);
 }
 
+// Kill and reap the child if still running, then release the handle.
 void ([[releases]] Cmd* c).close() {
 	if (c.native == NULL) {
 		return;
@@ -619,6 +640,7 @@ void ([[releases]] Cmd* c).close() {
 	c.native = NULL;
 }
 
+// Prepare an empty Poll; discards any previous state.
 void (Poll* p).init() {
 	if (p.native != NULL) {
 		free(p.native);
@@ -632,6 +654,7 @@ void (Poll* p).init() {
 	p.native = blob;
 }
 
+// Watch f for events (PollIn/PollOut/...). Duplicates fail; capacity is 16.
 bool (Poll* p).add_file([[retains]] File* f, int events) {
 	if (p.native == NULL || f == NULL) {
 		return false;
@@ -649,6 +672,7 @@ bool (Poll* p).add_file([[retains]] File* f, int events) {
 	return opoll_add_file(blob, f, events) != 0;
 }
 
+// Watch c for exit. Duplicates fail; capacity is 16.
 bool (Poll* p).add_cmd([[retains]] Cmd* c) {
 	if (p.native == NULL || c == NULL || c.native == NULL) {
 		return false;
@@ -657,6 +681,7 @@ bool (Poll* p).add_cmd([[retains]] Cmd* c) {
 	return opoll_add_cmd(blob, c, c.native) != 0;
 }
 
+// Wait up to timeout_ms (negative blocks, 0 polls); returns the ready count.
 (int, bool) (Poll* p).wait(int64_t timeout_ms) {
 	if (p.native == NULL) {
 		return (0, false);
@@ -699,6 +724,7 @@ bool (Poll* p).add_cmd([[retains]] Cmd* c) {
 	return (n, true);
 }
 
+// Number of ready entries from the last wait.
 int (Poll* p).ready_count() {
 	if (p.native == NULL) {
 		return 0;
@@ -707,6 +733,7 @@ int (Poll* p).ready_count() {
 	return blob.nready;
 }
 
+// Ready entry i as (File, revents); (NULL, 0) if that entry is not a file.
 (File *, int) (Poll* p).ready_file(int i) {
 	if (p.native == NULL || i < 0) {
 		return ((File *)0, 0);
@@ -722,6 +749,7 @@ int (Poll* p).ready_count() {
 	return ((File *)blob.slot[si].file, blob.slot[si].revents);
 }
 
+// Ready entry i as a Cmd, or NULL if that entry is not a command.
 Cmd* (Poll* p).ready_cmd(int i) {
 	if (p.native == NULL || i < 0) {
 		return NULL;
@@ -737,6 +765,7 @@ Cmd* (Poll* p).ready_cmd(int i) {
 	return (Cmd *)blob.slot[si].cmd;
 }
 
+// Drop all registrations.
 void (Poll* p).reset() {
 	if (p.native == NULL) {
 		return;
@@ -745,6 +774,7 @@ void (Poll* p).reset() {
 	opoll_reset(blob);
 }
 
+// Release the handle.
 void ([[releases]] Poll* p).close() {
 	if (p.native == NULL) {
 		return;

@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <string.h>
 
+// Suggested buffer size for host-path conversion (bytes, including NUL).
 enum { PathMax = 4096 };
 
 static bool path_slash(char c) {

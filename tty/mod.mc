@@ -12,6 +12,7 @@
 // Bodies live in unix.mc / win32.mc (no prototypes in .mc files).
 import "fs";
 
+// Terminal size in character cells.
 struct WinSize {
 	int rows;
 	int cols;

@@ -7,7 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-int fs_sys_stat(char* path, int* kind, int64_t* size, int64_t* mtime) {
+static int fs_sys_stat(char* path, int* kind, int64_t* size, int64_t* mtime) {
 	struct stat st = { 0 };
 	if (path == 0 || kind == 0 || size == 0 || mtime == 0) {
 		return 0;
@@ -40,14 +40,14 @@ int fs_sys_stat(char* path, int* kind, int64_t* size, int64_t* mtime) {
 	return 1;
 }
 
-[[provides]] void* fs_sys_opendir(char* path) {
+[[provides]] static void* fs_sys_opendir(char* path) {
 	if (path == 0) {
 		return 0;
 	}
 	return opendir(path);
 }
 
-int fs_sys_readdir(void* dp, char* name, size_t cap, size_t* nlen) {
+static int fs_sys_readdir(void* dp, char* name, size_t cap, size_t* nlen) {
 	if (dp == 0 || name == 0 || nlen == 0 || cap == 0) {
 		return -1;
 	}
@@ -72,7 +72,7 @@ int fs_sys_readdir(void* dp, char* name, size_t cap, size_t* nlen) {
 	return 1;
 }
 
-void fs_sys_closedir([[releases]] void* dp) {
+static void fs_sys_closedir([[releases]] void* dp) {
 	if (dp == 0) {
 		return;
 	}

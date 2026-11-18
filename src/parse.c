@@ -23,6 +23,8 @@ static int pending_pointee_const;
 static int pending_poly;
 /* Attributes seen inside declspecs (e.g. static [[nodiscard]] int f). */
 static unsigned pending_decl_attrs;
+/* Points at parse_decl_or_def's pending doc so parse_enum can attach it. */
+static char** parse_decl_doc;
 
 // Current token; never advances. Past EOF, returns the final TkEof.
 static Tok*
@@ -483,14 +485,17 @@ parse_enum(Compiler* c, int outer_storage) {
 	Type* et;
 	int64_t val;
 	Symbol* s;
+	Symbol* cons[64];
 	Node* n;
 	Span sp;
-	int estorage;
+	int estorage, ncons, i;
+	char* doc;
 
 	sp = peek(c)->span;
 	tag = NULL;
 	et = c->types.type_int;
 	estorage = outer_storage == StStatic ? StStatic : StNone;
+	ncons = 0;
 	if (peek(c)->kind == TkIdent)
 		tag = take(c)->s;
 	if (tag)
@@ -512,6 +517,8 @@ parse_enum(Compiler* c, int outer_storage) {
 		}
 		s = symbol_define(c, enm, SkEnumCon, et, estorage, peek(c)->span);
 		s->int_val = val;
+		if (ncons < (int)(sizeof(cons) / sizeof(cons[0])))
+			cons[ncons++] = s;
 		val++;
 		if (!eat(c, PnComma))
 			break;
@@ -525,6 +532,20 @@ parse_enum(Compiler* c, int outer_storage) {
 		if (estorage == StStatic)
 			et->pkg_private = 1;
 		return et;
+	}
+	/*
+	 * Anonymous enum: a comment above `enum { … }` attaches to each
+	 * enumerator (same text).
+	 */
+	if (parse_decl_doc && *parse_decl_doc && estorage != StStatic && ncons > 0) {
+		doc = *parse_decl_doc;
+		*parse_decl_doc = NULL;
+		for (i = 0; i < ncons; i++) {
+			if (cons[i]->doc && cons[i]->doc[0])
+				continue;
+			cons[i]->doc = xstrdup(doc);
+		}
+		free(doc);
 	}
 	/* Anonymous enum: enumerators carry StStatic; do not mark type_int. */
 	return c->types.type_int;
@@ -4128,12 +4149,18 @@ parse_decl_or_def(Compiler* c, int in_func) {
 
 	while (eat_pragma_op(c))
 		;
+	/*
+	 * Capture the pending doc before leading [[attrs]] / __declspec: the
+	 * lexer attaches it to the first token (often `[[`), and attribute
+	 * parsing would otherwise drop it (e.g. [[provides]] str_dup).
+	 */
+	doc = peek(c)->doc;
+	peek(c)->doc = NULL;
+	parse_decl_doc = &doc;
 	pending_decl_attrs = 0;
 	attrs = parse_attr_seq(c);
 	while (eat_vendor_attr(c) || eat_attr_specifier(c, &attrs))
 		;
-	doc = peek(c)->doc;
-	peek(c)->doc = NULL;
 	sp = peek(c)->span;
 	isoverload = 0;
 	ismethod = 0;
@@ -4141,6 +4168,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 	recv_name = NULL;
 	recv_ty = NULL;
 	if (atkw(c, KwStaticAssert)) {
+		parse_decl_doc = NULL;
 		free(doc);
 		parse_static_assert(c);
 		return;
@@ -4169,6 +4197,8 @@ parse_decl_or_def(Compiler* c, int in_func) {
 		}
 	}
 	attrs |= parse_attr_seq(c);
+	/* Anon-enum attach runs inside parse_declspec; stop sharing doc now. */
+	parse_decl_doc = NULL;
 	/*
 	 * Tag-only defs (`struct Point { … };` / `enum Color { … };`) have no
 	 * declarator name — attach the pending doc to the SkTag instead of

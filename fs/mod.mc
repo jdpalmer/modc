@@ -35,6 +35,8 @@ import "path";
 #include <stdlib.h>
 #include <string.h>
 
+// file_open flags (bitmask). OpenCreate implies write; OpenAppend seeks to end
+// before each write; OpenTrunc truncates when opening for write.
 enum {
 	OpenRead = 1,
 	OpenWrite = 2,
@@ -43,40 +45,48 @@ enum {
 	OpenTrunc = 16
 };
 
+// File.seek origins: start, current offset, end.
 enum {
 	SeekSet = 0,
 	SeekCur = 1,
 	SeekEnd = 2
 };
 
-enum { FsPathMax = 4096 };
+static enum { FsPathMax = 4096 };
 
+// Open file handle; zero-init is closed. Do not copy by value.
 struct File {
 	static void* native;
 };
 
+// FileInfo.kind values. KindOther is anything that is neither file nor directory.
 enum {
 	KindFile = 1,
 	KindDir = 2,
 	KindOther = 3
 };
 
+// Result of fs_stat; size is meaningful only for KindFile.
 struct FileInfo {
 	int kind;
 	int64_t size;
 	int64_t mtime_ns;
 };
 
+// Open directory handle; zero-init is closed. Do not copy by value.
 struct Dir {
 	static void* native;
 };
 
+// Buffer size used by Writer / Reader when cap is 0.
 enum { DefaultBufCap = 4096 };
 
+// Buffered writer over a File; do not copy by value.
 struct Writer {
 	static void* native;
 };
 
+// Buffered reader over a File; do not copy by value.
 struct Reader {
 	static void* native;
 };
@@ -106,7 +116,7 @@ static int fs_syspath(const char[..] path, char* buf, size_t cap) {
 }
 
 #ifndef _WIN32
-struct FsFd {
+static struct FsFd {
 	int fd;
 	int owns;
 };
@@ -147,6 +157,7 @@ static int fs_oflags(int flags) {
 }
 #endif
 
+// Open path with OpenRead/OpenWrite/... flags; the caller closes the File.
 [[provides]]
 (File, bool) file_open(const char[..] path, int flags) {
 	File f = { 0 };
@@ -293,6 +304,7 @@ void* file_handle(File* f) {
 #endif
 }
 
+// Read up to len(dst) bytes. (0, true) is EOF; (0, false) is an error.
 (int64_t, bool) (File* f).read(char[..] dst) {
 #ifdef _WIN32
 	int64_t n = 0;
@@ -322,6 +334,7 @@ void* file_handle(File* f) {
 #endif
 }
 
+// Write src; may be short, so callers loop. (0, false) is an error.
 (int64_t, bool) (File* f).write(const char[..] src) {
 #ifdef _WIN32
 	int64_t n = 0;
@@ -351,6 +364,7 @@ void* file_handle(File* f) {
 #endif
 }
 
+// Seek to off relative to whence; returns the new offset (fails on pipes).
 (int64_t, bool) (File* f).seek(int64_t off, int whence) {
 #ifdef _WIN32
 	int64_t got = 0;
@@ -387,6 +401,7 @@ void* file_handle(File* f) {
 #endif
 }
 
+// Close the file; idempotent, and a no-op on a closed or null File.
 void ([[releases]] File* f).close() {
 #ifdef _WIN32
 	if (f.native == NULL) {
@@ -407,7 +422,7 @@ void ([[releases]] File* f).close() {
 #endif
 }
 
-struct FsBufW {
+static struct FsBufW {
 	File owned;
 	File* borrow;
 	int owns;
@@ -416,7 +431,7 @@ struct FsBufW {
 	size_t len;
 };
 
-struct FsBufR {
+static struct FsBufR {
 	File owned;
 	File* borrow;
 	int owns;
@@ -622,6 +637,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 	return 1;
 }
 
+// Open path for buffered writing; the Writer owns the File. cap 0 uses DefaultBufCap.
 [[provides]]
 (Writer, bool) writer_open(const char[..] path, int flags, size_t cap) {
 	Writer w = { 0 };
@@ -644,6 +660,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 	return (w, true);
 }
 
+// Buffer writes to a borrowed File; close does not close it. cap 0 uses DefaultBufCap.
 [[provides]]
 (Writer, bool) writer_from_file([[retains]] File* f, size_t cap) {
 	Writer w = { 0 };
@@ -662,6 +679,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 	return (w, true);
 }
 
+// Buffer src for writing; (0, false) is an error.
 (int64_t, bool) (Writer* w).write(const char[..] src) {
 	size_t done = 0;
 	if (w.native == NULL) {
@@ -746,6 +764,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 	return (done, true);
 }
 
+// Write buffered data, holding back any incomplete UTF-8 tail.
 bool (Writer* w).flush() {
 	if (w.native == NULL) {
 		return false;
@@ -754,6 +773,7 @@ bool (Writer* w).flush() {
 	return fs_bufw_flush_safe(b) != 0;
 }
 
+// Flush everything and release the buffer; closes the File if owned.
 void ([[releases]] Writer* w).close() {
 	if (w.native == NULL) {
 		return;
@@ -768,6 +788,7 @@ void ([[releases]] Writer* w).close() {
 	w.native = NULL;
 }
 
+// Open path for buffered reading; the Reader owns the File. cap 0 uses DefaultBufCap.
 [[provides]]
 (Reader, bool) reader_open(const char[..] path, int flags, size_t cap) {
 	Reader r = { 0 };
@@ -790,6 +811,7 @@ void ([[releases]] Writer* w).close() {
 	return (r, true);
 }
 
+// Buffer reads from a borrowed File; close does not close it. cap 0 uses DefaultBufCap.
 [[provides]]
 (Reader, bool) reader_from_file([[retains]] File* f, size_t cap) {
 	Reader r = { 0 };
@@ -808,6 +830,7 @@ void ([[releases]] Writer* w).close() {
 	return (r, true);
 }
 
+// Read up to len(dst) bytes. (0, true) is EOF; (0, false) is an error.
 (int64_t, bool) (Reader* r).read(char[..] dst) {
 	size_t got = 0;
 	if (r.native == NULL) {
@@ -852,6 +875,7 @@ void ([[releases]] Writer* w).close() {
 	return (got, true);
 }
 
+// Release the buffer; closes the File if owned.
 void ([[releases]] Reader* r).close() {
 	if (r.native == NULL) {
 		return;
@@ -865,6 +889,7 @@ void ([[releases]] Reader* r).close() {
 	r.native = NULL;
 }
 
+// Remove a file or empty directory.
 bool fs_remove(const char[..] path) {
 #ifdef _WIN32
 	char zbuf[FsPathMax] = { 0 };
@@ -888,6 +913,7 @@ bool fs_remove(const char[..] path) {
 #endif
 }
 
+// Rename or move from to to.
 bool fs_rename(const char[..] from, const char[..] to) {
 #ifdef _WIN32
 	char zfrom[FsPathMax] = { 0 };
@@ -906,6 +932,7 @@ bool fs_rename(const char[..] from, const char[..] to) {
 #endif
 }
 
+// Create one directory level (no mkdir -p).
 bool fs_mkdir(const char[..] path) {
 #ifdef _WIN32
 	char zbuf[FsPathMax] = { 0 };
@@ -1386,9 +1413,9 @@ static(char[..], bool) fs_temp_base(char[..] rootbuf, const char[..] dir) {
 }
 
 #ifndef _WIN32
-enum { DirNameMax = 1024 };
+static enum { DirNameMax = 1024 };
 
-struct FsDir {
+static struct FsDir {
 	void* dp;
 	size_t nlen;
 	char name[1024];
@@ -1409,6 +1436,7 @@ static int fs_dotname(char* name, size_t n) {
 }
 #endif
 
+// Stat path, following symlinks; missing or dangling paths are !ok.
 (FileInfo, bool) fs_stat(const char[..] path) {
 	FileInfo info = { 0 };
 #ifdef _WIN32
@@ -1448,6 +1476,7 @@ static int fs_dotname(char* name, size_t n) {
 #endif
 }
 
+// Open a directory for iteration; fails if path is not a directory.
 [[provides]]
 (Dir, bool) dir_open(const char[..] path) {
 	Dir d = { 0 };
@@ -1485,6 +1514,7 @@ static int fs_dotname(char* name, size_t n) {
 #endif
 }
 
+// Next entry name, skipping . and ..; empty with true is the end, with false an error.
 (char[..], bool) (Dir* d).next() {
 #ifdef _WIN32
 	char* name = NULL;
@@ -1527,6 +1557,7 @@ static int fs_dotname(char* name, size_t n) {
 #endif
 }
 
+// Close the directory; idempotent.
 void ([[releases]] Dir* d).close() {
 #ifdef _WIN32
 	if (d.native == NULL) {
