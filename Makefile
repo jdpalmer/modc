@@ -453,6 +453,10 @@ check-special: $(MODC)
 	# --- doc ---
 	./modc doc -M test docpkg | grep -q 'add returns the sum'
 	./modc doc -M test docpkg.add | grep -q 'add(int a, int b)'
+	@./modc doc -M test docpkg | grep -Fq 'struct Point'
+	@./modc doc -M test docpkg | grep -Fq 'enum Color'
+	@./modc doc -M test docpkg | grep -Fq 'DocPkgMax = 8'
+	@./modc doc -M test docpkg.Point | grep -Fq 'struct Point'
 	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'
 	@! ./modc doc -M test docpkg | grep -q '^FILE\*'
 	@! ./modc doc -M test docpkg | grep -q '__modc_'

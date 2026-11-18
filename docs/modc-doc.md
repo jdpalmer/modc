@@ -30,10 +30,12 @@ Prefer short prose that describes what the API does and any preconditions (see
 [quickstart.md](quickstart.md)).
 
 Exported means file scope, not `static` / local / param, and not hidden or
-dead. That is the same surface importers see via `import`. Only functions,
-typedefs, and package-visible variables **defined in the target package** are
-listed. Header-only symbols, compiler builtins (`__modc_*`), and symbols from
-imports / other packages are omitted. Bare struct tags are not listed.
+dead. That is the same surface importers see via `import`. Functions,
+typedefs, package-visible variables, and complete named `struct` / `union` /
+`enum` types **defined in the target package** are listed (types first).
+Anonymous enum constants appear as `enum { Name = N }`. Header-only symbols,
+compiler builtins (`__modc_*`), package-private (`static`) types, and symbols
+from imports / other packages are omitted.
 
 ## Command
 
@@ -104,9 +106,11 @@ add(int a, int b) -> int
 add returns the sum of a and b.
 ```
 
-Functions print as `name(type pname, …) -> ret` (varargs as `...`). Typedefs
-print as `typedef T Name`. Other exports print as `T name`. Symbols without a
-doc comment still print the signature.
+Functions print as `name(type pname, …) -> ret` (varargs as `...`). Named
+aggregates print as `struct Name { … }` / `union` / `enum` with fields or
+enumerators. Typedefs print as `typedef T Name` (skipped when they only restate
+a named tag). Other exports print as `T name`. Symbols without a doc comment
+still print the signature.
 
 ## What it does not do
 

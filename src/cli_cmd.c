@@ -404,18 +404,195 @@ fmt_type(Type* t, char* buf, size_t n) {
 			snprintf(buf, n, "%s[]", inner);
 		return;
 	}
+	if ((t->kind == TyStruct || t->kind == TyUnion || t->kind == TyEnum) && t->tag &&
+	    t->tag[0]) {
+		snprintf(buf, n, "%s", t->tag);
+		return;
+	}
 	snprintf(buf, n, "%s", type_name(t));
+}
+
+static int
+doc_is_synth_tag(const char* tag) {
+	if (tag == NULL || tag[0] == 0)
+		return 0;
+	return strncmp(tag, "__Ranged", 8) == 0 || strncmp(tag, "__Tuple", 7) == 0;
+}
+
+static int
+doc_is_builtin_pool(Compiler* c, Type* t) {
+	return c && c->types.type_pool && t == c->types.type_pool;
+}
+
+static const char*
+doc_aggr_kw(Type* t) {
+	if (t == NULL)
+		return "struct";
+	if (t->kind == TyUnion)
+		return "union";
+	if (t->kind == TyEnum)
+		return "enum";
+	return "struct";
+}
+
+/* True if this typedef only restates a named tag (already printed as SkTag). */
+static int
+doc_typedef_redundant(Symbol* s) {
+	Type* t;
+
+	if (s == NULL || s->name == NULL)
+		return 1;
+	t = s->type;
+	if (t == NULL)
+		return 0;
+	if ((t->kind == TyStruct || t->kind == TyUnion || t->kind == TyEnum) && t->tag &&
+	    strcmp(t->tag, s->name) == 0)
+		return 1;
+	return 0;
+}
+
+/* Named enum/struct/union body members for doc (enum constants by value). */
+static void
+doc_print_enum_body(Compiler* c, Type* et) {
+	Symbol* s;
+	Symbol** cons;
+	int i, n, cap;
+
+	cons = NULL;
+	n = 0;
+	cap = 0;
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->kind != SkEnumCon || s->type != et)
+			continue;
+		if (s->header || s->dead || s->storage == StStatic)
+			continue;
+		if (n >= cap) {
+			cap = cap ? cap * 2 : 8;
+			cons = xrealloc(cons, (size_t)cap * sizeof(Symbol*));
+		}
+		cons[n++] = s;
+	}
+	for (i = 0; i < n; i++) {
+		int j;
+		for (j = i + 1; j < n; j++) {
+			if (cons[j]->int_val < cons[i]->int_val ||
+			    (cons[j]->int_val == cons[i]->int_val &&
+			     strcmp(cons[j]->name ? cons[j]->name : "",
+				    cons[i]->name ? cons[i]->name : "") < 0)) {
+				Symbol* tmp = cons[i];
+				cons[i] = cons[j];
+				cons[j] = tmp;
+			}
+		}
+	}
+	for (i = 0; i < n; i++) {
+		printf("\t%s = %" PRId64 "%s\n", cons[i]->name ? cons[i]->name : "?",
+		       (int64_t)cons[i]->int_val, i + 1 < n ? "," : "");
+	}
+	free(cons);
+}
+
+static void
+doc_print_field(Field* f) {
+	char ty[256];
+
+	if (f == NULL)
+		return;
+	printf("\t");
+	if (f->pkg_private)
+		printf("static ");
+	/* Anonymous embed: "Widget;" */
+	if ((f->name == NULL || f->name[0] == 0) && f->type &&
+	    (f->type->kind == TyStruct || f->type->kind == TyUnion || f->type->kind == TyEnum) &&
+	    f->type->tag && f->type->tag[0] && !doc_is_synth_tag(f->type->tag)) {
+		printf("%s;\n", f->type->tag);
+		return;
+	}
+	fmt_type(f->type, ty, sizeof(ty));
+	if (f->name && f->name[0])
+		printf("%s %s;\n", ty, f->name);
+	else
+		printf("%s;\n", ty);
+}
+
+static void
+doc_print_tag(Compiler* c, Symbol* s) {
+	Type* t;
+	Field* f;
+
+	t = s->type;
+	if (t == NULL || !t->complete || t->pkg_private)
+		return;
+	if (t->is_ranged || t->is_tuple || doc_is_synth_tag(t->tag) || doc_is_builtin_pool(c, t))
+		return;
+	if (t->kind != TyStruct && t->kind != TyUnion && t->kind != TyEnum)
+		return;
+	if (t->tag == NULL || t->tag[0] == 0)
+		return;
+	printf("%s %s {\n", doc_aggr_kw(t), t->tag);
+	if (t->kind == TyEnum)
+		doc_print_enum_body(c, t);
+	else {
+		for (f = t->fields; f; f = f->next)
+			doc_print_field(f);
+	}
+	printf("}\n");
+	if (s->doc && s->doc[0])
+		printf("%s\n", s->doc);
+}
+
+static void
+doc_print_typedef(Compiler* c, Symbol* s) {
+	Type* t;
+	char ret[256];
+
+	(void)c;
+	if (doc_typedef_redundant(s))
+		return;
+	t = s->type;
+	if (doc_is_builtin_pool(c, t) ||
+	    (s->name && strcmp(s->name, "Pool") == 0 && c->types.type_pool))
+		return;
+	fmt_type(t, ret, sizeof(ret));
+	printf("typedef %s %s\n", ret, s->name);
+	if (s->doc && s->doc[0])
+		printf("%s\n", s->doc);
+}
+
+static void
+doc_print_anon_enumcon(Symbol* s) {
+	Type* t;
+
+	t = s->type;
+	/* Named enums are printed via their SkTag body. */
+	if (t && t->kind == TyEnum && t->tag && t->tag[0] && !doc_is_synth_tag(t->tag))
+		return;
+	printf("enum { %s = %" PRId64 " }\n", s->name, (int64_t)s->int_val);
+	if (s->doc && s->doc[0])
+		printf("%s\n", s->doc);
 }
 
 // Print one exported symbol and its doc comment.
 static void
-print_sym_doc(Symbol* s) {
+print_sym_doc(Compiler* c, Symbol* s) {
 	Type* t;
 	char ret[256], arg[256];
 	int i;
 
 	if (s == NULL || s->name == NULL)
 		return;
+	if (s->kind == SkTag) {
+		doc_print_tag(c, s);
+		return;
+	}
+	if (s->kind == SkTypedef) {
+		doc_print_typedef(c, s);
+		return;
+	}
+	if (s->kind == SkEnumCon) {
+		doc_print_anon_enumcon(s);
+		return;
+	}
 	t = s->type;
 	if (s->kind == SkFunc && t && t->kind == TyFunc) {
 		fmt_type(t->base, ret, sizeof(ret));
@@ -432,9 +609,6 @@ print_sym_doc(Symbol* s) {
 		if (t->is_varargs)
 			printf("%s...", t->params_len ? ", " : "");
 		printf(") -> %s\n", ret);
-	} else if (s->kind == SkTypedef) {
-		fmt_type(t, ret, sizeof(ret));
-		printf("typedef %s %s\n", ret, s->name);
 	} else {
 		fmt_type(t, ret, sizeof(ret));
 		printf("%s %s\n", ret, s->name);
@@ -443,21 +617,45 @@ print_sym_doc(Symbol* s) {
 		printf("%s\n", s->doc);
 }
 
-// True if s is a non-static .mc API symbol for documentation.
+/* Like doc_sym_exported, but needs Compiler for builtin Pool filtering. */
 static int
-doc_sym_exported(Symbol* s) {
+doc_sym_exported_c(Compiler* c, Symbol* s) {
 	if (s == NULL || s->name == NULL || s->name[0] == 0)
 		return 0;
 	if (s->header || s->hidden || s->dead || s->block != 0)
 		return 0;
 	if (s->storage == StStatic || s->storage == StLocal || s->storage == StParam)
 		return 0;
-	if (s->kind != SkFunc && s->kind != SkVar && s->kind != SkTypedef)
+	if (s->kind != SkFunc && s->kind != SkVar && s->kind != SkTypedef &&
+	    s->kind != SkTag && s->kind != SkEnumCon)
 		return 0;
 	/* Compiler builtins lower to these; not package API. */
 	if (strncmp(s->name, "__modc_", 7) == 0)
 		return 0;
+	if (doc_is_synth_tag(s->name))
+		return 0;
+	if (s->kind == SkTag) {
+		Type* t = s->type;
+		if (t == NULL || !t->complete || t->pkg_private)
+			return 0;
+		if (t->is_ranged || t->is_tuple || doc_is_synth_tag(t->tag))
+			return 0;
+		if (doc_is_builtin_pool(c, t))
+			return 0;
+	}
+	if (s->kind == SkTypedef) {
+		if (doc_typedef_redundant(s))
+			return 0;
+		if (doc_is_builtin_pool(c, s->type) ||
+		    (strcmp(s->name, "Pool") == 0 && c && c->types.type_pool))
+			return 0;
+	}
 	return 1;
+}
+
+static int
+doc_sym_is_type(Symbol* s) {
+	return s && (s->kind == SkTag || s->kind == SkTypedef || s->kind == SkEnumCon);
 }
 
 /* Absolute package root for a doc load path (file or directory). */
@@ -601,24 +799,38 @@ doc_print_topics_hint(void) {
 }
 
 /* Returns number of symbols printed. If want!=NULL, only matching names.
- * pkg_root_abs limits output to that package (required). */
+ * pkg_root_abs limits output to that package (required).
+ * Types (tags/typedefs/anon enums) print before vars/funcs. */
 static int
 doc_print_package(Compiler* c, const char* pkg_root_abs, const char* want) {
 	Symbol* s;
-	int n;
+	int n, pass;
 
 	n = 0;
-	for (s = c->syms.symbols; s; s = s->next) {
-		if (!doc_sym_exported(s))
-			continue;
-		if (!doc_sym_in_root(s, pkg_root_abs))
-			continue;
-		if (want && strcmp(s->name, want) != 0)
-			continue;
-		if (n)
-			printf("\n");
-		print_sym_doc(s);
-		n++;
+	for (pass = 0; pass < 2; pass++) {
+		for (s = c->syms.symbols; s; s = s->next) {
+			if (!doc_sym_exported_c(c, s))
+				continue;
+			if (!doc_sym_in_root(s, pkg_root_abs))
+				continue;
+			if (want && strcmp(s->name, want) != 0)
+				continue;
+			if (pass == 0 && !doc_sym_is_type(s))
+				continue;
+			if (pass == 1 && doc_sym_is_type(s))
+				continue;
+			/* Skip named-enum constants; they appear in the SkTag body. */
+			if (s->kind == SkEnumCon) {
+				Type* t = s->type;
+				if (t && t->kind == TyEnum && t->tag && t->tag[0] &&
+				    !doc_is_synth_tag(t->tag))
+					continue;
+			}
+			if (n)
+				printf("\n");
+			print_sym_doc(c, s);
+			n++;
+		}
 	}
 	return n;
 }
