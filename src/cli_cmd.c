@@ -1003,14 +1003,13 @@ doc_sym_cmp(const void* a, const void* b) {
 	return 0;
 }
 
-/* Returns number of symbols printed. If want!=NULL, only matching names.
- * pkg_root_abs limits output to that package (required).
- * Order: types → vars → funcs/methods; each group sorted by name. */
+/* Collect exported package symbols (same filter as printed docs). */
 static int
-doc_print_package(Compiler* c, const char* pkg_root_abs, const char* want) {
+doc_collect_package(Compiler* c, const char* pkg_root_abs, const char* want,
+		    Symbol*** out) {
 	Symbol* s;
 	Symbol** list;
-	int i, n, cap;
+	int n, cap;
 
 	list = NULL;
 	n = 0;
@@ -1037,6 +1036,19 @@ doc_print_package(Compiler* c, const char* pkg_root_abs, const char* want) {
 	}
 	if (n > 1)
 		qsort(list, (size_t)n, sizeof(Symbol*), doc_sym_cmp);
+	*out = list;
+	return n;
+}
+
+/* Returns number of symbols printed. If want!=NULL, only matching names.
+ * pkg_root_abs limits output to that package (required).
+ * Order: types → vars → funcs/methods; each group sorted by name. */
+static int
+doc_print_package(Compiler* c, const char* pkg_root_abs, const char* want) {
+	Symbol** list;
+	int i, n;
+
+	n = doc_collect_package(c, pkg_root_abs, want, &list);
 	for (i = 0; i < n; i++) {
 		if (i)
 			printf("\n");
@@ -1044,6 +1056,33 @@ doc_print_package(Compiler* c, const char* pkg_root_abs, const char* want) {
 	}
 	free(list);
 	return n;
+}
+
+/* Warn on exports with no doc comment. Returns undoc'd count (0 = clean). */
+static int
+doc_check_package(Compiler* c, const char* pkg_root_abs, const char* want) {
+	Symbol** list;
+	Symbol* s;
+	int i, n, missing;
+	Span sp;
+
+	n = doc_collect_package(c, pkg_root_abs, want, &list);
+	missing = 0;
+	for (i = 0; i < n; i++) {
+		s = list[i];
+		if (s->doc && s->doc[0])
+			continue;
+		missing++;
+		sp = s->span;
+		if (sp.file && sp.file[0])
+			fprintf(stderr, "%s:%d:%d: warning: undoc'd export '%s'\n",
+				sp.file, sp.line > 0 ? sp.line : 1,
+				sp.col > 0 ? sp.col : 1, s->name);
+		else
+			fprintf(stderr, "warning: undoc'd export '%s'\n", s->name);
+	}
+	free(list);
+	return missing;
 }
 
 // True if dir contains at least one .mc file.
@@ -1140,9 +1179,17 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 					fprintf(stderr, "modc doc: cannot resolve package root\n");
 					return 1;
 				}
-				n = doc_print_package(c, pkg_root, symbuf);
-				if (n > 0)
-					return 0;
+				{
+					Symbol** tmp;
+					int m = doc_collect_package(c, pkg_root, symbuf, &tmp);
+					free(tmp);
+					if (m > 0) {
+						if (o->doc_check)
+							return doc_check_package(c, pkg_root, symbuf) > 0 ? 1 : 0;
+						doc_print_package(c, pkg_root, symbuf);
+						return 0;
+					}
+				}
 				reset_comp_state(c);
 				c->opt.check_only = 1;
 			} else
@@ -1167,6 +1214,19 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 	if (doc_resolve_pkg_root(load, pkg_root, sizeof(pkg_root)) != 0) {
 		fprintf(stderr, "modc doc: cannot resolve package root for %s\n", load);
 		return 1;
+	}
+	if (o->doc_check) {
+		if (sym) {
+			Symbol** tmp;
+			if (doc_collect_package(c, pkg_root, sym, &tmp) == 0) {
+				free(tmp);
+				fprintf(stderr, "modc doc: unknown symbol \"%s\"\n", sym);
+				return 1;
+			}
+			free(tmp);
+		}
+		n = doc_check_package(c, pkg_root, sym);
+		return n > 0 ? 1 : 0;
 	}
 	if (sym) {
 		n = doc_print_package(c, pkg_root, sym);

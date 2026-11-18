@@ -93,15 +93,23 @@ package name (unless it is a language topic). `pkg.Name` resolves `pkg` and
 prints only symbol `Name`. At most one target is allowed. Full package dumps
 end with `Language topics: modc doc topics`; single-symbol lookups omit it.
 
+`--check` skips the API dump and warns on each export that has no attached
+doc comment (`file:line:col: warning: undoc'd export 'Name'`). Exit status is
+`1` if any are missing, `0` if the (possibly filtered) export set is fully
+documented. Useful for stdlib / package hygiene; single-symbol targets check
+only that symbol.
+
 Examples from the test corpus:
 
 ```sh
 ./modc doc -M test docpkg           # package API
 ./modc doc -M test docpkg.add       # one symbol
+./modc doc --check -M test docpkg   # undoc'd export hygiene
 (cd test/docapp && ../../modc doc beta)   # sibling imports, no -M
 ```
 
-Common options: `-D`, `-I`, `-M`, `-F`, `--no-system-includes`, `-v`, `-h`.
+Common options: `-D`, `-I`, `-M`, `-F`, `--check`, `--no-system-includes`,
+`-v`, `-h`.
 
 ## Output
 

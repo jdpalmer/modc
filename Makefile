@@ -477,6 +477,12 @@ check-special: $(MODC)
 	@! ./modc doc -M test docpkg.add | grep -q 'Language topics:'
 	@! ./modc doc -M test docpkg | grep -q '^FILE\*'
 	@! ./modc doc -M test docpkg | grep -q '__modc_'
+	# --check: undoc'd exports fail; documented symbol is clean
+	@./modc doc --check -M test docpkg >/dev/null 2>$(BUILD)/doc_check.err; test $$? -ne 0
+	@grep -Fq "undoc'd export" $(BUILD)/doc_check.err
+	@./modc doc --check -M test docpkg.add >/dev/null 2>$(BUILD)/doc_check_add.err; test $$? -eq 0
+	@./modc doc --check -M test docpkg.point_eq >/dev/null 2>$(BUILD)/doc_check_eq.err; test $$? -ne 0
+	@grep -Fq "undoc'd export 'point_eq'" $(BUILD)/doc_check_eq.err
 	# --- includes: -F link + hermetic nosys ---
 	./modc build -Ftest/fwk_root test/fwk_include_ok.mc -o $(BUILD)/fwk_include-bin
 	$(BUILD)/fwk_include-bin

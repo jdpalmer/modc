@@ -1,7 +1,7 @@
 /*
  * Canonical language topic pages for `modc doc <topic>` (dialect rules for
  * humans/agents). Baked into the binary for offline use; longer narrative
- * guides under docs/*.md may expand these rules but should not contradict them.
+ * guides under docs/ may expand these rules but should not contradict them.
  * Package API docs stay in cmd_doc.
  */
 #include "ast.h"

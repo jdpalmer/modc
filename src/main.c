@@ -158,6 +158,7 @@ usage(const char* sub) {
 			"  -I, --include-dir DIR\n"
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
+			"      --check                 warn on undoc'd exports (exit 1 if any)\n"
 			"      --no-system-includes\n"
 			"      --release\n"
 			"  -h, --help\n"
@@ -845,6 +846,10 @@ parse_common(Compiler* c, CliOpts* o, int* i, int argc, char** argv, int need_ou
 		}
 		if (strcmp(a, "--no-system-includes") == 0) {
 			o->no_system_includes = 1;
+			continue;
+		}
+		if (strcmp(a, "--check") == 0) {
+			o->doc_check = 1;
 			continue;
 		}
 		if (strcmp(a, "--release") == 0) {
