@@ -85,8 +85,8 @@ directory) has sibling package subdirectories, output also lists
 package via cwd / `-M` / `MODC_PATH` / the stdlib root and lists all exports.
 A bare `Name` prefers a local symbol in `.`, otherwise it is treated as a
 package name (unless it is a language topic). `pkg.Name` resolves `pkg` and
-prints only symbol `Name`. At most one target is allowed. Package output ends
-with `Language topics: modc doc topics`.
+prints only symbol `Name`. At most one target is allowed. Full package dumps
+end with `Language topics: modc doc topics`; single-symbol lookups omit it.
 
 Examples from the test corpus:
 

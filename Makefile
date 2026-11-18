@@ -474,6 +474,7 @@ check-special: $(MODC)
 	# Stable order: types before funcs; names sorted (Color before Point; coords before origin).
 	@./modc doc -M test docpkg | awk '/^enum Color/{c=NR} /^struct Point/{p=NR} /^\(Point\* p\)\.coords/{co=NR} /^\(Point\* p\)\.origin/{o=NR} /^add\(/{a=NR} END{exit !(c&&p&&co&&o&&a&&c<p&&p<co&&co<o&&o<a)}'
 	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'
+	@! ./modc doc -M test docpkg.add | grep -q 'Language topics:'
 	@! ./modc doc -M test docpkg | grep -q '^FILE\*'
 	@! ./modc doc -M test docpkg | grep -q '__modc_'
 	# --- includes: -F link + hermetic nosys ---

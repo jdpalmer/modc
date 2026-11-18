@@ -1141,10 +1141,8 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 					return 1;
 				}
 				n = doc_print_package(c, pkg_root, symbuf);
-				if (n > 0) {
-					doc_print_topics_hint();
+				if (n > 0)
 					return 0;
-				}
 				reset_comp_state(c);
 				c->opt.check_only = 1;
 			} else
@@ -1176,7 +1174,6 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 			fprintf(stderr, "modc doc: unknown symbol \"%s\"\n", sym);
 			return 1;
 		}
-		doc_print_topics_hint();
 		return 0;
 	}
 	doc_print_package(c, pkg_root, NULL);
