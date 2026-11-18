@@ -30,6 +30,7 @@ OBJS = \
 	$(BUILD)\cli_cmd.o \
 	$(BUILD)\cli_selftest.o \
 	$(BUILD)\diag.o \
+	$(BUILD)\langdoc.o \
 	$(BUILD)\lex.o \
 	$(BUILD)\pp.o \
 	$(BUILD)\parse.o \

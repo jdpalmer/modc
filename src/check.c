@@ -1034,6 +1034,7 @@ check_goto_over_decl(Compiler* c, Node* fn) {
 			if (ev[k].kind == GEDefer &&
 			    scope_contains(ev[k].n->scope, lab->scope)) {
 				error_at(c, g->span, "goto jumps over a defer");
+				help_topic(c, "defer");
 				break;
 			}
 			if (ev[k].kind != GEDecl)
@@ -2477,6 +2478,7 @@ report_released_use(Compiler* c, EscapeState* st, Node* n) {
 		error_at(c, n->span, "use of released value '%s'", s->name);
 	else
 		error_at(c, n->span, "use of released value");
+	help_topic(c, "provides");
 }
 
 static int
@@ -2520,6 +2522,7 @@ report_defer_escape(Compiler* c, EscapeState* st, Node* n) {
 			 "value invalidated by a defer in this block cannot escape");
 	else
 		error_at(c, n->span, "released value cannot escape");
+	help_topic(c, "defer");
 }
 
 /* Already released (free/[[releases]]), not merely scheduled by defer. */
@@ -2728,6 +2731,7 @@ static void
 report_stack_escape(Compiler* c, Span sp, Symbol* s) {
 	if (s == NULL) {
 		error_at(c, sp, "stack address escapes this function");
+		help_topic(c, "escape");
 		return;
 	}
 	if (s->storage == StParam)
@@ -2739,6 +2743,7 @@ report_stack_escape(Compiler* c, Span sp, Symbol* s) {
 	else
 		error_at(c, sp, "address of local '%s' escapes this function",
 			 s->name ? s->name : "");
+	help_topic(c, "escape");
 }
 
 static void
@@ -2758,6 +2763,7 @@ report_may_stack_escape(Compiler* c, EscapeState* st, Node* n) {
 			 n->symbol->name ? n->symbol->name : "");
 	else
 		error_at(c, n->span, "stack address escapes this function");
+	help_topic(c, "escape");
 }
 
 static int

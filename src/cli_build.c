@@ -549,6 +549,7 @@ reset_comp_state(Compiler* c) {
 	c->lex.pos = 0;
 	c->diag.error_count = 0;
 	c->diag.fatal = 0;
+	c->diag.help_topics_len = 0;
 	c->syms.symbols = NULL;
 	free(c->syms.symbol_tab);
 	c->syms.symbol_tab = NULL;
@@ -2489,6 +2490,7 @@ reset_frontend_state(Compiler* c) {
 	c->lex.pos = 0;
 	c->diag.error_count = 0;
 	c->diag.fatal = 0;
+	c->diag.help_topics_len = 0;
 	c->syms.symbols = NULL;
 	free(c->syms.symbol_tab);
 	c->syms.symbol_tab = NULL;

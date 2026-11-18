@@ -601,6 +601,9 @@ struct CompDiag {
 	size_t diag_log_len;
 	// Capacity of diag_log.
 	size_t diag_log_cap;
+	/* Dedup'd `note: modc doc <topic>` footnotes for this compile (interned names). */
+	const char* help_topics[8];
+	int help_topics_len;
 };
 
 // Include / package / link search paths and related driver knobs.
@@ -784,6 +787,11 @@ char* str_intern(Compiler* c, const char* s);
 char* str_intern_n(Compiler* c, const char* s, size_t n);
 void error_at(Compiler* c, Span sp, const char* fmt, ...);
 void error_tok(Compiler* c, Tok* t, const char* fmt, ...);
+/* Emit `note: modc doc <topic>` once per topic per compile (dialect help). */
+void help_topic(Compiler* c, const char* topic);
+int langdoc_is_topic(const char* name);
+int langdoc_print_topic(const char* name); /* 1 if printed */
+void langdoc_print_index(void);
 void die(const char* fmt, ...);
 /* Clear a held TTY progress line before diagnostics (cli_build.c). */
 void progress_interrupt(void);

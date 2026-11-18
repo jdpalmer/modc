@@ -21,7 +21,7 @@ MODC := $(ROOT)/modc
 MODC_VERSION := $(shell awk -F'"' '/^\#define MODC_VERSION / { print $$2; exit }' $(ROOT)/src/cli.h)
 
 # Keep Makefile.msvc OBJS basenames in sync when editing this list.
-SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c src/iface.c src/ini.c
+SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c src/langdoc.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c src/iface.c src/ini.c
 OBJS := $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
 
 CFLAGS += -DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
@@ -453,6 +453,9 @@ check-special: $(MODC)
 	# --- doc ---
 	./modc doc -M test docpkg | grep -q 'add returns the sum'
 	./modc doc -M test docpkg.add | grep -q 'add(int a, int b)'
+	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'
+	@! ./modc doc -M test docpkg | grep -q '^FILE\*'
+	@! ./modc doc -M test docpkg | grep -q '__modc_'
 	# --- includes: -F link + hermetic nosys ---
 	./modc build -Ftest/fwk_root test/fwk_include_ok.mc -o $(BUILD)/fwk_include-bin
 	$(BUILD)/fwk_include-bin
@@ -503,6 +506,12 @@ check-special: $(MODC)
 	MODC_BIN=$(BUILD)/install_bin ./modc install test/cli_build_test.mc
 	@test -x $(BUILD)/install_bin/cli_build_test
 	$(BUILD)/install_bin/cli_build_test
+	# --- langdoc: topics index + error footnote ---
+	./modc doc topics | grep -q '^  defer '
+	./modc doc defer | grep -q 'block-scoped LIFO cleanup'
+	@./modc build test/goto_over_defer_fail.mc -o $(BUILD)/goto_defer_fail >/dev/null 2>$(BUILD)/goto_defer_fail.err; test $$? -ne 0
+	@grep -Fq 'goto jumps over a defer' $(BUILD)/goto_defer_fail.err
+	@grep -Fq 'note: modc doc defer' $(BUILD)/goto_defer_fail.err
 
 install: $(MODC)
 	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg

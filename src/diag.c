@@ -285,6 +285,56 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 		c->diag.fatal = 1;
 }
 
+/* Append a plain note line to stderr and/or diag_log (no caret). */
+static void
+diag_note_line(Compiler* c, const char* line) {
+	size_t need;
+
+	if (!c->diag.quiet_diag) {
+		progress_interrupt();
+		fputs(line, stderr);
+		fputc('\n', stderr);
+	}
+	if (c->diag.diag_log != NULL || c->diag.quiet_diag) {
+		need = strlen(line) + 2;
+		if (c->diag.diag_log_len + need + 1 > c->diag.diag_log_cap) {
+			size_t cap = c->diag.diag_log_cap ? c->diag.diag_log_cap : 4096;
+			while (cap < c->diag.diag_log_len + need + 1)
+				cap *= 2;
+			c->diag.diag_log = xrealloc(c->diag.diag_log, cap);
+			c->diag.diag_log_cap = cap;
+		}
+		if (c->diag.diag_log) {
+			memcpy(c->diag.diag_log + c->diag.diag_log_len, line, strlen(line));
+			c->diag.diag_log_len += strlen(line);
+			c->diag.diag_log[c->diag.diag_log_len++] = '\n';
+			c->diag.diag_log[c->diag.diag_log_len] = 0;
+		}
+	}
+}
+
+// Emit `note: modc doc <topic>` once per topic for this Compiler session.
+void
+help_topic(Compiler* c, const char* topic) {
+	const char* name;
+	char line[128];
+	int i;
+
+	if (c == NULL || topic == NULL || topic[0] == 0)
+		return;
+	if (!langdoc_is_topic(topic))
+		return;
+	name = str_intern(c, topic);
+	for (i = 0; i < c->diag.help_topics_len; i++) {
+		if (c->diag.help_topics[i] == name)
+			return;
+	}
+	if (c->diag.help_topics_len < (int)(sizeof(c->diag.help_topics) / sizeof(c->diag.help_topics[0])))
+		c->diag.help_topics[c->diag.help_topics_len++] = name;
+	snprintf(line, sizeof(line), "note: modc doc %s", name);
+	diag_note_line(c, line);
+}
+
 // error_at with the span taken from a token (or a dummy location when t is NULL).
 void error_tok(Compiler* c, Tok* t, const char* fmt, ...) {
 	va_list ap;

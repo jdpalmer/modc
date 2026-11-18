@@ -31,6 +31,7 @@ stitched units once, then emit per-package objects when caching. See
 |------|------|
 | [ast.h](../src/ast.h) | Shared types (`Compiler`, `Node`, `Type`, `Symbol`, …) and module APIs |
 | [diag.c](../src/diag.c) | Errors, spans, alloc / intern helpers |
+| [langdoc.c](../src/langdoc.c) | Language topic pages for `modc doc <topic>` |
 | [lex.c](../src/lex.c) | Lexer |
 | [pp.c](../src/pp.c) | Preprocessor |
 | [parse.c](../src/parse.c) | Parser → AST |

@@ -261,9 +261,13 @@ The command accepts package paths or specific symbol references to inspect decla
 modc doc .              # current package
 modc doc pkg            # resolve package pkg
 modc doc pkg.add        # one symbol
+modc doc topics         # language topic index
+modc doc defer          # dialect rules (const, escape, pool, …)
 ```
 
-By extracting documentation directly from plain comments, `modc doc` keeps API reference material close to the implementation and easy to maintain. Additional details on output formatting and package lookup rules can be found in [modc-doc.md](modc-doc.md).
+Language topics are reserved names (`defer`, `const`, `escape`, …) with short
+rule pages for humans and agents. Some dialect errors print
+`note: modc doc <topic>`. Additional details are in [modc-doc.md](modc-doc.md).
 
 ## modc test
 

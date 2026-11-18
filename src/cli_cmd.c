@@ -443,29 +443,175 @@ print_sym_doc(Symbol* s) {
 		printf("%s\n", s->doc);
 }
 
-// True if s is a non-static API symbol for documentation.
+// True if s is a non-static .mc API symbol for documentation.
 static int
 doc_sym_exported(Symbol* s) {
 	if (s == NULL || s->name == NULL || s->name[0] == 0)
 		return 0;
-	if (s->hidden || s->dead || s->block != 0)
+	if (s->header || s->hidden || s->dead || s->block != 0)
 		return 0;
 	if (s->storage == StStatic || s->storage == StLocal || s->storage == StParam)
 		return 0;
 	if (s->kind != SkFunc && s->kind != SkVar && s->kind != SkTypedef)
 		return 0;
+	/* Compiler builtins lower to these; not package API. */
+	if (strncmp(s->name, "__modc_", 7) == 0)
+		return 0;
 	return 1;
 }
 
-/* Returns number of symbols printed. If want!=NULL, only matching names. */
+/* Absolute package root for a doc load path (file or directory). */
 static int
-doc_print_package(Compiler* c, const char* want) {
+doc_resolve_pkg_root(const char* load, char* out, size_t n) {
+	char path[HOST_PATH_MAX], root[HOST_PATH_MAX];
+	HostDir* d;
+	const char* name;
+	size_t nl;
+
+	if (load == NULL || load[0] == 0)
+		load = ".";
+	root[0] = 0;
+	if (host_is_file(load)) {
+		pkg_file_root(load, root, sizeof(root));
+	} else {
+		snprintf(path, sizeof(path), "%s/mod.mc", load);
+		if (host_is_file(path)) {
+			pkg_file_root(path, root, sizeof(root));
+		} else {
+			d = host_opendir(load);
+			if (d) {
+				while ((name = host_readdir(d)) != NULL) {
+					nl = strlen(name);
+					if (nl < 3 || strcmp(name + nl - 3, ".mc") != 0)
+						continue;
+					if (pkg_is_test_src(name) || pkg_is_iface_src(name))
+						continue;
+					snprintf(path, sizeof(path), "%s/%s", load, name);
+					if (!host_is_file(path))
+						continue;
+					pkg_file_root(path, root, sizeof(root));
+					break;
+				}
+				host_closedir(d);
+			}
+			if (root[0] == 0)
+				snprintf(root, sizeof(root), "%s", load);
+		}
+	}
+	if (host_abspath(root, out, n) != 0) {
+		if (snprintf(out, n, "%s", root) >= (int)n)
+			return -1;
+	}
+	host_path_slashify(out);
+	return 0;
+}
+
+/* True if s was defined in pkg_root_abs (package identity directory or file). */
+static int
+doc_sym_in_root(Symbol* s, const char* pkg_root_abs) {
+	char root[HOST_PATH_MAX], abs[HOST_PATH_MAX];
+
+	if (s == NULL || s->home == NULL || s->home[0] == 0 || pkg_root_abs == NULL)
+		return 0;
+	pkg_file_root(s->home, root, sizeof(root));
+	if (host_abspath(root, abs, sizeof(abs)) != 0)
+		snprintf(abs, sizeof(abs), "%s", root);
+	host_path_slashify(abs);
+	return strcmp(abs, pkg_root_abs) == 0;
+}
+
+/* List immediate subdirectories of dir that look like packages. */
+static int
+doc_print_local_pkgs(const char* dir) {
+	HostDir* d;
+	HostDir* sub;
+	const char* name;
+	const char* sn;
+	char path[HOST_PATH_MAX], child[HOST_PATH_MAX];
+	char** names;
+	int i, n, cap;
+	size_t nl;
+
+	if (dir == NULL || !host_is_dir(dir))
+		return 0;
+	d = host_opendir(dir);
+	if (d == NULL)
+		return 0;
+	names = NULL;
+	n = 0;
+	cap = 0;
+	while ((name = host_readdir(d)) != NULL) {
+		if (name[0] == '.')
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, name);
+		if (!host_is_dir(path))
+			continue;
+		sub = host_opendir(path);
+		if (sub == NULL)
+			continue;
+		while ((sn = host_readdir(sub)) != NULL) {
+			if (sn[0] == '.')
+				continue;
+			nl = strlen(sn);
+			if (nl < 3 || strcmp(sn + nl - 3, ".mc") != 0)
+				continue;
+			if (pkg_is_iface_src(sn))
+				continue;
+			snprintf(child, sizeof(child), "%s/%s", path, sn);
+			if (!host_is_file(child))
+				continue;
+			if (n >= cap) {
+				cap = cap ? cap * 2 : 8;
+				names = xrealloc(names, (size_t)cap * sizeof(char*));
+			}
+			names[n++] = xstrdup(name);
+			break;
+		}
+		host_closedir(sub);
+	}
+	host_closedir(d);
+	if (n == 0) {
+		free(names);
+		return 0;
+	}
+	/* Stable-ish order for agents/humans. */
+	for (i = 0; i < n; i++) {
+		int j;
+		for (j = i + 1; j < n; j++) {
+			if (strcmp(names[j], names[i]) < 0) {
+				char* t = names[i];
+				names[i] = names[j];
+				names[j] = t;
+			}
+		}
+	}
+	printf("\nLocal packages:\n");
+	for (i = 0; i < n; i++)
+		printf("  %s\n", names[i]);
+	printf("Document one with: modc doc -M . <pkg>\n");
+	for (i = 0; i < n; i++)
+		free(names[i]);
+	free(names);
+	return n;
+}
+
+static void
+doc_print_topics_hint(void) {
+	printf("\nLanguage topics: modc doc topics\n");
+}
+
+/* Returns number of symbols printed. If want!=NULL, only matching names.
+ * pkg_root_abs limits output to that package (required). */
+static int
+doc_print_package(Compiler* c, const char* pkg_root_abs, const char* want) {
 	Symbol* s;
 	int n;
 
 	n = 0;
 	for (s = c->syms.symbols; s; s = s->next) {
 		if (!doc_sym_exported(s))
+			continue;
+		if (!doc_sym_in_root(s, pkg_root_abs))
 			continue;
 		if (want && strcmp(s->name, want) != 0)
 			continue;
@@ -508,6 +654,7 @@ path_exists(const char* path) {
 int
 cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 	char resolved[1024];
+	char pkg_root[HOST_PATH_MAX];
 	char *target, *dot;
 	char pkgbuf[256], symbuf[256];
 	int i, r, n;
@@ -536,11 +683,21 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 	bare_name = 0;
 	pkgbuf[0] = 0;
 	symbuf[0] = 0;
+	/* Language topics win over package names (modc doc defer). */
+	if (target && (strcmp(target, "topics") == 0 || strcmp(target, "lang") == 0)) {
+		langdoc_print_index();
+		return 0;
+	}
+	if (target && langdoc_is_topic(target)) {
+		langdoc_print_topic(target);
+		return 0;
+	}
 	if (target == NULL) {
 		load = ".";
 	} else if (path_exists(target)) {
 		load = target;
-	} else if (!host_path_has_sep(target) && (dot = strrchr(target, '.')) != NULL && strcmp(dot, ".mc") != 0) {
+	} else if (!host_path_has_sep(target) && (dot = strrchr(target, '.')) != NULL &&
+		   strcmp(dot, ".mc") != 0) {
 		snprintf(pkgbuf, sizeof(pkgbuf), "%.*s", (int)(dot - target), target);
 		snprintf(symbuf, sizeof(symbuf), "%s", dot + 1);
 		if (pkg_resolve_spec(c, pkgbuf, resolved, sizeof(resolved))) {
@@ -555,9 +712,15 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 		/* Prefer local symbol in "."; else package list. */
 		if (dir_has_mc(".")) {
 			if (compile_file(c, ".", NULL) == 0) {
-				n = doc_print_package(c, symbuf);
-				if (n > 0)
+				if (doc_resolve_pkg_root(".", pkg_root, sizeof(pkg_root)) != 0) {
+					fprintf(stderr, "modc doc: cannot resolve package root\n");
+					return 1;
+				}
+				n = doc_print_package(c, pkg_root, symbuf);
+				if (n > 0) {
+					doc_print_topics_hint();
 					return 0;
+				}
 				reset_comp_state(c);
 				c->opt.check_only = 1;
 			} else
@@ -579,15 +742,24 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 		fprintf(stderr, "doc %s\n", load);
 	if (compile_file(c, load, NULL))
 		return 1;
+	if (doc_resolve_pkg_root(load, pkg_root, sizeof(pkg_root)) != 0) {
+		fprintf(stderr, "modc doc: cannot resolve package root for %s\n", load);
+		return 1;
+	}
 	if (sym) {
-		n = doc_print_package(c, sym);
+		n = doc_print_package(c, pkg_root, sym);
 		if (n == 0) {
 			fprintf(stderr, "modc doc: unknown symbol \"%s\"\n", sym);
 			return 1;
 		}
+		doc_print_topics_hint();
 		return 0;
 	}
-	doc_print_package(c, NULL);
+	doc_print_package(c, pkg_root, NULL);
+	/* Multi-package app roots: point at sibling packages instead of drowning. */
+	if (host_is_dir(load))
+		doc_print_local_pkgs(load);
+	doc_print_topics_hint();
 	return 0;
 }
 

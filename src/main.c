@@ -148,8 +148,10 @@ usage(const char* sub) {
 		fprintf(stderr,
 			"usage: modc doc [options] [target]\n"
 			"\n"
-			"Print package API docs (Go-style // or /* */ above decls).\n"
-			"Target: omitted or dir/pkg lists exports; Name or pkg.Name looks up.\n"
+			"Print package API docs or language topic pages.\n"
+			"Package target: omitted or dir/pkg lists exports; Name or pkg.Name looks up.\n"
+			"Language: modc doc topics | modc doc defer | const | escape | …\n"
+			"Dialect errors may print: note: modc doc <topic>\n"
 			"\n"
 			"Options:\n"
 			"  -D, --define NAME[=VALUE]\n"
