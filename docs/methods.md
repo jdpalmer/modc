@@ -1,5 +1,8 @@
 # Methods and overloading
 
+Short rule page for agents: `modc doc methods` (canonical text in
+[`src/langdoc.c`](../src/langdoc.c)).
+
 %C introduces the `overload` keyword for type-generic free functions and receiver syntax to attach methods to typed handles. Both features integrate with Plan 9 style anonymous embeds. This design provides clean object-oriented syntax without introducing a heavy object system, vtables, or hidden `this` pointers.
 
 ## Function Overloading

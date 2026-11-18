@@ -1,5 +1,8 @@
 # Scope-Based Cleanup with defer
 
+Short rule page for agents: `modc doc defer` (canonical text in
+[`src/langdoc.c`](../src/langdoc.c)).
+
 The `defer` keyword provides block-scoped resource management. Unlike Go, where deferred statements run when the surrounding function returns, %C executes deferred tasks at the end of the enclosing block. You can register a single statement or a block of code, and the compiler executes these tasks in Last-In, First-Out (LIFO) order whenever control leaves that scope through normal execution, `return`, `break`, `continue`, or `goto`.
 
 ## Basic Usage and Syntax

@@ -1,6 +1,8 @@
 /*
- * Language topic pages for `modc doc <topic>` (dialect rules for humans/agents).
- * Topics are baked into the binary; package API docs stay in cmd_doc.
+ * Canonical language topic pages for `modc doc <topic>` (dialect rules for
+ * humans/agents). Baked into the binary for offline use; longer narrative
+ * guides under docs/*.md may expand these rules but should not contradict them.
+ * Package API docs stay in cmd_doc.
  */
 #include "ast.h"
 #include <stdio.h>

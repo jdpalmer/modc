@@ -266,8 +266,9 @@ modc doc defer          # dialect rules (const, escape, pool, …)
 ```
 
 Language topics are reserved names (`defer`, `const`, `escape`, …) with short
-rule pages for humans and agents. Some dialect errors print
-`note: modc doc <topic>`. Additional details are in [modc-doc.md](modc-doc.md).
+rule pages for humans and agents (canonical text in `src/langdoc.c`). Some
+dialect errors print `note: modc doc <topic>`. Additional details are in
+[modc-doc.md](modc-doc.md).
 
 ## modc test
 

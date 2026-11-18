@@ -61,6 +61,11 @@ Topics today: `auto`, `const`, `defer`, `escape`, `goto`, `import`, `methods`,
 `pool`, `provides`, `slice`. Each page lists hard rules, OK / not-OK snippets
 when useful, and `See also` cross-links.
 
+**Canonical topic text** for `modc doc <topic>` lives in
+[`src/langdoc.c`](../src/langdoc.c) (baked into the binary for offline agents).
+Longer narrative guides under `docs/` (`defer.md`, `const.md`, …) may expand on
+the same rules; if they disagree, update `langdoc.c` first.
+
 Dialect diagnostics may append a footnote:
 
 ```text
@@ -131,10 +136,11 @@ re-parses and type-checks (cached docs via export data may come later). It emits
 plain text on stdout, not HTML or markdown. Package mode does not document
 `static` helpers, locals, header-only symbols, import/transitive APIs, or
 `__modc_*` builtins, and it does not require special comment markers beyond
-adjacency to the declaration. Language topics are a curated index, not a dump
-of the full markdown guides under `docs/`.
+adjacency to the declaration. Language topics are a curated index (canonical
+text in `src/langdoc.c`), not a dump of the full markdown guides under `docs/`.
 
 ## Related
 
 - Packages and `import`: [packages.md](packages.md)
 - Quickstart (`modc doc` tour): [quickstart.md](quickstart.md)
+- Topic source: [`src/langdoc.c`](../src/langdoc.c)

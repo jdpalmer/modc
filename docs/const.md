@@ -1,5 +1,8 @@
 # Const, string literals, and `const?`
 
+Short rule page for agents: `modc doc const` (canonical text in
+[`src/langdoc.c`](../src/langdoc.c)).
+
 %C spells C-style **pointee `const`** in user source and headers. String
 literals are **const** (limited C++ rule): they bind to `const char *` /
 `const char[..]` / `const?` sinks, not to mutable `char *` or `char[..]`.

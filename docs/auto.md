@@ -1,5 +1,8 @@
 # Type Inference and Multi-Return Tuples
 
+Short rule page for agents: `modc doc auto` (canonical text in
+[`src/langdoc.c`](../src/langdoc.c)).
+
 The `auto` keyword provides local type inference for initialized variables, while multi-return tuples offer a clean alternative to out-pointer APIs. These features deliver concise variable declarations and multi-value returns without introducing C++ template mechanics or complex sum types.
 
 ## Type Inference with auto
