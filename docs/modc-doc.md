@@ -74,20 +74,24 @@ That points at the matching topic. Footnotes are deduplicated per compile.
 With a package target, the command runs a check-only compile of the chosen
 package (same `-D` / `-I` / `-M` rules as other driver commands), then prints
 matching exports from that package only. With no target it uses the current
-directory (`.`). When `.` (or another directory) has sibling package
-subdirectories, output also lists `Local packages:` and how to document one
-(`modc doc -M . <pkg>`). A path or `file.mc` documents that package root or
-file. A bare name `pkg` resolves the package via `-M` / `MODC_PATH` / the
-stdlib root and lists all exports. A bare `Name` prefers a local symbol in
-`.`, otherwise it is treated as a package name (unless it is a language topic).
-`pkg.Name` resolves `pkg` and prints only symbol `Name`. At most one target is
-allowed. Package output ends with `Language topics: modc doc topics`.
+directory (`.`). `modc doc` always searches the current directory for packages
+(implicit `-M .`), so sibling packages in an app tree resolve without an
+extra flag (`modc doc buffer` from a jem-style root). When `.` (or another
+directory) has sibling package subdirectories, output also lists
+`Local packages:` and how to document one (`modc doc <pkg>`). A path or
+`file.mc` documents that package root or file. A bare name `pkg` resolves the
+package via cwd / `-M` / `MODC_PATH` / the stdlib root and lists all exports.
+A bare `Name` prefers a local symbol in `.`, otherwise it is treated as a
+package name (unless it is a language topic). `pkg.Name` resolves `pkg` and
+prints only symbol `Name`. At most one target is allowed. Package output ends
+with `Language topics: modc doc topics`.
 
 Examples from the test corpus:
 
 ```sh
 ./modc doc -M test docpkg           # package API
 ./modc doc -M test docpkg.add       # one symbol
+(cd test/docapp && ../../modc doc beta)   # sibling imports, no -M
 ```
 
 Common options: `-D`, `-I`, `-M`, `-F`, `--no-system-includes`, `-v`, `-h`.
@@ -110,11 +114,13 @@ add returns the sum of a and b.
 
 Functions print as `name(type pname, …) -> ret` (varargs as `...`). Methods
 print as `(T *recv).name(…) -> ret` so receiver dispatch is obvious.
-Multi-return types print as `(T0, T1, …)` rather than opaque `__TupleN`.
-Named aggregates print as `struct Name { … }` / `union` / `enum` with fields or
-enumerators. Typedefs print as `typedef T Name` (skipped when they only restate
-a named tag). Other exports print as `T name`. Symbols without a doc comment
-still print the signature.
+`const` / `const?` appear on types; `[[provides]]`, `[[nodiscard]]`, and
+parameter attrs (`[[releases]]`, `[[retains]]`, `[[region]]`, `[[borrows]]`)
+appear on signatures. Multi-return types print as `(T0, T1, …)` rather than
+opaque `__TupleN`. Named aggregates print as `struct Name { … }` / `union` /
+`enum` with fields or enumerators. Typedefs print as `typedef T Name` (skipped
+when they only restate a named tag). Other exports print as `T name`. Symbols
+without a doc comment still print the signature.
 
 ## What it does not do
 

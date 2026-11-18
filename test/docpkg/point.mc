@@ -22,3 +22,18 @@ bool (Point *p).origin() {
 (int, int) (Point *p).coords() {
 	return (p.x, p.y);
 }
+
+[[provides]] Point *point_new() {
+	return 0;
+}
+
+void ([[releases]] Point *p).drop() {
+	(void)p;
+}
+
+int point_eq(const Point *a, const? Point *b) {
+	if (a == 0 || b == 0) {
+		return a == b;
+	}
+	return a.x == b.x && a.y == b.y;
+}

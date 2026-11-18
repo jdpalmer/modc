@@ -384,21 +384,27 @@ doc_is_synth_tag(const char* tag) {
 	return strncmp(tag, "__Ranged", 8) == 0 || strncmp(tag, "__Tuple", 7) == 0;
 }
 
-// Format a type name into buf for modc doc output.
+// Format a type name into buf for modc doc output (includes const / const?).
 static void
 fmt_type(Type* t, char* buf, size_t n) {
 	char inner[256];
 	Field* f;
 	size_t pos;
 	int first;
+	const char* qual;
 
 	if (t == NULL) {
 		snprintf(buf, n, "?");
 		return;
 	}
+	qual = "";
+	if (t->is_poly)
+		qual = "const? ";
+	else if (t->is_readonly)
+		qual = "const ";
 	if (t->is_ranged) {
 		fmt_type(t->base, inner, sizeof(inner));
-		snprintf(buf, n, "%s[..]", inner);
+		snprintf(buf, n, "%s%s[..]", qual, inner);
 		return;
 	}
 	/* Multi-return: (T0, T1, …) instead of opaque __TupleN. */
@@ -434,23 +440,70 @@ fmt_type(Type* t, char* buf, size_t n) {
 	}
 	if (t->kind == TyPtr) {
 		fmt_type(t->base, inner, sizeof(inner));
-		snprintf(buf, n, "%s*", inner);
+		snprintf(buf, n, "%s%s*", qual, inner);
 		return;
 	}
 	if (t->kind == TyArray) {
 		fmt_type(t->base, inner, sizeof(inner));
 		if (t->len >= 0)
-			snprintf(buf, n, "%s[%" PRId64 "]", inner, (int64_t)t->len);
+			snprintf(buf, n, "%s%s[%" PRId64 "]", qual, inner, (int64_t)t->len);
 		else
-			snprintf(buf, n, "%s[]", inner);
+			snprintf(buf, n, "%s%s[]", qual, inner);
 		return;
 	}
 	if ((t->kind == TyStruct || t->kind == TyUnion || t->kind == TyEnum) && t->tag &&
 	    t->tag[0] && !doc_is_synth_tag(t->tag)) {
-		snprintf(buf, n, "%s", t->tag);
+		snprintf(buf, n, "%s%s", qual, t->tag);
 		return;
 	}
-	snprintf(buf, n, "%s", type_name(t));
+	snprintf(buf, n, "%s%s", qual, type_name(t));
+}
+
+/* Print [[retains]] / [[releases]] / [[region]] / [[borrows]] for param i. */
+static void
+doc_print_param_attrs(Type* ft, int i) {
+	int any = 0;
+
+	if (ft == NULL || i < 0 || i >= ft->params_len)
+		return;
+	if (ft->param_retains && ft->param_retains[i]) {
+		printf("[[retains]]");
+		any = 1;
+	}
+	if (ft->param_releases && ft->param_releases[i]) {
+		if (any)
+			printf(" ");
+		printf("[[releases]]");
+		any = 1;
+	}
+	if (ft->param_region && ft->param_region[i]) {
+		if (any)
+			printf(" ");
+		printf("[[region]]");
+		any = 1;
+	}
+	if (ft->param_borrows && ft->param_borrows[i]) {
+		if (any)
+			printf(" ");
+		printf("[[borrows]]");
+		any = 1;
+	}
+	if (any)
+		printf(" ");
+}
+
+static void
+doc_print_param(Type* ft, int i) {
+	char arg[256];
+
+	if (ft == NULL || i < 0 || i >= ft->params_len)
+		return;
+	doc_print_param_attrs(ft, i);
+	fmt_type(ft->params[i], arg, sizeof(arg));
+	if (ft->param_names && ft->param_names[i] && ft->param_names[i][0])
+		printf("%s %s", arg, ft->param_names[i]);
+	else
+		printf("%s", arg);
 }
 
 static int
@@ -630,29 +683,31 @@ print_sym_doc(Compiler* c, Symbol* s) {
 	t = s->type;
 	if (s->kind == SkFunc && t && t->kind == TyFunc) {
 		fmt_type(t->base, ret, sizeof(ret));
+		if (s->is_overload)
+			printf("overload ");
+		if (s->nodiscard)
+			printf("[[nodiscard]] ");
+		if (s->provides || t->provides)
+			printf("[[provides]] ");
 		if (s->is_method) {
-			Type* recv = s->recv_type;
-			const char* rname = "r";
 			int start = 1;
 
-			if (t->param_names && t->param_names[0] && t->param_names[0][0])
-				rname = t->param_names[0];
 			printf("(");
-			if (recv)
-				fmt_type(recv, arg, sizeof(arg));
-			else if (t->params_len > 0)
-				fmt_type(t->params[0], arg, sizeof(arg));
-			else
-				snprintf(arg, sizeof(arg), "void*");
-			printf("%s %s).%s(", arg, rname, s->name);
+			if (t->params_len > 0)
+				doc_print_param(t, 0);
+			else {
+				Type* recv = s->recv_type;
+				if (recv)
+					fmt_type(recv, arg, sizeof(arg));
+				else
+					snprintf(arg, sizeof(arg), "void*");
+				printf("%s r", arg);
+			}
+			printf(").%s(", s->name);
 			for (i = start; i < t->params_len; i++) {
 				if (i > start)
 					printf(", ");
-				fmt_type(t->params[i], arg, sizeof(arg));
-				if (t->param_names && t->param_names[i])
-					printf("%s %s", arg, t->param_names[i]);
-				else
-					printf("%s", arg);
+				doc_print_param(t, i);
 			}
 			if (t->is_varargs)
 				printf("%s...", t->params_len > start ? ", " : "");
@@ -662,11 +717,7 @@ print_sym_doc(Compiler* c, Symbol* s) {
 			for (i = 0; i < t->params_len; i++) {
 				if (i)
 					printf(", ");
-				fmt_type(t->params[i], arg, sizeof(arg));
-				if (t->param_names && t->param_names[i])
-					printf("%s %s", arg, t->param_names[i]);
-				else
-					printf("%s", arg);
+				doc_print_param(t, i);
 			}
 			if (t->is_varargs)
 				printf("%s...", t->params_len ? ", " : "");
@@ -844,11 +895,32 @@ doc_print_local_pkgs(const char* dir) {
 	printf("\nLocal packages:\n");
 	for (i = 0; i < n; i++)
 		printf("  %s\n", names[i]);
-	printf("Document one with: modc doc -M . <pkg>\n");
+	printf("Document one with: modc doc <pkg>\n");
 	for (i = 0; i < n; i++)
 		free(names[i]);
 	free(names);
 	return n;
+}
+
+/* App trees (jem-style): sibling packages resolve without an explicit -M . */
+static void
+doc_ensure_cwd_pkgpath(Compiler* c) {
+	char abs[HOST_PATH_MAX], have[HOST_PATH_MAX];
+	int i;
+
+	if (c == NULL)
+		return;
+	if (host_abspath(".", abs, sizeof(abs)) != 0)
+		snprintf(abs, sizeof(abs), ".");
+	host_path_slashify(abs);
+	for (i = 0; i < c->paths.pkgpaths_len; i++) {
+		if (host_abspath(c->paths.pkgpaths[i], have, sizeof(have)) != 0)
+			snprintf(have, sizeof(have), "%s", c->paths.pkgpaths[i]);
+		host_path_slashify(have);
+		if (strcmp(have, abs) == 0)
+			return;
+	}
+	pkg_add_search_path(c, ".");
 }
 
 static void
@@ -1001,6 +1073,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 	if (r != 0)
 		return 1;
 	apply_cli(c, o);
+	doc_ensure_cwd_pkgpath(c);
 	o->check_only = 1;
 	c->opt.check_only = 1;
 	if (o->files_len > 1) {
