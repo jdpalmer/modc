@@ -48,13 +48,23 @@ are omitted.
 modc doc [options] [target]
 ```
 
+### Hub
+
+With no target, `modc doc` prints the documentation hub: how to reach language
+topics, shipped guides, package APIs, and stdlib packages. `modc doc topics`
+and `modc doc lang` print the same hub.
+
+```sh
+modc doc                 # hub
+modc doc topics          # same hub
+modc doc lang            # same hub
+```
+
 ### Language topics
 
 Exact topic names are reserved and win over package resolution:
 
 ```sh
-modc doc topics          # index of language topics
-modc doc lang            # same index
 modc doc defer           # one topic (rules + short examples)
 modc doc const
 modc doc escape
@@ -66,8 +76,24 @@ when useful, and `See also` cross-links.
 
 **Canonical topic text** for `modc doc <topic>` lives in
 [`src/langdoc.c`](../src/langdoc.c) (baked into the binary for offline agents).
-Longer narrative guides under `docs/` (`defer.md`, `const.md`, …) may expand on
-the same rules; if they disagree, update `langdoc.c` first.
+
+### Guides
+
+Longer narrative guides ship with the distribution under
+`$PREFIX/lib/modc/docs/` (the in-tree `docs/*.md`). They are available without
+the source tree:
+
+```sh
+modc doc guide              # list shipped guides
+modc doc guide.quickstart   # print docs/quickstart.md
+modc doc guide.memory
+modc doc guide.defer        # long-form (short rules stay: modc doc defer)
+```
+
+`guide` / `guides` / `guide.<name>` are reserved. Guide names match the markdown
+basename (`quickstart`, `modc-doc`, `README`, …). Override the search root with
+`MODC_DOCS` if needed. Longer guides may expand the short topic pages; if they
+disagree, update `langdoc.c` first.
 
 Dialect diagnostics may append a footnote:
 
@@ -82,8 +108,8 @@ That points at the matching topic (`defer`, `escape`, `provides`, `const`,
 
 With a package target, the command runs a check-only compile of the chosen
 package (same `-D` / `-I` / `-M` rules as other driver commands), then prints
-matching exports from that package only. With no target it uses the current
-directory (`.`). `modc doc` always searches the current directory for packages
+matching exports from that package only. Use `modc doc .` for the current
+directory. `modc doc` always searches the current directory for packages
 (implicit `-M .`), so sibling packages in an app tree resolve without an
 extra flag (`modc doc buffer` from a jem-style root). When `.` (or another
 directory) has sibling package subdirectories, output also lists
@@ -99,8 +125,8 @@ end with `Language topics: modc doc topics`; single-symbol lookups omit it.
 `--check` skips the API dump and warns on each export that has no attached
 doc comment (`file:line:col: warning: undoc'd export 'Name'`). Exit status is
 `1` if any are missing, `0` if the (possibly filtered) export set is fully
-documented. Useful for stdlib / package hygiene; single-symbol targets check
-only that symbol.
+documented. With no package target, `--check` uses `.`. Useful for stdlib /
+package hygiene; single-symbol targets check only that symbol.
 
 Examples from the test corpus:
 
@@ -121,6 +147,11 @@ plus the caret. Package dumps color keywords, names, `const`/`const?`, and
 `[[attrs]]`; topic pages bold the title and section headers.
 
 ## Output
+
+### Hub
+
+Plain text sections: start-here commands, language topic index, stdlib package
+names, and how to open shipped guides (`modc doc guide`).
 
 ### Language topics
 
@@ -154,7 +185,8 @@ plain text on stdout, not HTML or markdown. Package mode does not document
 `static` helpers, locals, header-only symbols, import/transitive APIs, or
 `__modc_*` builtins, and it does not require special comment markers beyond
 adjacency to the declaration. Language topics are a curated index (canonical
-text in `src/langdoc.c`), not a dump of the full markdown guides under `docs/`.
+text in `src/langdoc.c`). Full narrative guides ship as markdown under
+`lib/modc/docs/` and print via `modc doc guide.<name>`.
 
 ## Related
 

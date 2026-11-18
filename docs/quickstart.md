@@ -258,11 +258,13 @@ int add(int a, int b) {
 The command accepts package paths or specific symbol references to inspect declarations at various levels of granularity:
 
 ```sh
+modc doc                # documentation hub
 modc doc .              # current package
 modc doc pkg            # resolve package pkg
 modc doc pkg.add        # one symbol
-modc doc topics         # language topic index
-modc doc defer          # dialect rules (const, escape, pool, …)
+modc doc defer          # short dialect rules (const, escape, pool, …)
+modc doc guide          # shipped markdown guides
+modc doc guide.memory   # one guide
 ```
 
 Language topics are reserved names (`defer`, `const`, `escape`, …) with short

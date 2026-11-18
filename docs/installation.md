@@ -19,6 +19,7 @@ $(brew --prefix)/bin/modc
 $(brew --prefix)/lib/modc/VERSION     # CalVer stamp (must match `modc -V`)
 $(brew --prefix)/lib/modc/include/    # hosted include stubs
 $(brew --prefix)/lib/modc/pkg/        # shipped packages
+$(brew --prefix)/lib/modc/docs/       # markdown guides (`modc doc guide`)
 ```
 
 Check with `modc -V`. Other packaging systems (apt, Chocolatey, …) are not
@@ -57,6 +58,7 @@ $PREFIX/bin/modc
 $PREFIX/lib/modc/VERSION     # CalVer stamp (must match `modc -V`)
 $PREFIX/lib/modc/include/    # hosted include stubs (shadow system headers)
 $PREFIX/lib/modc/pkg/        # shipped packages
+$PREFIX/lib/modc/docs/       # markdown guides (`modc doc guide`)
 ```
 
 Hosted stubs include the C library subset (`stdint.h`, `stdio.h`, …) plus

@@ -472,10 +472,18 @@ check-special: $(MODC)
 	@./modc doc str | grep -Fq 'str_free([[releases]] char[..]* s)'
 	# Implicit cwd package path: sibling imports without -M .
 	@(cd test/docapp && ../../modc doc beta | grep -Fq 'beta_val()')
-	@(cd test/docapp && ../../modc doc | grep -Fq 'Local packages:')
-	@(cd test/docapp && ../../modc doc | grep -Fq 'Document one with: modc doc <pkg>')
+	@(cd test/docapp && ../../modc doc . | grep -Fq 'Local packages:')
+	@(cd test/docapp && ../../modc doc . | grep -Fq 'Document one with: modc doc <pkg>')
 	# Local-packages hint uses -M when the documented dir is not cwd.
 	@./modc doc test/docapp | grep -Fq 'Document one with: modc doc -M test/docapp <pkg>'
+	# Bare modc doc is the documentation hub (not cwd package).
+	@./modc doc | grep -Fq 'documentation hub'
+	@./modc doc | grep -Fq 'modc doc str | path | fs | os | tty | crash'
+	@./modc doc | grep -Fq 'modc doc guide'
+	# Shipped guides (in-tree docs/ via modc_pkg).
+	@./modc doc guide | grep -Fq 'quickstart'
+	@./modc doc guide.quickstart | grep -Fq 'modc doc'
+	@./modc doc guide.README | grep -Fq '%C documentation'
 	# Stable order: types before funcs; names sorted (Color before Point; coords before origin).
 	@./modc doc -M test docpkg | awk '/^enum Color/{c=NR} /^struct Point/{p=NR} /^\(Point\* p\)\.coords/{co=NR} /^\(Point\* p\)\.origin/{o=NR} /^add\(/{a=NR} END{exit !(c&&p&&co&&o&&a&&c<p&&p<co&&co<o&&o<a)}'
 	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'
@@ -568,7 +576,7 @@ check-special: $(MODC)
 	@grep -Fq 'note: modc doc methods' $(BUILD)/method_recv_null_fail.err
 
 install: $(MODC)
-	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg
+	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg $(DESTDIR)$(MODCLIB)/docs
 	install -m 755 $(MODC) $(DESTDIR)$(BINDIR)/modc
 	cp -R $(HOST)/. $(DESTDIR)$(MODCLIB)/include/
 	rm -rf $(DESTDIR)$(MODCLIB)/pkg/str $(DESTDIR)$(MODCLIB)/pkg/arena \
@@ -581,12 +589,15 @@ install: $(MODC)
 	cp -R $(ROOT)/os $(DESTDIR)$(MODCLIB)/pkg/os
 	cp -R $(ROOT)/tty $(DESTDIR)$(MODCLIB)/pkg/tty
 	cp -R $(ROOT)/crash $(DESTDIR)$(MODCLIB)/pkg/crash
+	rm -rf $(DESTDIR)$(MODCLIB)/docs
+	mkdir -p $(DESTDIR)$(MODCLIB)/docs
+	cp $(ROOT)/docs/*.md $(DESTDIR)$(MODCLIB)/docs/
 	# Paired with MODC_VERSION in the binary — mismatch warns at startup.
 	printf '%s\n' "$(MODC_VERSION)" >$(DESTDIR)$(MODCLIB)/VERSION
 	chmod 644 $(DESTDIR)$(MODCLIB)/VERSION
 	# cp -R keeps the source tree's modes (often 600/700 under Dropbox); normalize.
-	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type d -exec chmod 755 {} +
-	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg -type f -exec chmod 644 {} +
+	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg $(DESTDIR)$(MODCLIB)/docs -type d -exec chmod 755 {} +
+	find $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg $(DESTDIR)$(MODCLIB)/docs -type f -exec chmod 644 {} +
 	# Source-tree .pkg.meta knobs include the build-tree driver/include paths.
 	# Rebuild once with the installed binary from an empty cwd so .pkg.* match
 	# the installed prefix. MODC_PKG/INCLUDE pin DESTDIR staging trees.

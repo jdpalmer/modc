@@ -212,6 +212,20 @@ void
 langdoc_print_index(void) {
 	int i;
 
+	color_span(stdout, COL_BOLD COL_YELLOW, "modc doc");
+	printf(" — %%C documentation hub\n");
+	printf("\n");
+	color_span(stdout, COL_BOLD COL_YELLOW, "Start here:");
+	printf("\n");
+	printf("  modc doc               this hub\n");
+	printf("  modc doc <topic>       short dialect rules (defer, const, escape, …)\n");
+	printf("  modc doc guide         shipped markdown guides\n");
+	printf("  modc doc guide.<name>  one guide (quickstart, memory, …)\n");
+	printf("  modc doc .             current package API\n");
+	printf("  modc doc <pkg>         package exports (cwd / -M / stdlib)\n");
+	printf("  modc doc <pkg.Name>    one symbol\n");
+	printf("  modc doc --check <pkg> undoc'd export hygiene\n");
+	printf("\n");
 	color_span(stdout, COL_BOLD COL_YELLOW, "Language topics");
 	printf(" (modc doc <topic>):\n");
 	for (i = 0; i < LangTopicCount; i++) {
@@ -224,12 +238,19 @@ langdoc_print_index(void) {
 		printf("%*s%s\n", pad, "", topics[i].summary);
 	}
 	printf("\n");
-	color_span(stdout, COL_BOLD COL_YELLOW, "Package docs:");
+	color_span(stdout, COL_BOLD COL_YELLOW, "Stdlib packages:");
 	printf("\n");
-	printf("  modc doc .           current package API\n");
-	printf("  modc doc pkg         package pkg\n");
-	printf("  modc doc pkg.Name    one symbol\n");
-	printf("  modc doc topics      this index\n");
+	printf("  modc doc str | path | fs | os | tty | crash\n");
+	printf("\n");
+	color_span(stdout, COL_BOLD COL_YELLOW, "Guides:");
+	printf("\n");
+	printf("  modc doc guide              list (installed with modc)\n");
+	printf("  modc doc guide.quickstart   first program and tour\n");
+	printf("  modc doc guide.memory       pools, slices, escapes\n");
+	printf("  modc doc guide.packages     import, vendor, cache\n");
+	printf("  modc doc guide.README       full docs index\n");
+	printf("\n");
+	printf("Dialect errors may print: note: modc doc <topic>\n");
 }
 
 /* Bold section headers in baked topic pages (Rules / OK / Not OK / See also). */

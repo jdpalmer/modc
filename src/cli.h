@@ -19,9 +19,10 @@
 /* Public CalVer: YYYY.MM.rev — bump only for install/tag/release, not every push. */
 #define MODC_VERSION "2026.11.02"
 
-/* Installed layout: $PREFIX/bin/modc + $PREFIX/lib/modc/{include,pkg}/ */
+/* Installed layout: $PREFIX/bin/modc + $PREFIX/lib/modc/{include,pkg,docs}/ */
 #define MODC_REL_INCLUDE "../lib/modc/include"
 #define MODC_REL_PKG "../lib/modc/pkg"
+#define MODC_REL_DOCS "../lib/modc/docs"
 
 typedef struct {
 	int check_only;

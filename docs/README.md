@@ -34,7 +34,7 @@ Start with [Installation](installation.md) and the [Quickstart](quickstart.md).
 | [path, fs, os, tty, crash](os.md) | Slash paths, file handles, Cmd/Poll, tty, and fatal/panic |
 | [`modc format`](modc-format.md) | Source formatting |
 | [`modc test`](modc-test.md) | Package test runner |
-| [`modc doc`](modc-doc.md) | Package API docs |
+| [`modc doc`](modc-doc.md) | Docs hub, language topics, shipped guides, package API |
 
 ## Internals
 
