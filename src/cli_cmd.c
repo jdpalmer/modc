@@ -377,10 +377,20 @@ cmd_test(Compiler* c, CliOpts* o, int argc, char** argv) {
 	return failed ? 1 : 0;
 }
 
+static int
+doc_is_synth_tag(const char* tag) {
+	if (tag == NULL || tag[0] == 0)
+		return 0;
+	return strncmp(tag, "__Ranged", 8) == 0 || strncmp(tag, "__Tuple", 7) == 0;
+}
+
 // Format a type name into buf for modc doc output.
 static void
 fmt_type(Type* t, char* buf, size_t n) {
 	char inner[256];
+	Field* f;
+	size_t pos;
+	int first;
 
 	if (t == NULL) {
 		snprintf(buf, n, "?");
@@ -389,6 +399,37 @@ fmt_type(Type* t, char* buf, size_t n) {
 	if (t->is_ranged) {
 		fmt_type(t->base, inner, sizeof(inner));
 		snprintf(buf, n, "%s[..]", inner);
+		return;
+	}
+	/* Multi-return: (T0, T1, …) instead of opaque __TupleN. */
+	if (t->is_tuple) {
+		if (n == 0)
+			return;
+		buf[0] = '(';
+		pos = 1;
+		first = 1;
+		for (f = t->fields; f; f = f->next) {
+			size_t plen;
+
+			fmt_type(f->type, inner, sizeof(inner));
+			plen = strlen(inner);
+			if (!first) {
+				if (pos + 2 >= n)
+					break;
+				buf[pos++] = ',';
+				buf[pos++] = ' ';
+			}
+			first = 0;
+			if (pos + plen >= n)
+				break;
+			memcpy(buf + pos, inner, plen);
+			pos += plen;
+		}
+		if (pos + 1 < n) {
+			buf[pos++] = ')';
+			buf[pos] = 0;
+		} else
+			buf[n - 1] = 0;
 		return;
 	}
 	if (t->kind == TyPtr) {
@@ -405,18 +446,11 @@ fmt_type(Type* t, char* buf, size_t n) {
 		return;
 	}
 	if ((t->kind == TyStruct || t->kind == TyUnion || t->kind == TyEnum) && t->tag &&
-	    t->tag[0]) {
+	    t->tag[0] && !doc_is_synth_tag(t->tag)) {
 		snprintf(buf, n, "%s", t->tag);
 		return;
 	}
 	snprintf(buf, n, "%s", type_name(t));
-}
-
-static int
-doc_is_synth_tag(const char* tag) {
-	if (tag == NULL || tag[0] == 0)
-		return 0;
-	return strncmp(tag, "__Ranged", 8) == 0 || strncmp(tag, "__Tuple", 7) == 0;
 }
 
 static int

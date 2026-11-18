@@ -107,8 +107,9 @@ add returns the sum of a and b.
 ```
 
 Functions print as `name(type pname, …) -> ret` (varargs as `...`). Methods
-print as `(T *recv).name(…) -> ret` so receiver dispatch is obvious. Named
-aggregates print as `struct Name { … }` / `union` / `enum` with fields or
+print as `(T *recv).name(…) -> ret` so receiver dispatch is obvious.
+Multi-return types print as `(T0, T1, …)` rather than opaque `__TupleN`.
+Named aggregates print as `struct Name { … }` / `union` / `enum` with fields or
 enumerators. Typedefs print as `typedef T Name` (skipped when they only restate
 a named tag). Other exports print as `T name`. Symbols without a doc comment
 still print the signature.

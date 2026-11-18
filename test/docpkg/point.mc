@@ -17,3 +17,8 @@ enum {
 bool (Point *p).origin() {
 	return p.x == 0 && p.y == 0;
 }
+
+// coords returns p's x and y.
+(int, int) (Point *p).coords() {
+	return (p.x, p.y);
+}
