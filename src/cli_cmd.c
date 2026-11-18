@@ -596,19 +596,48 @@ print_sym_doc(Compiler* c, Symbol* s) {
 	t = s->type;
 	if (s->kind == SkFunc && t && t->kind == TyFunc) {
 		fmt_type(t->base, ret, sizeof(ret));
-		printf("%s(", s->name);
-		for (i = 0; i < t->params_len; i++) {
-			if (i)
-				printf(", ");
-			fmt_type(t->params[i], arg, sizeof(arg));
-			if (t->param_names && t->param_names[i])
-				printf("%s %s", arg, t->param_names[i]);
+		if (s->is_method) {
+			Type* recv = s->recv_type;
+			const char* rname = "r";
+			int start = 1;
+
+			if (t->param_names && t->param_names[0] && t->param_names[0][0])
+				rname = t->param_names[0];
+			printf("(");
+			if (recv)
+				fmt_type(recv, arg, sizeof(arg));
+			else if (t->params_len > 0)
+				fmt_type(t->params[0], arg, sizeof(arg));
 			else
-				printf("%s", arg);
+				snprintf(arg, sizeof(arg), "void*");
+			printf("%s %s).%s(", arg, rname, s->name);
+			for (i = start; i < t->params_len; i++) {
+				if (i > start)
+					printf(", ");
+				fmt_type(t->params[i], arg, sizeof(arg));
+				if (t->param_names && t->param_names[i])
+					printf("%s %s", arg, t->param_names[i]);
+				else
+					printf("%s", arg);
+			}
+			if (t->is_varargs)
+				printf("%s...", t->params_len > start ? ", " : "");
+			printf(") -> %s\n", ret);
+		} else {
+			printf("%s(", s->name);
+			for (i = 0; i < t->params_len; i++) {
+				if (i)
+					printf(", ");
+				fmt_type(t->params[i], arg, sizeof(arg));
+				if (t->param_names && t->param_names[i])
+					printf("%s %s", arg, t->param_names[i]);
+				else
+					printf("%s", arg);
+			}
+			if (t->is_varargs)
+				printf("%s...", t->params_len ? ", " : "");
+			printf(") -> %s\n", ret);
 		}
-		if (t->is_varargs)
-			printf("%s...", t->params_len ? ", " : "");
-		printf(") -> %s\n", ret);
 	} else {
 		fmt_type(t, ret, sizeof(ret));
 		printf("%s %s\n", ret, s->name);

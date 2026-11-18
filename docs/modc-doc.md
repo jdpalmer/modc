@@ -106,7 +106,8 @@ add(int a, int b) -> int
 add returns the sum of a and b.
 ```
 
-Functions print as `name(type pname, …) -> ret` (varargs as `...`). Named
+Functions print as `name(type pname, …) -> ret` (varargs as `...`). Methods
+print as `(T *recv).name(…) -> ret` so receiver dispatch is obvious. Named
 aggregates print as `struct Name { … }` / `union` / `enum` with fields or
 enumerators. Typedefs print as `typedef T Name` (skipped when they only restate
 a named tag). Other exports print as `T name`. Symbols without a doc comment

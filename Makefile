@@ -457,6 +457,7 @@ check-special: $(MODC)
 	@./modc doc -M test docpkg | grep -Fq 'enum Color'
 	@./modc doc -M test docpkg | grep -Fq 'DocPkgMax = 8'
 	@./modc doc -M test docpkg.Point | grep -Fq 'struct Point'
+	@./modc doc -M test docpkg | grep -Fq '(Point* p).origin()'
 	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'
 	@! ./modc doc -M test docpkg | grep -q '^FILE\*'
 	@! ./modc doc -M test docpkg | grep -q '__modc_'

@@ -12,3 +12,8 @@ enum Color {
 enum {
 	DocPkgMax = 8
 };
+
+// origin reports whether p is at (0, 0).
+bool (Point *p).origin() {
+	return p.x == 0 && p.y == 0;
+}
