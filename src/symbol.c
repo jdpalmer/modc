@@ -672,6 +672,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	}
 	if (recv == NULL || !is_ptr(recv) || recv->base == NULL || !is_aggr(recv->base) || recv_tag == NULL) {
 		error_at(c, sp, "method receiver must be a struct or union pointer");
+		help_topic(c, "methods");
 		return NULL;
 	}
 	rt = recv->base;

@@ -526,12 +526,18 @@ check-special: $(MODC)
 	MODC_BIN=$(BUILD)/install_bin ./modc install test/cli_build_test.mc
 	@test -x $(BUILD)/install_bin/cli_build_test
 	$(BUILD)/install_bin/cli_build_test
-	# --- langdoc: topics index + error footnote ---
+	# --- langdoc: topics index + error footnotes ---
 	./modc doc topics | grep -q '^  defer '
 	./modc doc defer | grep -q 'block-scoped LIFO cleanup'
 	@./modc build test/goto_over_defer_fail.mc -o $(BUILD)/goto_defer_fail >/dev/null 2>$(BUILD)/goto_defer_fail.err; test $$? -ne 0
 	@grep -Fq 'goto jumps over a defer' $(BUILD)/goto_defer_fail.err
 	@grep -Fq 'note: modc doc defer' $(BUILD)/goto_defer_fail.err
+	@./modc build test/const_lit_ranged_fail.mc -o $(BUILD)/const_lit_fail >/dev/null 2>$(BUILD)/const_lit_fail.err; test $$? -ne 0
+	@grep -Fq 'note: modc doc const' $(BUILD)/const_lit_fail.err
+	@./modc build test/pool_region_fail.mc -o $(BUILD)/pool_region_fail >/dev/null 2>$(BUILD)/pool_region_fail.err; test $$? -ne 0
+	@grep -Fq 'note: modc doc pool' $(BUILD)/pool_region_fail.err
+	@./modc build test/method_recv_null_fail.mc -o $(BUILD)/method_recv_null_fail >/dev/null 2>$(BUILD)/method_recv_null_fail.err; test $$? -ne 0
+	@grep -Fq 'note: modc doc methods' $(BUILD)/method_recv_null_fail.err
 
 install: $(MODC)
 	install -d -m 755 $(DESTDIR)$(BINDIR) $(DESTDIR)$(MODCLIB)/include $(DESTDIR)$(MODCLIB)/pkg

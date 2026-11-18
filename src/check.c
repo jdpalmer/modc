@@ -1344,12 +1344,14 @@ check_method_recv_cond(Compiler* c, Node* n, Symbol* recv) {
 		error_at(c, n->span,
 			 "cannot test method receiver '%s' for null; callers must pass a live object",
 			 recv->name);
+		help_topic(c, "methods");
 		return;
 	}
 	if (n->kind == NdUn && n->op == PnBang && is_receiver_name(n->a, recv)) {
 		error_at(c, n->span,
 			 "cannot test method receiver '%s' for null; callers must pass a live object",
 			 recv->name);
+		help_topic(c, "methods");
 		return;
 	}
 	if (n->kind == NdBin && (n->op == PnAmpAmp || n->op == PnPipePipe)) {
@@ -1371,20 +1373,24 @@ check_method_recv_expr(Compiler* c, Node* n, Symbol* recv) {
 	if (n == NULL || recv == NULL)
 		return;
 	if (n->kind == NdAssign) {
-		if (is_receiver_name(n->a, recv))
+		if (is_receiver_name(n->a, recv)) {
 			error_at(c, n->span,
 				 "cannot rebind method receiver '%s'; mutate through it instead",
 				 recv->name);
+			help_topic(c, "methods");
+		}
 		check_method_recv_expr(c, n->a, recv);
 		check_method_recv_expr(c, n->b, recv);
 		return;
 	}
 	if (n->kind == NdBin && (n->op == PnEqEq || n->op == PnBangEq)) {
 		if ((is_receiver_name(n->a, recv) && is_null_expr(n->b)) ||
-		    (is_receiver_name(n->b, recv) && is_null_expr(n->a)))
+		    (is_receiver_name(n->b, recv) && is_null_expr(n->a))) {
 			error_at(c, n->span,
 				 "cannot compare method receiver '%s' to null; callers must pass a live object",
 				 recv->name);
+			help_topic(c, "methods");
+		}
 		check_method_recv_expr(c, n->a, recv);
 		check_method_recv_expr(c, n->b, recv);
 		return;
@@ -1393,18 +1399,21 @@ check_method_recv_expr(Compiler* c, Node* n, Symbol* recv) {
 		error_at(c, n->span,
 			 "cannot test method receiver '%s' for null; callers must pass a live object",
 			 recv->name);
+		help_topic(c, "methods");
 		return;
 	}
 	if (n->kind == NdUn && (n->op == PnPlusPlus || n->op == PnMinusMinus) && is_receiver_name(n->a, recv)) {
 		error_at(c, n->span,
 			 "cannot rebind method receiver '%s'; mutate through it instead",
 			 recv->name);
+		help_topic(c, "methods");
 		return;
 	}
 	if (n->kind == NdPost && is_receiver_name(n->a, recv)) {
 		error_at(c, n->span,
 			 "cannot rebind method receiver '%s'; mutate through it instead",
 			 recv->name);
+		help_topic(c, "methods");
 		return;
 	}
 	switch (n->kind) {
@@ -2467,6 +2476,7 @@ prefer_user_sym(EscapeState* st, Symbol* s) {
 static void
 report_released_use(Compiler* c, EscapeState* st, Node* n) {
 	Symbol* s;
+	int region;
 
 	if (n == NULL)
 		return;
@@ -2474,11 +2484,12 @@ report_released_use(Compiler* c, EscapeState* st, Node* n) {
 	if (s == NULL && n->kind == NdName)
 		s = n->symbol;
 	s = prefer_user_sym(st, s);
+	region = s && sym_region_already_dead(st, s) && !esc_dead_tainted(st, s);
 	if (s && s->name && !is_compiler_temp_name(s->name))
 		error_at(c, n->span, "use of released value '%s'", s->name);
 	else
 		error_at(c, n->span, "use of released value");
-	help_topic(c, "provides");
+	help_topic(c, region ? "pool" : "provides");
 }
 
 static int
@@ -2505,24 +2516,32 @@ sym_defer_kill_alias(EscapeState* st, Symbol* s) {
 static void
 report_defer_escape(Compiler* c, EscapeState* st, Node* n) {
 	Symbol* s;
+	int defer_kill, region;
 
 	if (n == NULL)
 		return;
 	s = expr_released_sym(st, n);
 	if (s == NULL && n->kind == NdName)
 		s = n->symbol;
-	if (s && s->name && sym_defer_kill_alias(st, s))
+	defer_kill = s && sym_defer_kill_alias(st, s);
+	region = s && (sym_region_killed(st, s) || sym_region_already_dead(st, s));
+	if (s && s->name && defer_kill)
 		error_at(c, n->span,
 			 "'%s' is invalidated by a defer in this block and cannot escape",
 			 s->name);
+	else if (s && s->name && region)
+		error_at(c, n->span, "pool view '%s' cannot escape", s->name);
 	else if (s && s->name)
 		error_at(c, n->span, "released value '%s' cannot escape", s->name);
-	else if (s && sym_defer_kill_alias(st, s))
+	else if (defer_kill)
 		error_at(c, n->span,
 			 "value invalidated by a defer in this block cannot escape");
+	else if (region)
+		error_at(c, n->span, "pool view cannot escape");
 	else
 		error_at(c, n->span, "released value cannot escape");
-	help_topic(c, "defer");
+	/* Pool lifetime bites are "pool"; plain defer-kill stays "defer". */
+	help_topic(c, region ? "pool" : "defer");
 }
 
 /* Already released (free/[[releases]]), not merely scheduled by defer. */

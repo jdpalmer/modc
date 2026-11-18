@@ -1459,6 +1459,44 @@ check_fixed_array_arg(Compiler* c, Span sp, Type* param, Node* arg, int64_t fixe
 			 (int64_t)fixed_n);
 }
 
+/* True when the only reason conv_implicit_ok failed is const / const? / lit. */
+static int
+conv_failed_const(Compiler* c, Type* dst, Type* src, Node* expr) {
+	Type *from, *to;
+
+	if (dst == NULL || src == NULL)
+		return 0;
+	to = dst;
+	from = src;
+	if (type_eq(dst, src))
+		return (is_ptr(dst) || is_ranged(dst)) && src->is_readonly &&
+		       !dst->is_readonly && !dst->is_poly;
+	from = decay(c, src);
+	if (is_array(src) && is_ptr(to) && type_eq(src->base, to->base))
+		return src->is_readonly && !to->is_readonly && !to->is_poly;
+	if (is_ptr(to) && is_ptr(from)) {
+		if (type_eq(to->base, from->base))
+			return !to->is_poly && from->is_readonly && !to->is_readonly;
+		if (is_void_ptr(to) || is_void_ptr(from))
+			return from->is_readonly && !to->is_readonly && !is_void_ptr(to) &&
+			       !to->is_poly;
+		if (is_aggr(from->base) && is_aggr(to->base) &&
+		    anon_embed_offset(from->base, to->base, NULL) == 1)
+			return !to->is_poly && from->is_readonly && !to->is_readonly;
+		return 0;
+	}
+	if (is_ranged(to) && is_ranged(from) && to->base && from->base &&
+	    type_eq(to->base, from->base))
+		return !to->is_poly && from->is_readonly && !to->is_readonly;
+	if (is_ranged(to) && is_array(src) && src->len >= 0 && to->base &&
+	    type_eq(to->base, src->base))
+		return src->is_readonly && !to->is_readonly && !to->is_poly;
+	if (is_ranged(to) && expr && expr->kind == NdStr && to->base &&
+	    (to->base->kind == TyChar || to->base->kind == TyUChar))
+		return !to->is_readonly && !to->is_poly;
+	return 0;
+}
+
 // Diagnose implicit conversions that conv_implicit_ok would reject.
 void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src) {
 	Type* from;
@@ -1516,6 +1554,8 @@ void check_implicit_conv(Compiler* c, Span sp, Type* dst, Node* src) {
 	}
 	error_at(c, sp, "implicit conversion from %s to %s requires a cast",
 		 type_name(from), type_name(dst));
+	if (src->type && conv_failed_const(c, dst, src->type, src))
+		help_topic(c, "const");
 }
 
 // Error when a compile-time shift count is out of range for the lhs width.
@@ -2328,8 +2368,10 @@ lower_pool_method(Compiler* c, Node* n, Node* recv, const char* method) {
 			n->type = c->types.type_bool;
 			return n;
 		}
-		if (st->is_readonly)
+		if (st->is_readonly) {
 			error_at(c, n->span, "cannot grow a const T[..]");
+			help_topic(c, "const");
+		}
 		et = st->base;
 		esz = mk_size_lit(c, n->span, type_size(c, et));
 		if (strcmp(method, "copy") == 0) {
@@ -2680,8 +2722,10 @@ type_expr_call(Compiler* c, Node* n) {
 			n->type = c->types.type_bool;
 			return n;
 		}
-		if (st->is_readonly)
+		if (st->is_readonly) {
 			error_at(c, n->span, "cannot grow a const T[..]");
+			help_topic(c, "const");
+		}
 		et = st->base;
 		esz = mk_size_lit(c, n->span, type_size(c, et));
 		if (strcmp(bn, "append") == 0)
@@ -3226,8 +3270,11 @@ type_expr_assign(Compiler* c, Node* n) {
 	n->type = n->a ? n->a->type : c->types.type_error;
 	n->is_lvalue = 0;
 	ptr_arith = n->a && is_ptr(n->a->type);
-	if (enum_chk && n->a && !is_modifiable_lvalue(n->a))
+	if (enum_chk && n->a && !is_modifiable_lvalue(n->a)) {
 		error_at(c, n->a->span, "left operand of assignment is not a modifiable lvalue");
+		if (readonly_lvalue(n->a))
+			help_topic(c, "const");
+	}
 	if (enum_chk && n->op != PnEq && user_source(c, n->span) &&
 	    ((n->a && is_tagged_enum(n->a->type)) ||
 	     (n->b && is_tagged_enum(n->b->type))))

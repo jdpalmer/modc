@@ -67,7 +67,8 @@ Dialect diagnostics may append a footnote:
 note: modc doc defer
 ```
 
-That points at the matching topic. Footnotes are deduplicated per compile.
+That points at the matching topic (`defer`, `escape`, `provides`, `const`,
+`pool`, `methods`, …). Footnotes are deduplicated per compile.
 
 ### Package API
 
