@@ -459,10 +459,36 @@ fmt_type(Type* t, char* buf, size_t n) {
 	snprintf(buf, n, "%s%s", qual, type_name(t));
 }
 
-/* Print one [[attr]] with optional dim cyan when stdout is a TTY. */
+/* Print one [[attr]] (bold cyan — dim is too easy to miss). */
 static void
 doc_print_attr(const char* attr) {
-	color_span(stdout, COL_DIM COL_CYAN, attr);
+	color_span(stdout, COL_BOLD COL_CYAN, attr);
+}
+
+static void
+doc_print_kw(const char* kw) {
+	color_span(stdout, COL_BOLD COL_BLUE, kw);
+}
+
+static void
+doc_print_name(const char* name) {
+	color_span(stdout, COL_BOLD, name);
+}
+
+/* Print a formatted type, highlighting a leading const / const?. */
+static void
+doc_print_type(Type* t) {
+	char buf[256];
+
+	fmt_type(t, buf, sizeof(buf));
+	if (strncmp(buf, "const? ", 7) == 0) {
+		color_span(stdout, COL_BOLD COL_MAGENTA, "const?");
+		printf(" %s", buf + 7);
+	} else if (strncmp(buf, "const ", 6) == 0) {
+		color_span(stdout, COL_BOLD COL_MAGENTA, "const");
+		printf(" %s", buf + 6);
+	} else
+		fputs(buf, stdout);
 }
 
 /* Print [[retains]] / [[releases]] / [[region]] / [[borrows]] for param i. */
@@ -500,16 +526,12 @@ doc_print_param_attrs(Type* ft, int i) {
 
 static void
 doc_print_param(Type* ft, int i) {
-	char arg[256];
-
 	if (ft == NULL || i < 0 || i >= ft->params_len)
 		return;
 	doc_print_param_attrs(ft, i);
-	fmt_type(ft->params[i], arg, sizeof(arg));
+	doc_print_type(ft->params[i]);
 	if (ft->param_names && ft->param_names[i] && ft->param_names[i][0])
-		printf("%s %s", arg, ft->param_names[i]);
-	else
-		printf("%s", arg);
+		printf(" %s", ft->param_names[i]);
 }
 
 static int
@@ -622,7 +644,10 @@ doc_print_tag(Compiler* c, Symbol* s) {
 		return;
 	if (t->tag == NULL || t->tag[0] == 0)
 		return;
-	printf("%s %s {\n", doc_aggr_kw(t), t->tag);
+	doc_print_kw(doc_aggr_kw(t));
+	printf(" ");
+	doc_print_name(t->tag);
+	printf(" {\n");
 	if (t->kind == TyEnum)
 		doc_print_enum_body(c, t);
 	else {
@@ -637,7 +662,6 @@ doc_print_tag(Compiler* c, Symbol* s) {
 static void
 doc_print_typedef(Compiler* c, Symbol* s) {
 	Type* t;
-	char ret[256];
 
 	(void)c;
 	if (doc_typedef_redundant(s))
@@ -646,8 +670,12 @@ doc_print_typedef(Compiler* c, Symbol* s) {
 	if (doc_is_builtin_pool(c, t) ||
 	    (s->name && strcmp(s->name, "Pool") == 0 && c->types.type_pool))
 		return;
-	fmt_type(t, ret, sizeof(ret));
-	printf("typedef %s %s\n", ret, s->name);
+	doc_print_kw("typedef");
+	printf(" ");
+	doc_print_type(t);
+	printf(" ");
+	doc_print_name(s->name);
+	printf("\n");
 	if (s->doc && s->doc[0])
 		printf("%s\n", s->doc);
 }
@@ -660,7 +688,10 @@ doc_print_anon_enumcon(Symbol* s) {
 	/* Named enums are printed via their SkTag body. */
 	if (t && t->kind == TyEnum && t->tag && t->tag[0] && !doc_is_synth_tag(t->tag))
 		return;
-	printf("enum { %s = %" PRId64 " }\n", s->name, (int64_t)s->int_val);
+	doc_print_kw("enum");
+	printf(" { ");
+	doc_print_name(s->name);
+	printf(" = %" PRId64 " }\n", (int64_t)s->int_val);
 	if (s->doc && s->doc[0])
 		printf("%s\n", s->doc);
 }
@@ -669,7 +700,6 @@ doc_print_anon_enumcon(Symbol* s) {
 static void
 print_sym_doc(Compiler* c, Symbol* s) {
 	Type* t;
-	char ret[256], arg[256];
 	int i;
 
 	if (s == NULL || s->name == NULL)
@@ -688,9 +718,10 @@ print_sym_doc(Compiler* c, Symbol* s) {
 	}
 	t = s->type;
 	if (s->kind == SkFunc && t && t->kind == TyFunc) {
-		fmt_type(t->base, ret, sizeof(ret));
-		if (s->is_overload)
-			printf("overload ");
+		if (s->is_overload) {
+			doc_print_kw("overload");
+			printf(" ");
+		}
 		if (s->nodiscard) {
 			doc_print_attr("[[nodiscard]]");
 			printf(" ");
@@ -708,12 +739,14 @@ print_sym_doc(Compiler* c, Symbol* s) {
 			else {
 				Type* recv = s->recv_type;
 				if (recv)
-					fmt_type(recv, arg, sizeof(arg));
+					doc_print_type(recv);
 				else
-					snprintf(arg, sizeof(arg), "void*");
-				printf("%s r", arg);
+					printf("void*");
+				printf(" r");
 			}
-			printf(").%s(", s->name);
+			printf(").");
+			doc_print_name(s->name);
+			printf("(");
 			for (i = start; i < t->params_len; i++) {
 				if (i > start)
 					printf(", ");
@@ -721,9 +754,12 @@ print_sym_doc(Compiler* c, Symbol* s) {
 			}
 			if (t->is_varargs)
 				printf("%s...", t->params_len > start ? ", " : "");
-			printf(") -> %s\n", ret);
+			printf(") -> ");
+			doc_print_type(t->base);
+			printf("\n");
 		} else {
-			printf("%s(", s->name);
+			doc_print_name(s->name);
+			printf("(");
 			for (i = 0; i < t->params_len; i++) {
 				if (i)
 					printf(", ");
@@ -731,11 +767,15 @@ print_sym_doc(Compiler* c, Symbol* s) {
 			}
 			if (t->is_varargs)
 				printf("%s...", t->params_len ? ", " : "");
-			printf(") -> %s\n", ret);
+			printf(") -> ");
+			doc_print_type(t->base);
+			printf("\n");
 		}
 	} else {
-		fmt_type(t, ret, sizeof(ret));
-		printf("%s %s\n", ret, s->name);
+		doc_print_type(t);
+		printf(" ");
+		doc_print_name(s->name);
+		printf("\n");
 	}
 	if (s->doc && s->doc[0])
 		printf("%s\n", s->doc);
@@ -920,9 +960,14 @@ doc_print_local_pkgs(const char* dir) {
 			}
 		}
 	}
-	printf("\nLocal packages:\n");
-	for (i = 0; i < n; i++)
-		printf("  %s\n", names[i]);
+	printf("\n");
+	color_span(stdout, COL_BOLD COL_YELLOW, "Local packages:");
+	printf("\n");
+	for (i = 0; i < n; i++) {
+		printf("  ");
+		doc_print_name(names[i]);
+		printf("\n");
+	}
 	if (doc_dir_is_cwd(dir))
 		printf("Document one with: modc doc <pkg>\n");
 	else
@@ -956,7 +1001,9 @@ doc_ensure_cwd_pkgpath(Compiler* c) {
 
 static void
 doc_print_topics_hint(void) {
-	printf("\nLanguage topics: modc doc topics\n");
+	printf("\n");
+	color_span(stdout, COL_BOLD COL_YELLOW, "Language topics:");
+	printf(" modc doc topics\n");
 }
 
 /* Group order: types → vars → funcs/methods. */

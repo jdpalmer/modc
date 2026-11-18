@@ -805,7 +805,10 @@ void color_span(FILE* f, const char* sgr, const char* text); /* text with option
 #define COL_BOLD "\033[1m"
 #define COL_DIM "\033[2m"
 #define COL_RED "\033[31m"
+#define COL_GREEN "\033[32m"
 #define COL_YELLOW "\033[33m"
+#define COL_BLUE "\033[34m"
+#define COL_MAGENTA "\033[35m"
 #define COL_CYAN "\033[36m"
 /* Clear a held TTY progress line before diagnostics (cli_build.c). */
 void progress_interrupt(void);

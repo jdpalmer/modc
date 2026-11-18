@@ -212,23 +212,43 @@ void
 langdoc_print_index(void) {
 	int i;
 
-	printf("Language topics (modc doc <topic>):\n");
-	for (i = 0; i < LangTopicCount; i++)
-		printf("  %-10s %s\n", topics[i].name, topics[i].summary);
+	color_span(stdout, COL_BOLD COL_YELLOW, "Language topics");
+	printf(" (modc doc <topic>):\n");
+	for (i = 0; i < LangTopicCount; i++) {
+		int pad = 10 - (int)strlen(topics[i].name);
+
+		printf("  ");
+		color_span(stdout, COL_BOLD COL_CYAN, topics[i].name);
+		if (pad < 1)
+			pad = 1;
+		printf("%*s%s\n", pad, "", topics[i].summary);
+	}
 	printf("\n");
-	printf("Package docs:\n");
+	color_span(stdout, COL_BOLD COL_YELLOW, "Package docs:");
+	printf("\n");
 	printf("  modc doc .           current package API\n");
 	printf("  modc doc pkg         package pkg\n");
 	printf("  modc doc pkg.Name    one symbol\n");
 	printf("  modc doc topics      this index\n");
 }
 
+/* Bold section headers in baked topic pages (Rules / OK / Not OK / See also). */
+static int
+langdoc_section_hdr(const char* line, size_t n) {
+	return (n >= 6 && strncmp(line, "Rules:", 6) == 0) ||
+	       (n >= 3 && strncmp(line, "OK:", 3) == 0) ||
+	       (n >= 7 && strncmp(line, "Not OK:", 7) == 0) ||
+	       (n >= 9 && strncmp(line, "See also:", 9) == 0);
+}
+
 int
 langdoc_print_topic(const char* name) {
 	const LangTopic* t;
 	const char* body;
+	const char* p;
 	const char* nl;
 	size_t n;
+	int first;
 
 	t = langdoc_find(name);
 	if (t == NULL)
@@ -236,18 +256,31 @@ langdoc_print_topic(const char* name) {
 	body = t->body;
 	if (body == NULL)
 		return 0;
-	/* Bold the title line only when stdout is a TTY. */
-	nl = strchr(body, '\n');
-	if (nl != NULL) {
-		n = (size_t)(nl - body);
-		if (color_enabled(stdout) && n > 0) {
-			fputs(COL_BOLD, stdout);
-			fwrite(body, 1, n, stdout);
-			fputs(COL_RESET, stdout);
-			fputs(nl, stdout);
-			return 1;
-		}
+	if (!color_enabled(stdout)) {
+		fputs(body, stdout);
+		return 1;
 	}
-	fputs(body, stdout);
+	first = 1;
+	p = body;
+	while (*p) {
+		nl = strchr(p, '\n');
+		n = nl ? (size_t)(nl - p) : strlen(p);
+		if (first && n > 0) {
+			fputs(COL_BOLD, stdout);
+			fwrite(p, 1, n, stdout);
+			fputs(COL_RESET, stdout);
+			first = 0;
+		} else if (langdoc_section_hdr(p, n)) {
+			fputs(COL_BOLD COL_YELLOW, stdout);
+			fwrite(p, 1, n, stdout);
+			fputs(COL_RESET, stdout);
+		} else
+			fwrite(p, 1, n, stdout);
+		if (nl) {
+			fputc('\n', stdout);
+			p = nl + 1;
+		} else
+			break;
+	}
 	return 1;
 }

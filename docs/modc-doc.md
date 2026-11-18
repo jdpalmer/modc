@@ -114,10 +114,11 @@ Examples from the test corpus:
 Common options: `-D`, `-I`, `-M`, `-F`, `--check`,
 `--color auto|always|never`, `--no-system-includes`, `-v`, `-h`.
 
-Color (diagnostics and light `modc doc` accents) defaults to **auto**: on for
-a TTY, off when piped, and off when `NO_COLOR` is set. `--color=always|never`
-overrides. Package dumps may dim `[[attrs]]`; topic pages bold the title line
-only.
+Color (diagnostics and `modc doc` accents) defaults to **auto**: on for a TTY,
+off when piped, and off when `NO_COLOR` is set. `--color=always|never`
+overrides. Diagnostics bold the location and color `error`/`warning`/`note`
+plus the caret. Package dumps color keywords, names, `const`/`const?`, and
+`[[attrs]]`; topic pages bold the title and section headers.
 
 ## Output
 

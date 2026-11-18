@@ -282,10 +282,15 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	else
 		snprintf(head, sizeof(head), "error: ");
 	if (!c->diag.quiet_diag) {
+		char loc[1024];
+
 		progress_interrupt();
-		if (sp.file)
-			fprintf(stderr, "%s:%d:%d: ", sp.file, sp.line,
-				sp.col > 0 ? sp.col : 1);
+		if (sp.file) {
+			snprintf(loc, sizeof(loc), "%s:%d:%d:", sp.file, sp.line,
+				 sp.col > 0 ? sp.col : 1);
+			color_span(stderr, COL_BOLD, loc);
+			fputc(' ', stderr);
+		}
 		color_sev(stderr, "error");
 		fputs(msg, stderr);
 		fputc('\n', stderr);
@@ -333,7 +338,12 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 			col = sp.col > 0 ? sp.col : 1;
 			for (i = 1; i < col && i <= len; i++)
 				fputc(line[i - 1] == '\t' ? '\t' : ' ', stderr);
-			fputc('^', stderr);
+			if (color_enabled(stderr)) {
+				fputs(COL_BOLD COL_GREEN, stderr);
+				fputc('^', stderr);
+				fputs(COL_RESET, stderr);
+			} else
+				fputc('^', stderr);
 			fputc('\n', stderr);
 		}
 		/* Capture caret block for needle matching (optional). */
