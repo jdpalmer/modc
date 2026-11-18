@@ -469,6 +469,8 @@ check-special: $(MODC)
 	@(cd test/docapp && ../../modc doc beta | grep -Fq 'beta_val()')
 	@(cd test/docapp && ../../modc doc | grep -Fq 'Local packages:')
 	@(cd test/docapp && ../../modc doc | grep -Fq 'Document one with: modc doc <pkg>')
+	# Local-packages hint uses -M when the documented dir is not cwd.
+	@./modc doc test/docapp | grep -Fq 'Document one with: modc doc -M test/docapp <pkg>'
 	# Stable order: types before funcs; names sorted (Color before Point; coords before origin).
 	@./modc doc -M test docpkg | awk '/^enum Color/{c=NR} /^struct Point/{p=NR} /^\(Point\* p\)\.coords/{co=NR} /^\(Point\* p\)\.origin/{o=NR} /^add\(/{a=NR} END{exit !(c&&p&&co&&o&&a&&c<p&&p<co&&co<o&&o<a)}'
 	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'

@@ -827,6 +827,24 @@ doc_sym_in_root(Symbol* s, const char* pkg_root_abs) {
 	return strcmp(abs, pkg_root_abs) == 0;
 }
 
+/* True when dir is the process cwd (hint can omit -M). */
+static int
+doc_dir_is_cwd(const char* dir) {
+	char abs[HOST_PATH_MAX], cwd[HOST_PATH_MAX];
+
+	if (dir == NULL)
+		return 0;
+	if (strcmp(dir, ".") == 0)
+		return 1;
+	if (host_abspath(dir, abs, sizeof(abs)) != 0)
+		return 0;
+	if (host_abspath(".", cwd, sizeof(cwd)) != 0)
+		return 0;
+	host_path_slashify(abs);
+	host_path_slashify(cwd);
+	return strcmp(abs, cwd) == 0;
+}
+
 /* List immediate subdirectories of dir that look like packages. */
 static int
 doc_print_local_pkgs(const char* dir) {
@@ -895,7 +913,10 @@ doc_print_local_pkgs(const char* dir) {
 	printf("\nLocal packages:\n");
 	for (i = 0; i < n; i++)
 		printf("  %s\n", names[i]);
-	printf("Document one with: modc doc <pkg>\n");
+	if (doc_dir_is_cwd(dir))
+		printf("Document one with: modc doc <pkg>\n");
+	else
+		printf("Document one with: modc doc -M %s <pkg>\n", dir);
 	for (i = 0; i < n; i++)
 		free(names[i]);
 	free(names);

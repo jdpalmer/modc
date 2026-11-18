@@ -78,7 +78,8 @@ directory (`.`). `modc doc` always searches the current directory for packages
 (implicit `-M .`), so sibling packages in an app tree resolve without an
 extra flag (`modc doc buffer` from a jem-style root). When `.` (or another
 directory) has sibling package subdirectories, output also lists
-`Local packages:` and how to document one (`modc doc <pkg>`). A path or
+`Local packages:` and a path-aware hint (`modc doc <pkg>` from cwd, or
+`modc doc -M <dir> <pkg>` when documenting another directory). A path or
 `file.mc` documents that package root or file. A bare name `pkg` resolves the
 package via cwd / `-M` / `MODC_PATH` / the stdlib root and lists all exports.
 A bare `Name` prefers a local symbol in `.`, otherwise it is treated as a
