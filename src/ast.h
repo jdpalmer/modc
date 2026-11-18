@@ -793,6 +793,20 @@ int langdoc_is_topic(const char* name);
 int langdoc_print_topic(const char* name); /* 1 if printed */
 void langdoc_print_index(void);
 void die(const char* fmt, ...);
+/* Terminal color: auto (tty + no NO_COLOR), always, never. */
+enum { ColorAuto = 0, ColorAlways = 1, ColorNever = 2 };
+void color_set_mode(int mode); /* ColorAuto / ColorAlways / ColorNever */
+int color_mode(void);
+int color_enabled(FILE* f); /* 1 when ANSI SGR should be emitted on f */
+void color_sev(FILE* f, const char* kind); /* "error"/"warning"/"note" + ": " */
+void color_span(FILE* f, const char* sgr, const char* text); /* text with optional SGR */
+/* Common SGR snippets (empty when color off — prefer color_span). */
+#define COL_RESET "\033[0m"
+#define COL_BOLD "\033[1m"
+#define COL_DIM "\033[2m"
+#define COL_RED "\033[31m"
+#define COL_YELLOW "\033[33m"
+#define COL_CYAN "\033[36m"
 /* Clear a held TTY progress line before diagnostics (cli_build.c). */
 void progress_interrupt(void);
 Node* node(int kind, Span sp);

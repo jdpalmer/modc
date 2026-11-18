@@ -6,6 +6,7 @@
 #define MODC_HOST_OS_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #ifndef HOST_PATH_MAX
 #define HOST_PATH_MAX 4096
@@ -69,6 +70,10 @@ int host_wait_pid(HostPid pid);
 int host_ncpu(void);
 /* True when stderr is an interactive terminal (progress UX). */
 int host_stderr_tty(void);
+/* True when stdout is an interactive terminal (doc color). */
+int host_stdout_tty(void);
+/* Enable ANSI colors on Windows consoles when f is a TTY (no-op elsewhere). */
+void host_tty_color_prep(FILE* f);
 /* Monotonic milliseconds for progress durations. */
 long long host_mono_ms(void);
 

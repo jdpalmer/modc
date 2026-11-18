@@ -226,10 +226,28 @@ langdoc_print_index(void) {
 int
 langdoc_print_topic(const char* name) {
 	const LangTopic* t;
+	const char* body;
+	const char* nl;
+	size_t n;
 
 	t = langdoc_find(name);
 	if (t == NULL)
 		return 0;
-	fputs(t->body, stdout);
+	body = t->body;
+	if (body == NULL)
+		return 0;
+	/* Bold the title line only when stdout is a TTY. */
+	nl = strchr(body, '\n');
+	if (nl != NULL) {
+		n = (size_t)(nl - body);
+		if (color_enabled(stdout) && n > 0) {
+			fputs(COL_BOLD, stdout);
+			fwrite(body, 1, n, stdout);
+			fputs(COL_RESET, stdout);
+			fputs(nl, stdout);
+			return 1;
+		}
+	}
+	fputs(body, stdout);
 	return 1;
 }

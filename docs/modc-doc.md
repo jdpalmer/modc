@@ -111,8 +111,13 @@ Examples from the test corpus:
 (cd test/docapp && ../../modc doc beta)   # sibling imports, no -M
 ```
 
-Common options: `-D`, `-I`, `-M`, `-F`, `--check`, `--no-system-includes`,
-`-v`, `-h`.
+Common options: `-D`, `-I`, `-M`, `-F`, `--check`,
+`--color auto|always|never`, `--no-system-includes`, `-v`, `-h`.
+
+Color (diagnostics and light `modc doc` accents) defaults to **auto**: on for
+a TTY, off when piped, and off when `NO_COLOR` is set. `--color=always|never`
+overrides. Package dumps may dim `[[attrs]]`; topic pages bold the title line
+only.
 
 ## Output
 

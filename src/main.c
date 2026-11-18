@@ -24,6 +24,7 @@ usage(const char* sub) {
 			"  -F DIR                      framework search path (macOS)\n"
 			"      --no-system-includes    omit host system include paths\n"
 			"      --release               omit runtime bounds/null/size traps (production)\n"
+			"      --color auto|always|never  ANSI color (default: auto; off if not a TTY)\n"
 			"      --target host|windows|macos|linux\n"
 			"                              codegen / ABI / macros (default: host)\n"
 			"  -h, --help                  show help\n"
@@ -159,6 +160,7 @@ usage(const char* sub) {
 			"  -M DIR                      package search path (also MODC_PATH; before stdlib)\n"
 			"  -F DIR                      framework search path\n"
 			"      --check                 warn on undoc'd exports (exit 1 if any)\n"
+			"      --color auto|always|never  ANSI color (default: auto; off if not a TTY)\n"
 			"      --no-system-includes\n"
 			"      --release\n"
 			"  -h, --help\n"
@@ -250,6 +252,7 @@ usage(const char* sub) {
 		"  -F DIR                      framework search path\n"
 		"      --no-system-includes    omit host system include paths\n"
 		"      --release               omit runtime bounds/null/size traps (production)\n"
+		"      --color auto|always|never  ANSI color (default: auto; off if not a TTY)\n"
 		"      --target host|windows|macos|linux\n"
 		"  -h, --help                  show help\n"
 		"  -V, --version               show version\n"
@@ -742,6 +745,7 @@ apply_cli(Compiler* c, CliOpts* o) {
 	c->opt.check_only = o->check_only;
 	c->opt.runtime_check = !o->release;
 	c->opt.target = o->target;
+	color_set_mode(o->color);
 	discover_sysincludes(c, o->verbose);
 	if (o->verbose && c->paths.modc_include && c->paths.modc_include[0])
 		fprintf(stderr, "modc include: %s\n", c->paths.modc_include);
@@ -850,6 +854,30 @@ parse_common(Compiler* c, CliOpts* o, int* i, int argc, char** argv, int need_ou
 		}
 		if (strcmp(a, "--check") == 0) {
 			o->doc_check = 1;
+			continue;
+		}
+		if (strcmp(a, "--color") == 0 || strncmp(a, "--color=", 8) == 0) {
+			const char* v;
+
+			if (strcmp(a, "--color") == 0) {
+				if (*i + 1 >= argc) {
+					fprintf(stderr, "modc: %s requires auto|always|never\n", a);
+					return 1;
+				}
+				v = argv[++(*i)];
+			} else
+				v = a + 8;
+			if (strcmp(v, "auto") == 0)
+				o->color = ColorAuto;
+			else if (strcmp(v, "always") == 0)
+				o->color = ColorAlways;
+			else if (strcmp(v, "never") == 0)
+				o->color = ColorNever;
+			else {
+				fprintf(stderr, "modc: unknown --color (want auto|always|never)\n");
+				return 1;
+			}
+			color_set_mode(o->color);
 			continue;
 		}
 		if (strcmp(a, "--release") == 0) {

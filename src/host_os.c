@@ -795,6 +795,27 @@ host_stderr_tty(void) {
 	return _isatty(_fileno(stderr));
 }
 
+int
+host_stdout_tty(void) {
+	return _isatty(_fileno(stdout));
+}
+
+void
+host_tty_color_prep(FILE* f) {
+	HANDLE h;
+	DWORD mode;
+
+	if (f == NULL || !_isatty(_fileno(f)))
+		return;
+	h = (HANDLE)_get_osfhandle(_fileno(f));
+	if (h == INVALID_HANDLE_VALUE)
+		return;
+	if (!GetConsoleMode(h, &mode))
+		return;
+	mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	SetConsoleMode(h, mode);
+}
+
 // Monotonic milliseconds for progress durations.
 long long
 host_mono_ms(void) {
@@ -1322,6 +1343,16 @@ host_ncpu(void) {
 int
 host_stderr_tty(void) {
 	return isatty(fileno(stderr));
+}
+
+int
+host_stdout_tty(void) {
+	return isatty(fileno(stdout));
+}
+
+void
+host_tty_color_prep(FILE* f) {
+	(void)f;
 }
 
 // Monotonic milliseconds for progress durations.

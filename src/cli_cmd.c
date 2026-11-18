@@ -459,6 +459,12 @@ fmt_type(Type* t, char* buf, size_t n) {
 	snprintf(buf, n, "%s%s", qual, type_name(t));
 }
 
+/* Print one [[attr]] with optional dim cyan when stdout is a TTY. */
+static void
+doc_print_attr(const char* attr) {
+	color_span(stdout, COL_DIM COL_CYAN, attr);
+}
+
 /* Print [[retains]] / [[releases]] / [[region]] / [[borrows]] for param i. */
 static void
 doc_print_param_attrs(Type* ft, int i) {
@@ -467,25 +473,25 @@ doc_print_param_attrs(Type* ft, int i) {
 	if (ft == NULL || i < 0 || i >= ft->params_len)
 		return;
 	if (ft->param_retains && ft->param_retains[i]) {
-		printf("[[retains]]");
+		doc_print_attr("[[retains]]");
 		any = 1;
 	}
 	if (ft->param_releases && ft->param_releases[i]) {
 		if (any)
 			printf(" ");
-		printf("[[releases]]");
+		doc_print_attr("[[releases]]");
 		any = 1;
 	}
 	if (ft->param_region && ft->param_region[i]) {
 		if (any)
 			printf(" ");
-		printf("[[region]]");
+		doc_print_attr("[[region]]");
 		any = 1;
 	}
 	if (ft->param_borrows && ft->param_borrows[i]) {
 		if (any)
 			printf(" ");
-		printf("[[borrows]]");
+		doc_print_attr("[[borrows]]");
 		any = 1;
 	}
 	if (any)
@@ -685,10 +691,14 @@ print_sym_doc(Compiler* c, Symbol* s) {
 		fmt_type(t->base, ret, sizeof(ret));
 		if (s->is_overload)
 			printf("overload ");
-		if (s->nodiscard)
-			printf("[[nodiscard]] ");
-		if (s->provides || t->provides)
-			printf("[[provides]] ");
+		if (s->nodiscard) {
+			doc_print_attr("[[nodiscard]]");
+			printf(" ");
+		}
+		if (s->provides || t->provides) {
+			doc_print_attr("[[provides]]");
+			printf(" ");
+		}
 		if (s->is_method) {
 			int start = 1;
 
@@ -1075,11 +1085,10 @@ doc_check_package(Compiler* c, const char* pkg_root_abs, const char* want) {
 		missing++;
 		sp = s->span;
 		if (sp.file && sp.file[0])
-			fprintf(stderr, "%s:%d:%d: warning: undoc'd export '%s'\n",
-				sp.file, sp.line > 0 ? sp.line : 1,
-				sp.col > 0 ? sp.col : 1, s->name);
-		else
-			fprintf(stderr, "warning: undoc'd export '%s'\n", s->name);
+			fprintf(stderr, "%s:%d:%d: ", sp.file, sp.line > 0 ? sp.line : 1,
+				sp.col > 0 ? sp.col : 1);
+		color_sev(stderr, "warning");
+		fprintf(stderr, "undoc'd export '%s'\n", s->name);
 	}
 	free(list);
 	return missing;

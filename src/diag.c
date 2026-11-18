@@ -14,6 +14,86 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* ---- conservative ANSI color (tty + NO_COLOR / --color) ---- */
+
+static int g_color_mode = ColorAuto; /* ColorAuto / Always / Never */
+
+void
+color_set_mode(int mode) {
+	if (mode != ColorAuto && mode != ColorAlways && mode != ColorNever)
+		mode = ColorAuto;
+	g_color_mode = mode;
+}
+
+int
+color_mode(void) {
+	return g_color_mode;
+}
+
+int
+color_enabled(FILE* f) {
+	const char* env;
+
+	if (f == NULL)
+		return 0;
+	if (g_color_mode == ColorNever)
+		return 0;
+	env = getenv("NO_COLOR");
+	if (env != NULL && env[0] != 0 && g_color_mode != ColorAlways)
+		return 0;
+	if (g_color_mode == ColorAlways) {
+		host_tty_color_prep(f);
+		return 1;
+	}
+	/* ColorAuto */
+	if (f == stderr) {
+		if (!host_stderr_tty())
+			return 0;
+	} else if (f == stdout) {
+		if (!host_stdout_tty())
+			return 0;
+	} else
+		return 0;
+	host_tty_color_prep(f);
+	return 1;
+}
+
+void
+color_span(FILE* f, const char* sgr, const char* text) {
+	if (f == NULL || text == NULL)
+		return;
+	if (color_enabled(f) && sgr && sgr[0]) {
+		fputs(sgr, f);
+		fputs(text, f);
+		fputs(COL_RESET, f);
+	} else
+		fputs(text, f);
+}
+
+void
+color_sev(FILE* f, const char* kind) {
+	const char* sgr;
+
+	if (kind == NULL)
+		kind = "error";
+	if (strcmp(kind, "warning") == 0)
+		sgr = COL_BOLD COL_YELLOW;
+	else if (strcmp(kind, "note") == 0)
+		sgr = COL_BOLD COL_CYAN;
+	else
+		sgr = COL_BOLD COL_RED;
+	if (color_enabled(f)) {
+		fputs(sgr, f);
+		fputs(kind, f);
+		fputs(":", f);
+		fputs(COL_RESET, f);
+		fputc(' ', f);
+	} else {
+		fputs(kind, f);
+		fputs(": ", f);
+	}
+}
+
 // Allocate n bytes zero-filled; n==0 is bumped to 1 so we never hand back a zero-size block.
 void* xmalloc(size_t n) {
 	void* p;
@@ -195,6 +275,7 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	va_start(ap, fmt);
 	vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
+	/* Plain head for diag_log / needles; color only on live stderr. */
 	if (sp.file)
 		snprintf(head, sizeof(head), "%s:%d:%d: error: ", sp.file, sp.line,
 			sp.col > 0 ? sp.col : 1);
@@ -202,7 +283,10 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 		snprintf(head, sizeof(head), "error: ");
 	if (!c->diag.quiet_diag) {
 		progress_interrupt();
-		fputs(head, stderr);
+		if (sp.file)
+			fprintf(stderr, "%s:%d:%d: ", sp.file, sp.line,
+				sp.col > 0 ? sp.col : 1);
+		color_sev(stderr, "error");
 		fputs(msg, stderr);
 		fputc('\n', stderr);
 	}
@@ -285,31 +369,28 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 		c->diag.fatal = 1;
 }
 
-/* Append a plain note line to stderr and/or diag_log (no caret). */
+/* Append a plain note line to diag_log (and stderr when not coloring). */
 static void
-diag_note_line(Compiler* c, const char* line) {
+diag_note_log(Compiler* c, const char* line) {
 	size_t need;
 
-	if (!c->diag.quiet_diag) {
-		progress_interrupt();
-		fputs(line, stderr);
-		fputc('\n', stderr);
+	if (c == NULL || line == NULL)
+		return;
+	if (c->diag.diag_log == NULL && !c->diag.quiet_diag)
+		return; /* no capture sink */
+	need = strlen(line) + 2;
+	if (c->diag.diag_log_len + need + 1 > c->diag.diag_log_cap) {
+		size_t cap = c->diag.diag_log_cap ? c->diag.diag_log_cap : 4096;
+		while (cap < c->diag.diag_log_len + need + 1)
+			cap *= 2;
+		c->diag.diag_log = xrealloc(c->diag.diag_log, cap);
+		c->diag.diag_log_cap = cap;
 	}
-	if (c->diag.diag_log != NULL || c->diag.quiet_diag) {
-		need = strlen(line) + 2;
-		if (c->diag.diag_log_len + need + 1 > c->diag.diag_log_cap) {
-			size_t cap = c->diag.diag_log_cap ? c->diag.diag_log_cap : 4096;
-			while (cap < c->diag.diag_log_len + need + 1)
-				cap *= 2;
-			c->diag.diag_log = xrealloc(c->diag.diag_log, cap);
-			c->diag.diag_log_cap = cap;
-		}
-		if (c->diag.diag_log) {
-			memcpy(c->diag.diag_log + c->diag.diag_log_len, line, strlen(line));
-			c->diag.diag_log_len += strlen(line);
-			c->diag.diag_log[c->diag.diag_log_len++] = '\n';
-			c->diag.diag_log[c->diag.diag_log_len] = 0;
-		}
+	if (c->diag.diag_log) {
+		memcpy(c->diag.diag_log + c->diag.diag_log_len, line, strlen(line));
+		c->diag.diag_log_len += strlen(line);
+		c->diag.diag_log[c->diag.diag_log_len++] = '\n';
+		c->diag.diag_log[c->diag.diag_log_len] = 0;
 	}
 }
 
@@ -332,7 +413,12 @@ help_topic(Compiler* c, const char* topic) {
 	if (c->diag.help_topics_len < (int)(sizeof(c->diag.help_topics) / sizeof(c->diag.help_topics[0])))
 		c->diag.help_topics[c->diag.help_topics_len++] = name;
 	snprintf(line, sizeof(line), "note: modc doc %s", name);
-	diag_note_line(c, line);
+	if (!c->diag.quiet_diag) {
+		progress_interrupt();
+		color_sev(stderr, "note");
+		fprintf(stderr, "modc doc %s\n", name);
+	}
+	diag_note_log(c, line);
 }
 
 // error_at with the span taken from a token (or a dummy location when t is NULL).

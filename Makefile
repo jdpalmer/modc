@@ -496,6 +496,14 @@ check-special: $(MODC)
 	@./modc doc --check tty >/dev/null
 	@./modc doc --check crash >/dev/null
 	@./modc doc str.str_dup | grep -Fq 'Malloc a copy of src'
+	# Color: piped auto is plain; --color=always emits SGR; never stays plain
+	@! ./modc doc str.str_dup | grep -Fq "$$(printf '\033')"
+	@./modc doc --color=always str.str_dup | grep -Fq "$$(printf '\033')"
+	@! ./modc doc --color=never str.str_dup | grep -Fq "$$(printf '\033')"
+	@./modc build --color=always test/const_fail.mc -o $(BUILD)/color_fail >/dev/null 2>$(BUILD)/color_fail.err; test $$? -ne 0
+	@grep -Fq 'error:' $(BUILD)/color_fail.err
+	@grep -Fq 'modc doc const' $(BUILD)/color_fail.err
+	@grep -Fq "$$(printf '\033')" $(BUILD)/color_fail.err
 	# --- includes: -F link + hermetic nosys ---
 	./modc build -Ftest/fwk_root test/fwk_include_ok.mc -o $(BUILD)/fwk_include-bin
 	$(BUILD)/fwk_include-bin
