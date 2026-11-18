@@ -4169,7 +4169,22 @@ parse_decl_or_def(Compiler* c, int in_func) {
 		}
 	}
 	attrs |= parse_attr_seq(c);
+	/*
+	 * Tag-only defs (`struct Point { … };` / `enum Color { … };`) have no
+	 * declarator name — attach the pending doc to the SkTag instead of
+	 * dropping it on ';'.
+	 */
 	if (at(c, PnSemi)) {
+		if (doc && !in_func && c->syms.block == 0 && storage != StStatic && base &&
+		    base->tag && base->tag[0] &&
+		    (base->kind == TyStruct || base->kind == TyUnion ||
+		     base->kind == TyEnum)) {
+			s = symbol_lookup_tag(c, base->tag);
+			if (s && s->type == base && (s->doc == NULL || s->doc[0] == 0)) {
+				s->doc = doc;
+				doc = NULL;
+			}
+		}
 		free(doc);
 		take(c);
 		return;

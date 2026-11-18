@@ -4,6 +4,7 @@ struct Point {
 	int y;
 };
 
+// Color is a primary palette.
 enum Color {
 	ColorRed = 1,
 	ColorBlue = 2

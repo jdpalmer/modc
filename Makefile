@@ -454,9 +454,14 @@ check-special: $(MODC)
 	./modc doc -M test docpkg | grep -q 'add returns the sum'
 	./modc doc -M test docpkg.add | grep -q 'add(int a, int b)'
 	@./modc doc -M test docpkg | grep -Fq 'struct Point'
+	@./modc doc -M test docpkg | grep -Fq 'Point is a 2D coordinate'
 	@./modc doc -M test docpkg | grep -Fq 'enum Color'
+	@./modc doc -M test docpkg | grep -Fq 'Color is a primary palette'
 	@./modc doc -M test docpkg | grep -Fq 'DocPkgMax = 8'
 	@./modc doc -M test docpkg.Point | grep -Fq 'struct Point'
+	@./modc doc -M test docpkg.Point | grep -Fq 'Point is a 2D coordinate'
+	@./modc doc --check -M test docpkg.Point >/dev/null 2>&1; test $$? -eq 0
+	@./modc doc --check -M test docpkg.Color >/dev/null 2>&1; test $$? -eq 0
 	@./modc doc -M test docpkg | grep -Fq '(Point* p).origin()'
 	@./modc doc -M test docpkg | grep -Fq '(Point* p).coords() -> (int, int)'
 	@! ./modc doc -M test docpkg | grep -q '__Tuple'
