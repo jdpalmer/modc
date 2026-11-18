@@ -716,11 +716,6 @@ doc_sym_exported_c(Compiler* c, Symbol* s) {
 	return 1;
 }
 
-static int
-doc_sym_is_type(Symbol* s) {
-	return s && (s->kind == SkTag || s->kind == SkTypedef || s->kind == SkEnumCon);
-}
-
 /* Absolute package root for a doc load path (file or directory). */
 static int
 doc_resolve_pkg_root(const char* load, char* out, size_t n) {
@@ -861,40 +856,100 @@ doc_print_topics_hint(void) {
 	printf("\nLanguage topics: modc doc topics\n");
 }
 
+/* Group order: types → vars → funcs/methods. */
+static int
+doc_sym_group(Symbol* s) {
+	if (s == NULL)
+		return 3;
+	if (s->kind == SkTag || s->kind == SkTypedef || s->kind == SkEnumCon)
+		return 0;
+	if (s->kind == SkVar)
+		return 1;
+	return 2;
+}
+
+/* Sort key: methods as Recv.name so same-receiver methods cluster. */
+static void
+doc_sym_sort_key(Symbol* s, char* buf, size_t n) {
+	if (s == NULL || s->name == NULL) {
+		snprintf(buf, n, "");
+		return;
+	}
+	if (s->is_method && s->recv_tag && s->recv_tag[0]) {
+		snprintf(buf, n, "%s.%s", s->recv_tag, s->name);
+		return;
+	}
+	snprintf(buf, n, "%s", s->name);
+}
+
+static int
+doc_sym_cmp(const void* a, const void* b) {
+	Symbol* sa = *(Symbol* const*)a;
+	Symbol* sb = *(Symbol* const*)b;
+	char ka[256], kb[256];
+	int ga, gb, c;
+
+	ga = doc_sym_group(sa);
+	gb = doc_sym_group(sb);
+	if (ga != gb)
+		return ga - gb;
+	doc_sym_sort_key(sa, ka, sizeof(ka));
+	doc_sym_sort_key(sb, kb, sizeof(kb));
+	c = strcmp(ka, kb);
+	if (c != 0)
+		return c;
+	/* Stable-ish tie-break for overloads: parameter count then address. */
+	if (sa->type && sb->type && sa->type->kind == TyFunc && sb->type->kind == TyFunc) {
+		if (sa->type->params_len != sb->type->params_len)
+			return sa->type->params_len - sb->type->params_len;
+	}
+	if (sa < sb)
+		return -1;
+	if (sa > sb)
+		return 1;
+	return 0;
+}
+
 /* Returns number of symbols printed. If want!=NULL, only matching names.
  * pkg_root_abs limits output to that package (required).
- * Types (tags/typedefs/anon enums) print before vars/funcs. */
+ * Order: types → vars → funcs/methods; each group sorted by name. */
 static int
 doc_print_package(Compiler* c, const char* pkg_root_abs, const char* want) {
 	Symbol* s;
-	int n, pass;
+	Symbol** list;
+	int i, n, cap;
 
+	list = NULL;
 	n = 0;
-	for (pass = 0; pass < 2; pass++) {
-		for (s = c->syms.symbols; s; s = s->next) {
-			if (!doc_sym_exported_c(c, s))
+	cap = 0;
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (!doc_sym_exported_c(c, s))
+			continue;
+		if (!doc_sym_in_root(s, pkg_root_abs))
+			continue;
+		if (want && strcmp(s->name, want) != 0)
+			continue;
+		/* Skip named-enum constants; they appear in the SkTag body. */
+		if (s->kind == SkEnumCon) {
+			Type* t = s->type;
+			if (t && t->kind == TyEnum && t->tag && t->tag[0] &&
+			    !doc_is_synth_tag(t->tag))
 				continue;
-			if (!doc_sym_in_root(s, pkg_root_abs))
-				continue;
-			if (want && strcmp(s->name, want) != 0)
-				continue;
-			if (pass == 0 && !doc_sym_is_type(s))
-				continue;
-			if (pass == 1 && doc_sym_is_type(s))
-				continue;
-			/* Skip named-enum constants; they appear in the SkTag body. */
-			if (s->kind == SkEnumCon) {
-				Type* t = s->type;
-				if (t && t->kind == TyEnum && t->tag && t->tag[0] &&
-				    !doc_is_synth_tag(t->tag))
-					continue;
-			}
-			if (n)
-				printf("\n");
-			print_sym_doc(c, s);
-			n++;
 		}
+		if (n >= cap) {
+			cap = cap ? cap * 2 : 16;
+			list = xrealloc(list, (size_t)cap * sizeof(Symbol*));
+		}
+		list[n++] = s;
 	}
+	if (n > 1)
+		qsort(list, (size_t)n, sizeof(Symbol*), doc_sym_cmp);
+	for (i = 0; i < n; i++) {
+		if (i)
+			printf("\n");
+		print_sym_doc(c, list[i]);
+	}
+	free(list);
 	return n;
 }
 
