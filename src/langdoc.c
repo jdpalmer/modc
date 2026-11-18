@@ -2,10 +2,12 @@
  * Canonical language topic pages for `modc doc <topic>` (dialect rules for
  * humans/agents). Baked into the binary for offline use; longer narrative
  * guides under docs/ may expand these rules but should not contradict them.
- * Package API docs stay in cmd_doc.
+ * Package API docs stay in cmd_doc; shipped guides are markdown under lib/modc/docs/.
  */
 #include "ast.h"
+#include "host_os.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -208,8 +210,215 @@ langdoc_is_topic(const char* name) {
 	return langdoc_find(name) != NULL;
 }
 
+/*
+ * Shipped markdown guides: in-tree <modc_pkg>/docs, or installed
+ * dirname(modc_pkg)/docs (lib/modc/docs next to pkg/). MODC_DOCS overrides.
+ */
+static int
+langdoc_guides_dir(Compiler* c, char* out, size_t n) {
+	const char* env;
+	char parent[HOST_PATH_MAX];
+	char* slash;
+	char probe[HOST_PATH_MAX];
+
+	env = getenv("MODC_DOCS");
+	if (env && env[0]) {
+		snprintf(out, n, "%s", env);
+		host_path_slashify(out);
+		return host_is_dir(out) ? 0 : -1;
+	}
+	if (c == NULL || c->paths.modc_pkg == NULL || c->paths.modc_pkg[0] == 0)
+		return -1;
+	snprintf(out, n, "%s/docs", c->paths.modc_pkg);
+	host_path_slashify(out);
+	snprintf(probe, sizeof(probe), "%s/README.md", out);
+	if (host_is_dir(out) && host_is_file(probe))
+		return 0;
+	snprintf(parent, sizeof(parent), "%s", c->paths.modc_pkg);
+	slash = (char*)host_path_last_sep(parent);
+	if (slash == NULL || slash == parent)
+		return -1;
+	*slash = 0;
+	snprintf(out, n, "%s/docs", parent);
+	host_path_slashify(out);
+	snprintf(probe, sizeof(probe), "%s/README.md", out);
+	if (host_is_dir(out) && host_is_file(probe))
+		return 0;
+	return -1;
+}
+
+static int
+langdoc_guide_name_ok(const char* name) {
+	size_t i;
+
+	if (name == NULL || name[0] == 0)
+		return 0;
+	for (i = 0; name[i]; i++) {
+		char ch = name[i];
+		if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+		      (ch >= '0' && ch <= '9') || ch == '-' || ch == '_'))
+			return 0;
+	}
+	return 1;
+}
+
+static int
+langdoc_guide_exists(Compiler* c, const char* name) {
+	char dir[HOST_PATH_MAX];
+	char path[HOST_PATH_MAX];
+
+	if (!langdoc_guide_name_ok(name))
+		return 0;
+	if (langdoc_guides_dir(c, dir, sizeof(dir)) != 0)
+		return 0;
+	snprintf(path, sizeof(path), "%s/%s.md", dir, name);
+	host_path_slashify(path);
+	return host_is_file(path);
+}
+
+static int
+langdoc_guide_strcmp(const void* a, const void* b) {
+	return strcmp(*(const char* const*)a, *(const char* const*)b);
+}
+
+/* Caller frees each names[i] and names. Returns count, or -1 on missing docs/. */
+static int
+langdoc_collect_guides(Compiler* c, char*** out_names) {
+	char dir[HOST_PATH_MAX];
+	char** names = NULL;
+	int names_len = 0, names_cap = 0;
+	HostDir* d;
+	const char* ent;
+
+	*out_names = NULL;
+	if (langdoc_guides_dir(c, dir, sizeof(dir)) != 0)
+		return -1;
+	d = host_opendir(dir);
+	if (d == NULL)
+		return -1;
+	while ((ent = host_readdir(d)) != NULL) {
+		size_t len = strlen(ent);
+		char* base;
+
+		if (len < 4 || strcmp(ent + len - 3, ".md") != 0)
+			continue;
+		base = xmalloc(len - 2);
+		memcpy(base, ent, len - 3);
+		base[len - 3] = 0;
+		if (!langdoc_guide_name_ok(base)) {
+			free(base);
+			continue;
+		}
+		if (names_len >= names_cap) {
+			names_cap = names_cap ? names_cap * 2 : 16;
+			names = xrealloc(names, (size_t)names_cap * sizeof(char*));
+		}
+		names[names_len++] = base;
+	}
+	host_closedir(d);
+	if (names_len > 1)
+		qsort(names, (size_t)names_len, sizeof(char*), langdoc_guide_strcmp);
+	*out_names = names;
+	return names_len;
+}
+
+static void
+langdoc_free_guides(char** names, int n) {
+	int i;
+
+	for (i = 0; i < n; i++)
+		free(names[i]);
+	free(names);
+}
+
+static void
+langdoc_print_guide_names(Compiler* c) {
+	char** names = NULL;
+	int n, i;
+
+	n = langdoc_collect_guides(c, &names);
+	if (n < 0) {
+		printf("  (guides not installed — re-run make install)\n");
+		return;
+	}
+	if (n == 0) {
+		printf("  (none)\n");
+		langdoc_free_guides(names, n);
+		return;
+	}
+	for (i = 0; i < n; i++) {
+		printf("  ");
+		color_span(stdout, COL_BOLD COL_CYAN, names[i]);
+		printf("\n");
+	}
+	langdoc_free_guides(names, n);
+}
+
+int
+langdoc_print_guide_index(Compiler* c) {
+	char dir[HOST_PATH_MAX];
+	char** names = NULL;
+	int n;
+
+	if (langdoc_guides_dir(c, dir, sizeof(dir)) != 0) {
+		fprintf(stderr, "modc doc: guides not installed (no docs/ next to stdlib)\n");
+		return 1;
+	}
+	n = langdoc_collect_guides(c, &names);
+	if (n < 0) {
+		fprintf(stderr, "modc doc: cannot open %s\n", dir);
+		return 1;
+	}
+	color_span(stdout, COL_BOLD COL_YELLOW, "Guides");
+	printf(" (modc doc guide.<name>):\n");
+	if (n == 0)
+		printf("  (none found in %s)\n", dir);
+	else {
+		int i;
+
+		for (i = 0; i < n; i++) {
+			printf("  ");
+			color_span(stdout, COL_BOLD COL_CYAN, names[i]);
+			printf("\n");
+		}
+		printf("\n");
+		printf("Short dialect rules: modc doc <topic>  (see modc doc topics)\n");
+	}
+	langdoc_free_guides(names, n);
+	return 0;
+}
+
+int
+langdoc_print_guide(Compiler* c, const char* name) {
+	char dir[HOST_PATH_MAX];
+	char path[HOST_PATH_MAX];
+	char* text;
+	size_t n;
+
+	if (!langdoc_guide_name_ok(name)) {
+		fprintf(stderr, "modc doc: invalid guide name \"%s\"\n", name);
+		return 1;
+	}
+	if (langdoc_guides_dir(c, dir, sizeof(dir)) != 0) {
+		fprintf(stderr, "modc doc: guides not installed (no docs/ next to stdlib)\n");
+		return 1;
+	}
+	snprintf(path, sizeof(path), "%s/%s.md", dir, name);
+	host_path_slashify(path);
+	text = read_file(path, &n);
+	if (text == NULL) {
+		fprintf(stderr, "modc doc: unknown guide \"%s\" (try modc doc guide)\n", name);
+		return 1;
+	}
+	fwrite(text, 1, n, stdout);
+	if (n == 0 || text[n - 1] != '\n')
+		fputc('\n', stdout);
+	free(text);
+	return 0;
+}
+
 void
-langdoc_print_index(void) {
+langdoc_print_index(Compiler* c) {
 	int i;
 
 	color_span(stdout, COL_BOLD COL_YELLOW, "modc doc");
@@ -242,13 +451,9 @@ langdoc_print_index(void) {
 	printf("\n");
 	printf("  modc doc str | path | fs | os | tty | crash\n");
 	printf("\n");
-	color_span(stdout, COL_BOLD COL_YELLOW, "Guides:");
-	printf("\n");
-	printf("  modc doc guide              list (installed with modc)\n");
-	printf("  modc doc guide.quickstart   first program and tour\n");
-	printf("  modc doc guide.memory       pools, slices, escapes\n");
-	printf("  modc doc guide.packages     import, vendor, cache\n");
-	printf("  modc doc guide.README       full docs index\n");
+	color_span(stdout, COL_BOLD COL_YELLOW, "Guides");
+	printf(" (modc doc guide.<name>):\n");
+	langdoc_print_guide_names(c);
 	printf("\n");
 	printf("Dialect errors may print: note: modc doc <topic>\n");
 }
@@ -262,8 +467,20 @@ langdoc_section_hdr(const char* line, size_t n) {
 	       (n >= 9 && strncmp(line, "See also:", 9) == 0);
 }
 
+static void
+langdoc_print_topic_longer(Compiler* c, const char* name) {
+	if (!langdoc_guide_exists(c, name))
+		return;
+	printf("\n");
+	if (color_enabled(stdout))
+		color_span(stdout, COL_BOLD COL_YELLOW, "Longer:");
+	else
+		fputs("Longer:", stdout);
+	printf(" modc doc guide.%s\n", name);
+}
+
 int
-langdoc_print_topic(const char* name) {
+langdoc_print_topic(Compiler* c, const char* name) {
 	const LangTopic* t;
 	const char* body;
 	const char* p;
@@ -279,6 +496,7 @@ langdoc_print_topic(const char* name) {
 		return 0;
 	if (!color_enabled(stdout)) {
 		fputs(body, stdout);
+		langdoc_print_topic_longer(c, name);
 		return 1;
 	}
 	first = 1;
@@ -303,5 +521,6 @@ langdoc_print_topic(const char* name) {
 		} else
 			break;
 	}
+	langdoc_print_topic_longer(c, name);
 	return 1;
 }

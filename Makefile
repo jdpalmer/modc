@@ -480,10 +480,16 @@ check-special: $(MODC)
 	@./modc doc | grep -Fq 'documentation hub'
 	@./modc doc | grep -Fq 'modc doc str | path | fs | os | tty | crash'
 	@./modc doc | grep -Fq 'modc doc guide'
+	# Hub lists shipped guides live from docs/.
+	@./modc doc | grep -Fq 'quickstart'
+	@./modc doc | grep -Fq 'memory'
 	# Shipped guides (in-tree docs/ via modc_pkg).
 	@./modc doc guide | grep -Fq 'quickstart'
 	@./modc doc guide.quickstart | grep -Fq 'modc doc'
 	@./modc doc guide.README | grep -Fq '%C documentation'
+	# Topic pages point at same-named long guides when present.
+	@./modc doc defer | grep -Fq 'modc doc guide.defer'
+	@! ./modc doc escape | grep -Fq 'modc doc guide.escape'
 	# Stable order: types before funcs; names sorted (Color before Point; coords before origin).
 	@./modc doc -M test docpkg | awk '/^enum Color/{c=NR} /^struct Point/{p=NR} /^\(Point\* p\)\.coords/{co=NR} /^\(Point\* p\)\.origin/{o=NR} /^add\(/{a=NR} END{exit !(c&&p&&co&&o&&a&&c<p&&p<co&&co<o&&o<a)}'
 	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'

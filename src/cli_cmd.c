@@ -1006,149 +1006,6 @@ doc_print_topics_hint(void) {
 	printf(" modc doc topics\n");
 }
 
-/*
- * Shipped markdown guides: in-tree <modc_pkg>/docs, or installed
- * dirname(modc_pkg)/docs (lib/modc/docs next to pkg/). MODC_DOCS overrides.
- */
-static int
-doc_guides_dir(Compiler* c, char* out, size_t n) {
-	const char* env;
-	char parent[HOST_PATH_MAX];
-	char* slash;
-	char probe[HOST_PATH_MAX];
-
-	env = getenv("MODC_DOCS");
-	if (env && env[0]) {
-		snprintf(out, n, "%s", env);
-		host_path_slashify(out);
-		return host_is_dir(out) ? 0 : -1;
-	}
-	if (c == NULL || c->paths.modc_pkg == NULL || c->paths.modc_pkg[0] == 0)
-		return -1;
-	snprintf(out, n, "%s/docs", c->paths.modc_pkg);
-	host_path_slashify(out);
-	snprintf(probe, sizeof(probe), "%s/README.md", out);
-	if (host_is_dir(out) && host_is_file(probe))
-		return 0;
-	snprintf(parent, sizeof(parent), "%s", c->paths.modc_pkg);
-	slash = (char*)host_path_last_sep(parent);
-	if (slash == NULL || slash == parent)
-		return -1;
-	*slash = 0;
-	snprintf(out, n, "%s/docs", parent);
-	host_path_slashify(out);
-	snprintf(probe, sizeof(probe), "%s/README.md", out);
-	if (host_is_dir(out) && host_is_file(probe))
-		return 0;
-	return -1;
-}
-
-static int
-doc_guide_name_ok(const char* name) {
-	size_t i;
-
-	if (name == NULL || name[0] == 0)
-		return 0;
-	for (i = 0; name[i]; i++) {
-		char ch = name[i];
-		if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
-		      (ch >= '0' && ch <= '9') || ch == '-' || ch == '_'))
-			return 0;
-	}
-	return 1;
-}
-
-static int
-doc_guide_strcmp(const void* a, const void* b) {
-	return strcmp(*(const char* const*)a, *(const char* const*)b);
-}
-
-static int
-doc_print_guide_index(Compiler* c) {
-	char dir[HOST_PATH_MAX];
-	char** names = NULL;
-	int names_len = 0, names_cap = 0, i;
-	HostDir* d;
-	const char* ent;
-
-	if (doc_guides_dir(c, dir, sizeof(dir)) != 0) {
-		fprintf(stderr, "modc doc: guides not installed (no docs/ next to stdlib)\n");
-		return 1;
-	}
-	d = host_opendir(dir);
-	if (d == NULL) {
-		fprintf(stderr, "modc doc: cannot open %s\n", dir);
-		return 1;
-	}
-	while ((ent = host_readdir(d)) != NULL) {
-		size_t len = strlen(ent);
-		char* base;
-
-		if (len < 4 || strcmp(ent + len - 3, ".md") != 0)
-			continue;
-		base = xmalloc(len - 2);
-		memcpy(base, ent, len - 3);
-		base[len - 3] = 0;
-		if (!doc_guide_name_ok(base)) {
-			free(base);
-			continue;
-		}
-		if (names_len >= names_cap) {
-			names_cap = names_cap ? names_cap * 2 : 16;
-			names = xrealloc(names, (size_t)names_cap * sizeof(char*));
-		}
-		names[names_len++] = base;
-	}
-	host_closedir(d);
-	if (names_len > 1)
-		qsort(names, (size_t)names_len, sizeof(char*), doc_guide_strcmp);
-	color_span(stdout, COL_BOLD COL_YELLOW, "Guides");
-	printf(" (modc doc guide.<name>):\n");
-	for (i = 0; i < names_len; i++) {
-		printf("  ");
-		color_span(stdout, COL_BOLD COL_CYAN, names[i]);
-		printf("\n");
-		free(names[i]);
-	}
-	free(names);
-	if (names_len == 0)
-		printf("  (none found in %s)\n", dir);
-	else {
-		printf("\n");
-		printf("Short dialect rules: modc doc <topic>  (see modc doc topics)\n");
-	}
-	return 0;
-}
-
-static int
-doc_print_guide(Compiler* c, const char* name) {
-	char dir[HOST_PATH_MAX];
-	char path[HOST_PATH_MAX];
-	char* text;
-	size_t n;
-
-	if (!doc_guide_name_ok(name)) {
-		fprintf(stderr, "modc doc: invalid guide name \"%s\"\n", name);
-		return 1;
-	}
-	if (doc_guides_dir(c, dir, sizeof(dir)) != 0) {
-		fprintf(stderr, "modc doc: guides not installed (no docs/ next to stdlib)\n");
-		return 1;
-	}
-	snprintf(path, sizeof(path), "%s/%s.md", dir, name);
-	host_path_slashify(path);
-	text = read_file(path, &n);
-	if (text == NULL) {
-		fprintf(stderr, "modc doc: unknown guide \"%s\" (try modc doc guide)\n", name);
-		return 1;
-	}
-	fwrite(text, 1, n, stdout);
-	if (n == 0 || text[n - 1] != '\n')
-		fputc('\n', stdout);
-	free(text);
-	return 0;
-}
-
 /* Group order: types → vars → funcs/methods. */
 static int
 doc_sym_group(Symbol* s) {
@@ -1347,21 +1204,21 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 	symbuf[0] = 0;
 	/* Bare modc doc → documentation hub (use "." for current package). */
 	if (target == NULL && !o->doc_check) {
-		langdoc_print_index();
+		langdoc_print_index(c);
 		return 0;
 	}
 	/* Language topics win over package names (modc doc defer). */
 	if (target && (strcmp(target, "topics") == 0 || strcmp(target, "lang") == 0)) {
-		langdoc_print_index();
+		langdoc_print_index(c);
 		return 0;
 	}
 	/* Shipped markdown guides (lib/modc/docs); guide.NAME avoids topic/pkg clashes. */
 	if (target && (strcmp(target, "guide") == 0 || strcmp(target, "guides") == 0))
-		return doc_print_guide_index(c);
+		return langdoc_print_guide_index(c);
 	if (target && strncmp(target, "guide.", 6) == 0)
-		return doc_print_guide(c, target + 6);
+		return langdoc_print_guide(c, target + 6);
 	if (target && langdoc_is_topic(target)) {
-		langdoc_print_topic(target);
+		langdoc_print_topic(c, target);
 		return 0;
 	}
 	if (target == NULL) {

@@ -790,8 +790,10 @@ void error_tok(Compiler* c, Tok* t, const char* fmt, ...);
 /* Emit `note: modc doc <topic>` once per topic per compile (dialect help). */
 void help_topic(Compiler* c, const char* topic);
 int langdoc_is_topic(const char* name);
-int langdoc_print_topic(const char* name); /* 1 if printed */
-void langdoc_print_index(void);
+int langdoc_print_topic(Compiler* c, const char* name); /* 1 if printed */
+void langdoc_print_index(Compiler* c);
+int langdoc_print_guide_index(Compiler* c); /* 0 ok */
+int langdoc_print_guide(Compiler* c, const char* name); /* 0 ok */
 void die(const char* fmt, ...);
 /* Terminal color: auto (tty + no NO_COLOR), always, never. */
 enum { ColorAuto = 0, ColorAlways = 1, ColorNever = 2 };
