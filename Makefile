@@ -487,9 +487,13 @@ check-special: $(MODC)
 	@./modc doc guide | grep -Fq 'quickstart'
 	@./modc doc guide.quickstart | grep -Fq 'modc doc'
 	@./modc doc guide.README | grep -Fq '%C documentation'
-	# Topic pages point at same-named long guides when present.
+	# Topic pages point at same-named or aliased long guides.
 	@./modc doc defer | grep -Fq 'modc doc guide.defer'
-	@! ./modc doc escape | grep -Fq 'modc doc guide.escape'
+	@./modc doc escape | grep -Fq 'modc doc guide.memory'
+	@./modc doc pool | grep -Fq 'modc doc guide.memory'
+	@./modc doc slice | grep -Fq 'modc doc guide.arrays'
+	@./modc doc import | grep -Fq 'modc doc guide.packages'
+	@./modc doc methods | grep -Fq 'live T*'
 	# Stable order: types before funcs; names sorted (Color before Point; coords before origin).
 	@./modc doc -M test docpkg | awk '/^enum Color/{c=NR} /^struct Point/{p=NR} /^\(Point\* p\)\.coords/{co=NR} /^\(Point\* p\)\.origin/{o=NR} /^add\(/{a=NR} END{exit !(c&&p&&co&&o&&a&&c<p&&p<co&&co<o&&o<a)}'
 	@./modc doc -M test docpkg | grep -Fq 'Language topics: modc doc topics'

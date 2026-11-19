@@ -181,7 +181,8 @@ Not in this cut: permissions, owner, atime, `lstat`, symlink kind, `fstat`, recu
 - `(char[..], bool) os_cache_dir([[region]] Pool *p)` — `$XDG_CACHE_HOME` or `~/.cache`; `LOCALAPPDATA` on Win32.
 - `(char[..], bool) os_hostname([[region]] Pool *p)` — host name (`gethostname` / `GetComputerName`).
 - `bool os_chdir(const char[..] path)` — `path` is logical; Win32 converts with `path_to_sys`.
-- `void os_sleep_ms(int64_t ms)` — `ms < 0` is treated as 0. Values above one billion milliseconds are clamped.
+- `void os_sleep_ms(int64_t ms)` — `ms < 0` is treated as 0. On Win32, values
+  above one billion milliseconds are clamped; on POSIX there is no upper clamp.
 - `int64_t os_mono_ns()` — monotonic nanoseconds since an arbitrary epoch; 0 if unavailable.
 - `void os_exit(int code)` — does not return.
 - `(char[..], bool) os_look_path([[region]] Pool *p, const char[..] name)` — resolve a bare name via `PATH` (or return `name` when it contains `/`). Path view is minted into `p`.
@@ -242,7 +243,10 @@ Not in this cut: PTY/foreground, shell-form (`sh -c` / `cmd.exe /C`), `Cmd.wait`
 
 ## `tty`
 
-Host terminal plumbing only (no Kitty, mouse, colors, or alternate screen). Methods cannot attach to `fs.File` from another package, so the API is free functions:
+Host terminal plumbing (no Kitty protocol or alternate-screen API). Methods
+cannot attach to `fs.File` from another package, so the API is free functions.
+On Win32, `tty_set_raw` also enables VT input/processing, mouse input, and
+UTF-8 code pages; that is host console setup, not a portable mouse/color API.
 
 ```c
 import "tty";
@@ -252,6 +256,7 @@ struct WinSize { int rows; int cols; };
 bool tty_isatty(File *f);
 bool tty_set_raw(File *f);      /* save attrs; enter raw */
 bool tty_set_cooked(File *f);   /* restore attrs from set_raw */
+void tty_reapply_editor_mode(File *f); /* Win32: restore VT/editor modes; POSIX: no-op */
 (WinSize, bool) tty_size(File *f);
 (File, bool) tty_stdin();   /* borrow fd/handle 0 */
 (File, bool) tty_stdout();
@@ -260,6 +265,7 @@ bool tty_set_cooked(File *f);   /* restore attrs from set_raw */
 
 - `tty_stdin` / `stdout` / `stderr` use `file_from_fd_borrow` (or Win32 handle borrow). `File.close` does not close the process stdio descriptors.
 - `set_cooked` restores the attributes saved by a prior `set_raw` on the same fd/handle; without a save it returns false.
+- `tty_reapply_editor_mode` restores Win32 console modes after a child or editor may have changed them; on POSIX it is a no-op.
 - Buffering stays in `fs`: compose with `writer_from_file` / `reader_from_file`. Flush before mode changes. `Poll` / `isatty` / `size` see the underlying `File` only.
 
 ## `crash`

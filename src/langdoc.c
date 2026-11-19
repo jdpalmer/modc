@@ -42,7 +42,7 @@ static const LangTopic topics[] = {
 		"Rules:\n"
 		"  • const T rejects mutation through that view\n"
 		"  • const? T is polymorphic: callers may pass const or mutable; the body sees const\n"
-		"  • string literals are const char[..]; pass them to const / const? parameters\n"
+		"  • string literals need const / const? sinks (char[..] or char *)\n"
 		"  • do not use const? to launder a const value into a mutable API\n"
 		"\n"
 		"OK:\n"
@@ -61,7 +61,7 @@ static const LangTopic topics[] = {
 		"  • return values are evaluated before deferred statements run\n"
 		"  • never return a pointer freed (or [[releases]]'d) by a defer in the same function\n"
 		"  • goto may not jump over a defer\n"
-		"  • a deferred statement cannot contain return/goto/defer\n"
+		"  • inside defer: no return, goto, break, continue, labels, [[fallthrough]], or nested defer\n"
 		"\n"
 		"OK:\n"
 		"  void f() {\n"
@@ -134,7 +134,9 @@ static const LangTopic topics[] = {
 		"Rules:\n"
 		"  • receivers are explicit pointers: void (T *r).name(…)\n"
 		"  • call with dot syntax: r.name() (auto-deref; no ->)\n"
-		"  • method names must not collide with fields on T\n"
+		"  • method names must not collide with fields on T (define-time error)\n"
+		"  • in the method body: no null tests on r, and no rebinding r (mutate through it)\n"
+		"  • callers must pass a live T*; entry inserts a null trap (--release omits)\n"
 		"  • methods may be defined outside T's origin package (import the defining package)\n"
 		"  • overload marks free-function overloading; methods use receiver dispatch\n"
 		"\n"
@@ -467,16 +469,45 @@ langdoc_section_hdr(const char* line, size_t n) {
 	       (n >= 9 && strncmp(line, "See also:", 9) == 0);
 }
 
+/* Same-named guide first; else a narrative alias (pool → memory, …). */
+static const char*
+langdoc_topic_longer_name(Compiler* c, const char* topic) {
+	static const struct {
+		const char* topic;
+		const char* guide;
+	} aliases[] = {
+		{ "escape", "memory" },
+		{ "pool", "memory" },
+		{ "provides", "memory" },
+		{ "slice", "arrays" },
+		{ "import", "packages" },
+		{ "goto", "defer" },
+	};
+	int i;
+
+	if (langdoc_guide_exists(c, topic))
+		return topic;
+	for (i = 0; i < (int)(sizeof(aliases) / sizeof(aliases[0])); i++) {
+		if (strcmp(aliases[i].topic, topic) == 0 &&
+		    langdoc_guide_exists(c, aliases[i].guide))
+			return aliases[i].guide;
+	}
+	return NULL;
+}
+
 static void
 langdoc_print_topic_longer(Compiler* c, const char* name) {
-	if (!langdoc_guide_exists(c, name))
+	const char* guide;
+
+	guide = langdoc_topic_longer_name(c, name);
+	if (guide == NULL)
 		return;
 	printf("\n");
 	if (color_enabled(stdout))
 		color_span(stdout, COL_BOLD COL_YELLOW, "Longer:");
 	else
 		fputs("Longer:", stdout);
-	printf(" modc doc guide.%s\n", name);
+	printf(" modc doc guide.%s\n", guide);
 }
 
 int

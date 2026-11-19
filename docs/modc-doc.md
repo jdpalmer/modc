@@ -92,10 +92,12 @@ modc doc guide.defer        # long-form (short rules stay: modc doc defer)
 
 `guide` / `guides` / `guide.<name>` are reserved. Guide names match the markdown
 basename (`quickstart`, `modc-doc`, `README`, …). The hub and `modc doc guide`
-list whatever is installed (no hardcoded subset). When a short topic has a
-same-named guide, the topic page ends with `Longer: modc doc guide.<topic>`.
-Override the search root with `MODC_DOCS` if needed. Longer guides may expand
-the short topic pages; if they disagree, update `langdoc.c` first.
+list whatever is installed (no hardcoded subset). Topic pages end with
+`Longer: modc doc guide.<name>` when a matching guide exists, otherwise a
+narrative alias (`pool`/`provides`/`escape` → `memory`, `slice` → `arrays`,
+`import` → `packages`, `goto` → `defer`). Override the search root with
+`MODC_DOCS` if needed. Longer guides may expand the short topic pages; if they
+disagree, update `langdoc.c` first.
 
 Dialect diagnostics may append a footnote:
 

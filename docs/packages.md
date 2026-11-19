@@ -194,8 +194,9 @@ When resolving `import "a/b";`, the compiler searches package roots in order unt
    `dir/a/b.mc`.
 
 5. **Standard library:** the installation package root (containing `str`,
-   `str`, etc.), checking `MODC_PKG` first, then `$PREFIX/lib/modc/pkg`
-   adjacent to the binary, and finally the compiler repository build root.
+   `path`, `fs`, `os`, `tty`, `crash`), checking `MODC_PKG` first, then
+   `$PREFIX/lib/modc/pkg` adjacent to the binary, and finally the compiler
+   repository build root.
 
 Path targets can be single `.mc` files or directories (where `mod.mc` loads first if present). Cyclic imports are strictly prohibited. Local files next to the importer intentionally shadow `vendor/` directories to prioritize project code, and local code/`-M` paths shadow stdlib modules. `modc` uses no central package registry; packages are defined via Git URLs in `modc.ini` and downloaded locally into `vendor/`.
 
