@@ -17,7 +17,7 @@ HOST := $(ROOT)/src/host/include
 BUILD := $(ROOT)/build
 MODC := $(ROOT)/modc
 
-# CalVer from src/cli.h (YYYY.MM.rev). Bump there only for install/tag/release.
+# CalVer from src/cli.h (YY.MM.R). Bump there only for install/tag/release.
 MODC_VERSION := $(shell awk -F'"' '/^\#define MODC_VERSION / { print $$2; exit }' $(ROOT)/src/cli.h)
 
 # Keep Makefile.msvc OBJS basenames in sync when editing this list.

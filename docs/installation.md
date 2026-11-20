@@ -76,7 +76,7 @@ toolchain stamps in the knobs drift.
 
 ### Versioning
 
-`modc -V` reports a **calendar version** `YYYY.MM.rev` (for example `2026.11.01`), defined as `MODC_VERSION` in `src/cli.h`. Bump it only when you cut an installable/release pair (tag, `make install` you care about, or a published build) — not on every local commit or GitHub push. Local rebuilds still invalidate `.pkg.*` via the driver binary stamp in `.pkg.meta`.
+`modc -V` reports a **calendar version** `YY.MM.R` (for example `26.11.0`), defined as `MODC_VERSION` in `src/cli.h`. `R` is an incrementing release integer that starts at 0 each month. Bump it only when you cut an installable/release pair (tag, `make install` you care about, or a published build) — not on every local commit or GitHub push. Local rebuilds still invalidate `.pkg.*` via the driver binary stamp in `.pkg.meta`.
 
 ---
 
