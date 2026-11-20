@@ -58,6 +58,14 @@
 
 * Not a drop-in replacement for C: stricter `.mc` dialect, more forgiving headers
 
+## Install
+
+```sh
+brew install jdpalmer/tap/modc
+```
+
+See [installation.md](docs/installation.md) for prerequisites, from-source builds, and Windows.
+
 ## Hello, world
 
 At its core %C is just C with source files that use the `.mc` extension. 

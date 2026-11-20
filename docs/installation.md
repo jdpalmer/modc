@@ -12,6 +12,13 @@ On macOS (and Linux with Homebrew), install from the tap:
 brew install jdpalmer/tap/modc
 ```
 
+Upgrade or remove with:
+
+```sh
+brew update && brew upgrade modc
+brew uninstall modc
+```
+
 That pulls in `modc-qbe` (the patched QBE fork) and installs:
 
 ```sh
