@@ -17,14 +17,14 @@ HOST := $(ROOT)/src/host/include
 BUILD := $(ROOT)/build
 MODC := $(ROOT)/modc
 
-# CalVer from src/cli.h (YY.MM.R). Bump there only for install/tag/release.
-MODC_VERSION := $(shell awk -F'"' '/^\#define MODC_VERSION / { print $$2; exit }' $(ROOT)/src/cli.h)
+# CalVer from root VERSION (YY.MM.R). Bump that file only for install/tag/release.
+MODC_VERSION := $(shell tr -d '[:space:]' < $(ROOT)/VERSION)
 
 # Keep Makefile.msvc OBJS basenames in sync when editing this list.
 SRCS := src/main.c src/cli_build.c src/cli_cmd.c src/cli_selftest.c src/diag.c src/langdoc.c src/lex.c src/pp.c src/parse.c src/type.c src/format.c src/symbol.c src/check.c src/emit.c src/pkg.c src/fmt.c src/vendor.c src/host_os.c src/cache.c src/iface.c src/ini.c
 OBJS := $(patsubst src/%.c,$(BUILD)/%.o,$(SRCS))
 
-CFLAGS += -DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
+CFLAGS += -I$(BUILD) -DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
 ifdef ASAN
 CFLAGS += -O1 -fsanitize=address -fno-omit-frame-pointer
 endif
@@ -71,10 +71,14 @@ format-check: $(MODC)
 	done; \
 	exit $$err
 
+$(BUILD)/version.h: $(ROOT)/VERSION
+	@mkdir -p $(BUILD)
+	@printf '%s\n' '#define MODC_VERSION "$(MODC_VERSION)"' > $@
+
 $(MODC): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
-$(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h
+$(BUILD)/%.o: src/%.c src/ast.h src/cli.h src/host_os.h $(BUILD)/version.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 

@@ -22,7 +22,7 @@ BUILD = build
 MODC = modc.exe
 
 CFLAGS = -O2 -Wall -Wno-unused-parameter -D_CRT_SECURE_NO_WARNINGS \
-	-DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
+	-I$(BUILD) -DMODC_INCLUDE=\"$(HOST)\" -DMODC_PKG=\"$(ROOT)\"
 
 OBJS = \
 	$(BUILD)\main.o \
@@ -47,9 +47,13 @@ OBJS = \
 	$(BUILD)\iface.o \
 	$(BUILD)\ini.o
 
-HDRS = src\ast.h src\cli.h src\host_os.h src\ini.h
+HDRS = src\ast.h src\cli.h src\host_os.h src\ini.h $(BUILD)\version.h
 
 all: $(MODC)
+
+$(BUILD)\version.h: VERSION
+	if not exist $(BUILD) mkdir $(BUILD)
+	for /f "usebackq delims=" %%V in (`type VERSION`) do @echo #define MODC_VERSION "%%V"> $(BUILD)\version.h
 
 $(MODC): $(OBJS)
 	$(CC) -o $(MODC) $(OBJS)
