@@ -2149,6 +2149,14 @@ consume_target_sym(Node* arg) {
 		return NULL;
 	if (arg->kind == NdCast)
 		return consume_target_sym(arg->a);
+	if (arg->kind == NdComma)
+		return consume_target_sym(arg->b);
+	/*
+	 * Embed upcast may rewrite Label*→Widget* as
+	 * (Widget*)((char*)l + off). Still the same owned local.
+	 */
+	if (arg->kind == NdBin && (arg->op == PnPlus || arg->op == PnMinus))
+		return consume_target_sym(arg->a);
 	if (arg->kind == NdAddr)
 		return lvalue_stack_object(arg->a);
 	if (arg->kind == NdCall && arg->a && arg->a->kind == NdName && arg->a->s &&
@@ -3042,6 +3050,8 @@ expr_carries_owned(EscapeState* st, Node* n) {
 	}
 	if (n->kind == NdCast || n->kind == NdComma)
 		return expr_carries_owned(st, n->kind == NdComma ? n->b : n->a);
+	if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus))
+		return expr_carries_owned(st, n->a);
 	if (n->kind == NdCond)
 		return expr_carries_owned(st, n->b) || expr_carries_owned(st, n->c);
 	if (n->kind == NdTupleLit) {
@@ -3493,6 +3503,8 @@ esc_clear_owned_in_expr(EscapeState* st, Node* n) {
 	}
 	if (n->kind == NdCast || n->kind == NdComma)
 		esc_clear_owned_in_expr(st, n->kind == NdComma ? n->b : n->a);
+	else if (n->kind == NdBin && (n->op == PnPlus || n->op == PnMinus))
+		esc_clear_owned_in_expr(st, n->a);
 	else if (n->kind == NdCond) {
 		esc_clear_owned_in_expr(st, n->b);
 		esc_clear_owned_in_expr(st, n->c);

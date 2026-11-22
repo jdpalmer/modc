@@ -634,6 +634,11 @@ print_param_attrs(Out* o, Type* ft, int i) {
 		o_putc(o, ' ');
 }
 
+static int
+is_fnptr_type(Type* t) {
+	return t && is_ptr(t) && t->base && t->base->kind == TyFunc;
+}
+
 static void
 print_param(Compiler* c, Out* o, Type* ft, int i, const char* fallback) {
 	Type* pt;
@@ -666,6 +671,12 @@ print_param(Compiler* c, Out* o, Type* ft, int i, const char* fallback) {
 			o_puts(o, "[]");
 		return;
 	}
+	/* void (*fn)(T) — name belongs inside the declarator, not after. */
+	if (is_fnptr_type(pt)) {
+		print_type_qual_prefix(o, pt);
+		print_fnptr(c, o, pt->base, name);
+		return;
+	}
 	print_type(c, o, pt);
 	o_putc(o, ' ');
 	o_puts(o, name);
@@ -684,6 +695,8 @@ aggr_kw(Type* t) {
 
 static void
 print_field(Compiler* c, Out* o, Field* f) {
+	const char* name;
+
 	if (f == NULL)
 		return;
 	o_putc(o, '\t');
@@ -695,14 +708,21 @@ print_field(Compiler* c, Out* o, Field* f) {
 		o_puts(o, ";\n");
 		return;
 	}
+	name = f->name && f->name[0] ? f->name : "_";
 	if (f->type && is_array(f->type)) {
 		print_type(c, o, f->type->base);
 		o_putc(o, ' ');
-		o_puts(o, f->name ? f->name : "_");
+		o_puts(o, name);
 		if (f->type->len >= 0)
 			o_printf(o, "[%" PRId64 "]", (int64_t)f->type->len);
 		else
 			o_puts(o, "[]");
+		o_puts(o, ";\n");
+		return;
+	}
+	if (is_fnptr_type(f->type)) {
+		print_type_qual_prefix(o, f->type);
+		print_fnptr(c, o, f->type->base, name);
 		o_puts(o, ";\n");
 		return;
 	}
@@ -873,6 +893,12 @@ emit_var(Compiler* c, Out* o, Symbol* s) {
 			o_printf(o, "[%" PRId64 "]", (int64_t)s->type->len);
 		else
 			o_puts(o, "[]");
+		o_puts(o, ";\n");
+		return;
+	}
+	if (is_fnptr_type(s->type)) {
+		print_type_qual_prefix(o, s->type);
+		print_fnptr(c, o, s->type->base, s->name);
 		o_puts(o, ";\n");
 		return;
 	}

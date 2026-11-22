@@ -379,6 +379,40 @@ check-special: $(MODC)
 		test $$? -ne 0; \
 		grep -q "\[\[retains\]\] parameter" $(BUILD)/cache_retains/bad.err
 	$(BUILD)/cache_retains/out
+	# --- iface: function-pointer fields/params/globals use C declarator form ---
+	@rm -rf $(BUILD)/iface_fnptr
+	@mkdir -p $(BUILD)/iface_fnptr/roots/fnpkg $(BUILD)/iface_fnptr/app
+	@printf '%s\n' \
+		'struct Widget { int x; };' \
+		'void (*g_cb)(Widget*);' \
+		'struct Button { void (*on_click_fn)(Widget*); };' \
+		'void set_handler(void (*fn)(Widget*), Button* b) { b.on_click_fn = fn; }' \
+		'void (Button* b).on_edit(void (*fn)(void*), void* user) {' \
+		'	(void)b; (void)fn; (void)user;' \
+		'}' \
+		> $(BUILD)/iface_fnptr/roots/fnpkg/mod.mc
+	@printf '%s\n' \
+		'import "fnpkg";' \
+		'void cb(Widget* w) { (void)w; }' \
+		'int main() {' \
+		'	Button b = { .on_click_fn = cb };' \
+		'	set_handler(cb, &b);' \
+		'	b.on_edit(0, 0);' \
+		'	return 0;' \
+		'}' \
+		> $(BUILD)/iface_fnptr/app/main.mc
+	./modc build -M $(BUILD)/iface_fnptr/roots $(BUILD)/iface_fnptr/app/main.mc \
+		-o $(BUILD)/iface_fnptr/out
+	@grep -Fq 'void (*on_click_fn)(Widget*)' $(BUILD)/iface_fnptr/roots/fnpkg/.pkg.mc
+	@grep -Fq 'void (*g_cb)(Widget*)' $(BUILD)/iface_fnptr/roots/fnpkg/.pkg.mc
+	@grep -Fq 'void (*fn)(Widget*)' $(BUILD)/iface_fnptr/roots/fnpkg/.pkg.mc
+	@grep -Fq 'void (*fn)(void*)' $(BUILD)/iface_fnptr/roots/fnpkg/.pkg.mc
+	@! grep -Fq 'void (*)(' $(BUILD)/iface_fnptr/roots/fnpkg/.pkg.mc
+	# Cache hit reloads .pkg.mc (fnptr declarators must parse).
+	./modc build -v -M $(BUILD)/iface_fnptr/roots $(BUILD)/iface_fnptr/app/main.mc \
+		-o $(BUILD)/iface_fnptr/out2 2>&1 | tee $(BUILD)/iface_fnptr/hit.log
+	@grep -q 'cache hit pkg fnpkg' $(BUILD)/iface_fnptr/hit.log
+	$(BUILD)/iface_fnptr/out2
 	# --- cache: MODC_SYSINCLUDE / MODC_INCLUDE change must miss ---
 	@rm -rf $(BUILD)/cache_sysinc
 	@mkdir -p $(BUILD)/cache_sysinc/inc_a $(BUILD)/cache_sysinc/inc_b \
