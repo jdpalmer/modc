@@ -1151,13 +1151,23 @@ int conv_implicit_ok(Compiler* c, Type* dst, Type* src, Node* expr) {
 				return to == from;
 			if (to->kind == TyEnum)
 				return 0;
-			if (from->kind == TyEnum)
-				return from->size <= to->size;
 			if (expr && expr->kind == NdLit && !expr->is_char_lit && int_lit_fits_type(to, expr->int_val))
 				return 1;
-			if ((to->kind == TyChar || to->kind == TyUChar) && expr && expr->kind == NdLit && expr->is_char_lit && (uint64_t)(unsigned char)expr->int_val == (uint64_t)expr->int_val)
+			if ((to->kind == TyChar || to->kind == TyUChar) && expr && expr->kind == NdLit &&
+			    expr->is_char_lit &&
+			    (uint64_t)(unsigned char)expr->int_val == (uint64_t)expr->int_val)
 				return 1;
-			return from->size <= to->size;
+			if (from->size > to->size)
+				return 0; /* narrowing */
+			/*
+			 * Same-width signed ↔ unsigned needs an explicit cast (int32_t ↔
+			 * uint32_t, size_t ↔ int64_t on LP64, …). Literals that fit are
+			 * already allowed above. bool ↔ char stays implicit (1-byte).
+			 */
+			if (from->size == to->size && is_signed_int(from) != is_signed_int(to) &&
+			    from->kind != TyBool && to->kind != TyBool)
+				return 0;
+			return 1;
 		}
 		if (is_int(to) && (from->kind == TyFloat || from->kind == TyDouble))
 			return 0;

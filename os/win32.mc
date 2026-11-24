@@ -368,7 +368,7 @@ static char* ocmd_build_env_block(OsCmd* c) {
 			p += strlen(p) + 1;
 			continue;
 		}
-		size_t kn = eq - p;
+		size_t kn = (size_t)(eq - p);
 		for (; k < c.nenv; k++) {
 			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], p, kn) == 0) {
 				skip = 1;
@@ -403,7 +403,7 @@ static char* ocmd_build_env_block(OsCmd* c) {
 			p += strlen(p) + 1;
 			continue;
 		}
-		size_t kn = eq - p;
+		size_t kn = (size_t)(eq - p);
 		for (; k < c.nenv; k++) {
 			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], p, kn) == 0) {
 				skip = 1;

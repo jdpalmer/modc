@@ -267,7 +267,7 @@ static int ocmd_resolve_path(const char *name, char *dst, size_t dstcap) {
 		while (*b &&*b != ':') {
 			b++;
 		}
-		size_t plen = b - a;
+		size_t plen = (size_t)(b - a);
 		if (plen == 0) {
 			a = *b ? b + 1: b;
 			continue;
@@ -325,7 +325,7 @@ static char** ocmd_build_env(OsCmd* c) {
 		if (eq == 0) {
 			continue;
 		}
-		kn = eq - row;
+		kn = (size_t)(eq - row);
 		for (k = 0; k < c.nenv; k++) {
 			if (strlen(c.ekey[k]) == kn && memcmp(c.ekey[k], row, kn) == 0) {
 				skip = 1;

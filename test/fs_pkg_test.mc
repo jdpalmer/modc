@@ -13,7 +13,7 @@ int write_all(File* f, const char[..] src) {
 		if (!ok || n <= 0) {
 			return 0;
 		}
-		off += n;
+		off += (size_t)n;
 	}
 	return 1;
 }

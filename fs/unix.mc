@@ -28,7 +28,7 @@ static int fs_sys_stat(char* path, int* kind, int64_t* size, int64_t* mtime) {
 	}
 	*mtime = sec * 1000000000L + nsec;
 	*size = 0;
-	unsigned kindbit = st.st_mode & S_IFMT;
+	unsigned kindbit = (unsigned)(st.st_mode & S_IFMT);
 	if (kindbit == S_IFREG) {
 		*kind = 1;
 		*size = st.st_size;

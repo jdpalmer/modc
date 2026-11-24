@@ -703,7 +703,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 		if (b.len < 4 && rem >= b.cap) {
 			if (b.len > 0) {
 				if (!fs_bufw_flush_safe(b)) {
-					return (done, false);
+					return ((int64_t)done, false);
 				}
 			}
 			if (b.len > 0) {
@@ -713,7 +713,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 				b.len = b.len + take;
 				done = done + take;
 				if (!fs_bufw_flush_safe(b)) {
-					return (done, false);
+					return ((int64_t)done, false);
 				}
 				continue;
 			}
@@ -726,7 +726,7 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 					break;
 				}
 				if (!fs_file_write_all(f, p + done, emit)) {
-					return (done, false);
+					return ((int64_t)done, false);
 				}
 				done = done + emit;
 				rem = want - done;
@@ -743,10 +743,10 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 			size_t take = 0;
 			if (room == 0) {
 				if (!fs_bufw_flush_safe(b)) {
-					return (done, false);
+					return ((int64_t)done, false);
 				}
 				if (b.len >= b.cap) {
-					return (done, false);
+					return ((int64_t)done, false);
 				}
 				room = b.cap - b.len;
 			}
@@ -756,12 +756,12 @@ static int fs_bufr_setup_borrow(FsBufR* b, File* f, size_t cap) {
 			done = done + take;
 			if (b.len == b.cap) {
 				if (!fs_bufw_flush_safe(b)) {
-					return (done, false);
+					return ((int64_t)done, false);
 				}
 			}
 		}
 	}
-	return (done, true);
+	return ((int64_t)done, true);
 }
 
 // Write buffered data, holding back any incomplete UTF-8 tail.
@@ -856,15 +856,18 @@ void ([[releases]] Writer* w).close() {
 			auto (n, ok) = f.read(ranged(b.buf, 0, b.cap));
 			if (!ok) {
 				if (got > 0) {
-					return (got, true);
+					return ((int64_t)got, true);
 				}
 				return (0, false);
 			}
 			if (n == 0) {
-				return (got, true);
+				return ((int64_t)got, true);
+			}
+			if (n < 0) {
+				return (0, false);
 			}
 			b.off = 0;
-			b.end = n;
+			b.end = (size_t)n;
 		}
 		avail = b.end - b.off;
 		take = avail < (want - got) ? avail:(want - got);
@@ -872,7 +875,7 @@ void ([[releases]] Writer* w).close() {
 		b.off = b.off + take;
 		got = got + take;
 	}
-	return (got, true);
+	return ((int64_t)got, true);
 }
 
 // Release the buffer; closes the File if owned.
