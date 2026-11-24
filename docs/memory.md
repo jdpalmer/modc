@@ -233,6 +233,51 @@ void pipeline(Registry* r) {
 }
 ```
 
+#### Parented factories and embed upcast
+
+UI-style APIs often take a base pointer (`Widget*`) while factories mint a
+subtype that **anonymously embeds** that base (see [struct.md](struct.md)).
+Pass the subtype pointer **without a cast**: the compiler inserts the embed
+upcast, and `[[retains]]` still clears ownership of the outer local.
+
+```c
+struct Widget {
+	int kind;
+};
+
+struct Label {
+	Widget; /* anonymous embed — Label* converts to Widget* */
+	char[..] text;
+};
+
+void group_add(Group* g, [[retains]] Widget* child) {
+	/* parent stores child; caller’s obligation ends */
+	(void)g;
+	(void)child;
+}
+
+/* Parent retains; return is a borrow (no [[provides]]). */
+Label* label_new(Group* parent, const char[..] text) {
+	Label* l = alloc(Label);
+
+	l.kind = 1;
+	l.text = text;
+	group_add(parent, l); /* OK: embed upcast; retains consumes l */
+	return l;             /* borrow — do not free; parent owns */
+}
+```
+
+Prefer that form. An explicit `(Widget*)l` also clears ownership when it is
+only a cast (including when the embed sits at offset zero). Avoid inventing
+casts “to please the checker”: if the types are related by embed, the implicit
+upcast is enough. Unrelated pointer casts remain a separate dialect rule and
+do not establish a subtype relationship.
+
+When the factory should hand ownership to the *caller* instead of a parent,
+mark it `[[provides]]` and do **not** pass the value to a `[[retains]]`
+parameter before returning (or re-provide after a retain only if that matches
+the real lifetime).
+
 C bodies are not analyzed. Annotate hermetic (or project) prototypes with
 `[[retains]]` when a foreign API keeps a pointer (`putenv`, registration
 callbacks). A `%C` wrapper with `[[retains]]` works the same way when the
