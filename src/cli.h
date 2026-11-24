@@ -32,6 +32,7 @@ typedef struct {
 	int release; /* --release: omit runtime bounds/null traps */
 	int doc_check; /* modc doc --check: fail on undoc'd exports */
 	int color; /* ColorAuto / ColorAlways / ColorNever */
+	int format; /* FmtText / FmtJson */
 	int target; /* TargetHost / TargetWindows / … */
 	char* output;
 	char** incpaths;

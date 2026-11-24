@@ -60,8 +60,10 @@ static void
 progress_clear_held(void) {
 	if (!progress_held)
 		return;
-	fputs("\r\033[K", stderr);
-	fflush(stderr);
+	if (out_format() != FmtJson) {
+		fputs("\r\033[K", stderr);
+		fflush(stderr);
+	}
 	progress_held = 0;
 }
 
@@ -87,10 +89,16 @@ progress_fmt_delta(char* out, size_t n, long long ms) {
 static void
 progress_commit(const char* label, long long ms) {
 	char delta[32];
+	char msg[576];
 
+	progress_fmt_delta(delta, sizeof(delta), ms);
+	if (out_format() == FmtJson) {
+		snprintf(msg, sizeof(msg), "%s %s", label ? label : "", delta);
+		out_record("info", NULL, 0, 0, msg);
+		return;
+	}
 	if (!host_stderr_tty())
 		return;
-	progress_fmt_delta(delta, sizeof(delta), ms);
 	fprintf(stderr, "\r\033[Kmodc: %-*s %*s\n", ProgressLabelW, label ? label : "",
 		ProgressDeltaW, delta);
 }
@@ -99,14 +107,20 @@ progress_commit(const char* label, long long ms) {
 static void
 progress_msg(const char* fmt, ...) {
 	va_list ap;
+	char msg[512];
 
+	va_start(ap, fmt);
+	vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+	if (out_format() == FmtJson) {
+		out_record("info", NULL, 0, 0, msg);
+		return;
+	}
 	if (!host_stderr_tty())
 		return;
 	progress_clear_held();
 	fputs("modc: ", stderr);
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
+	fputs(msg, stderr);
 	fputc('\n', stderr);
 }
 
@@ -115,12 +129,19 @@ static void
 progress_begin(const char* fmt, ...) {
 	va_list ap;
 
-	if (!host_stderr_tty())
-		return;
-	progress_clear_held();
 	va_start(ap, fmt);
 	vsnprintf(progress_label, sizeof(progress_label), fmt, ap);
 	va_end(ap);
+	if (out_format() == FmtJson) {
+		/* Discrete start event; duration lands in progress_end. */
+		out_record("info", NULL, 0, 0, progress_label);
+		progress_t0_ms = host_mono_ms();
+		progress_held = 1;
+		return;
+	}
+	if (!host_stderr_tty())
+		return;
+	progress_clear_held();
 	fprintf(stderr, "\r\033[Kmodc: %s", progress_label);
 	fflush(stderr);
 	progress_t0_ms = host_mono_ms();
@@ -147,7 +168,7 @@ progress_build_cancel(void) {
 
 static void
 progress_build_start(void) {
-	if (!host_stderr_tty())
+	if (out_format() != FmtJson && !host_stderr_tty())
 		return;
 	progress_build_t0_ms = host_mono_ms();
 	progress_build_on = 1;
@@ -253,7 +274,7 @@ lex_pp_file(Compiler* c, const char* path, int j) {
 	c->paths.infile = xstrdup(path);
 	text = read_file(path, NULL);
 	if (text == NULL) {
-		fprintf(stderr, "modc: cannot read %s: %s\n", path, strerror(errno));
+		out_modc("error", "cannot read %s: %s", path, strerror(errno));
 		return 1;
 	}
 	lex_file(c, c->paths.infile, text, 1);
@@ -296,7 +317,7 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 	for (i = 0; i < nexports; i++) {
 		if (exports[i] &&
 		    iface_load(c, exports[i], export_dirs ? export_dirs[i] : NULL) != 0) {
-			fprintf(stderr, "modc: failed to load iface %s\n", exports[i]);
+			out_modc("error", "failed to load iface %s", exports[i]);
 			return 1;
 		}
 	}
@@ -444,9 +465,9 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 	if (r) {
 		progress_end();
 		if (profile)
-			fprintf(stderr,
-				"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs (failed)\n",
-				t_lexpp, t_prescan, t_parse);
+			out_modc("info",
+				 "profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs (failed)",
+				 t_lexpp, t_prescan, t_parse);
 		for (i = 0; i < nfiles; i++)
 			free(cache[i].tokens);
 		free(cache);
@@ -462,18 +483,18 @@ compile_graph(Compiler* c, char** files, int nfiles, char** exports, char** expo
 	progress_end();
 	if (c->diag.error_count) {
 		if (profile)
-			fprintf(stderr,
-				"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs type=%.3fs\n",
-				t_lexpp, t_prescan, t_parse, t_type);
+			out_modc("info",
+				 "profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs type=%.3fs",
+				 t_lexpp, t_prescan, t_parse, t_type);
 		for (i = 0; i < nfiles; i++)
 			free(cache[i].tokens);
 		free(cache);
 		return 1;
 	}
 	if (profile)
-		fprintf(stderr,
-			"modc profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs type=%.3fs\n",
-			t_lexpp, t_prescan, t_parse, t_type);
+		out_modc("info",
+			 "profile: lex+pp=%.3fs prescan=%.3fs parse=%.3fs type=%.3fs",
+			 t_lexpp, t_prescan, t_parse, t_type);
 	for (i = 0; i < nfiles; i++)
 		free(cache[i].tokens);
 	free(cache);
@@ -512,13 +533,13 @@ compile_file(Compiler* c, const char* path, FILE* outf) {
 			t0 = now_sec();
 		emit_qbe(c, outf);
 		if (fflush(outf) != 0 || ferror(outf)) {
-			fprintf(stderr, "modc: output write failed: %s\n", strerror(errno));
+			out_modc("error", "output write failed: %s", strerror(errno));
 			return 1;
 		}
 		if (profile) {
 			t1 = now_sec();
 			t_emit = t1 - t0;
-			fprintf(stderr, "modc profile: emit=%.3fs\n", t_emit);
+			out_modc("info", "profile: emit=%.3fs", t_emit);
 		}
 		if (c->diag.error_count)
 			return 1;
@@ -588,12 +609,12 @@ emit_one(Compiler* c, CliOpts* o, const char* path) {
 	if (o->output) {
 		f = fopen(o->output, "w");
 		if (f == NULL) {
-			fprintf(stderr, "modc: cannot write %s: %s\n", o->output, strerror(errno));
+			out_modc("error", "cannot write %s: %s", o->output, strerror(errno));
 			return 1;
 		}
 		r = compile_file(c, path, f);
 		if (fclose(f) != 0) {
-			fprintf(stderr, "modc: cannot finish %s: %s\n",
+			out_modc("error", "cannot finish %s: %s",
 				o->output, strerror(errno));
 			r = 1;
 		}
@@ -637,17 +658,36 @@ run_argv(int verbose, const char* const argv[]) {
 	int i;
 
 	if (verbose) {
-		fputc('+', stderr);
-		for (i = 0; argv[i]; i++) {
-			fputc(' ', stderr);
-			print_arg(argv[i]);
+		if (out_format() == FmtJson) {
+			char buf[2048];
+			size_t n = 0;
+
+			buf[0] = 0;
+			for (i = 0; argv[i]; i++) {
+				size_t L = strlen(argv[i] ? argv[i] : "");
+
+				if (n + L + 2 >= sizeof(buf))
+					break;
+				if (n)
+					buf[n++] = ' ';
+				memcpy(buf + n, argv[i], L);
+				n += L;
+				buf[n] = 0;
+			}
+			out_modc("info", "+ %s", buf);
+		} else {
+			fputc('+', stderr);
+			for (i = 0; argv[i]; i++) {
+				fputc(' ', stderr);
+				print_arg(argv[i]);
+			}
+			fputc('\n', stderr);
 		}
-		fputc('\n', stderr);
 	}
 	st = host_spawn_wait(argv);
 	if (st != 0) {
 		if (st == -1)
-			fprintf(stderr, "modc: failed to run command: %s\n", strerror(errno));
+			out_modc("error", "failed to run command: %s", strerror(errno));
 		return 1;
 	}
 	return 0;
@@ -681,7 +721,7 @@ tool_env_override(const char* envname, const char* val, char* buf, size_t nbuf) 
 		return buf;
 	/* One diagnostic per distinct bad override (knobs may probe twice). */
 	if (!last_bad || strcmp(last_env, envname) != 0 || strcmp(last_val, val) != 0) {
-		fprintf(stderr, "modc: %s=%s is not an executable file\n", envname, val);
+		out_modc("error", "%s=%s is not an executable file", envname, val);
 		snprintf(last_env, sizeof(last_env), "%s", envname);
 		snprintf(last_val, sizeof(last_val), "%s", val);
 		last_bad = 1;
@@ -753,7 +793,7 @@ tool_qbe(void) {
 	if (q && q[0]) {
 		if (tool_is_exe(q))
 			return q;
-		fprintf(stderr, "modc: MODC_QBE=%s is not an executable file\n", q);
+		out_modc("error", "MODC_QBE=%s is not an executable file", q);
 		return NULL;
 	}
 #ifdef _WIN32
@@ -785,8 +825,7 @@ tool_qbe(void) {
 		}
 	}
 	if (!missing_noted) {
-		fprintf(stderr,
-			"modc: modc-qbe not found (brew install jdpalmer/tap/modc-qbe, "
+		out_modc("error", "modc-qbe not found (brew install jdpalmer/tap/modc-qbe, "
 			"or set MODC_QBE)\n");
 		missing_noted = 1;
 	}
@@ -1082,7 +1121,7 @@ compile_one_foreign(Compiler* c, CliOpts* o, const char* src, const char* out_o)
 	int argc, show;
 
 	if (!host_is_file(src)) {
-		fprintf(stderr, "modc: c_sources file not found: %s\n", src);
+		out_modc("error", "c_sources file not found: %s", src);
 		return 1;
 	}
 	comp = src_is_cxx(src) ? tool_cxx() : tool_cc(c);
@@ -1122,7 +1161,7 @@ compile_one_foreign(Compiler* c, CliOpts* o, const char* src, const char* out_o)
 toolong:
 	if (show)
 		progress_end();
-	fprintf(stderr, "modc: too many compile arguments\n");
+	out_modc("error", "too many compile arguments");
 	return 1;
 }
 
@@ -1139,12 +1178,12 @@ relocatable_link(CliOpts* o, const char* out, char objs[][512], int nobjs) {
 	argc = 0;
 	if (add_arg(argv, &argc, "ld") || add_arg(argv, &argc, "-r") ||
 	    add_arg(argv, &argc, "-o") || add_arg(argv, &argc, out)) {
-		fprintf(stderr, "modc: too many ld -r arguments\n");
+		out_modc("error", "too many ld -r arguments");
 		return 1;
 	}
 	for (i = 0; i < nobjs; i++)
 		if (add_arg(argv, &argc, objs[i])) {
-			fprintf(stderr, "modc: too many ld -r arguments\n");
+			out_modc("error", "too many ld -r arguments");
 			return 1;
 		}
 	return run_argv(o->verbose, argv) != 0;
@@ -1166,7 +1205,7 @@ fold_pkg_object(Compiler* c, CliOpts* o, BuildPkg* pkg, const char* qbe_obj,
 		if (!csource_owned_by(c, i, pkg))
 			continue;
 		if (nforeign >= MaxForeignObj) {
-			fprintf(stderr, "modc: too many c_sources files\n");
+			out_modc("error", "too many c_sources files");
 			return 1;
 		}
 		snprintf(foreign[nforeign], sizeof(foreign[nforeign]),
@@ -1230,7 +1269,7 @@ link_modc_objs(Compiler* c, CliOpts* o, const char* outpath, char objs[][512], i
 
 toolong:
 	progress_end();
-	fprintf(stderr, "modc: too many linker arguments\n");
+	out_modc("error", "too many linker arguments");
 	return 1;
 }
 
@@ -1770,8 +1809,7 @@ pkg_fill_imports(Compiler* c, BuildPkg* pkgs, int npkgs, char** files, int nfile
 						break;
 				if (i == pkgs[idx].nimports) {
 					if (pkgs[idx].nimports >= MaxCachePkgs) {
-						fprintf(stderr,
-							"modc: too many imports for package %s\n",
+						out_modc("error", "too many imports for package %s",
 							pkgs[idx].id);
 						for (; j < nroots; j++)
 							free(roots[j]);
@@ -1868,14 +1906,14 @@ save_link_meta(Compiler* c, CliOpts* o, const char* path) {
 		if (link_meta_printf(&buf, &off, &cap, "X %s\n", o->linkargv[i]))
 			goto fail;
 	if (cache_write_bytes(path, buf ? buf : "", off) != 0) {
-		fprintf(stderr, "modc: cannot write linkmeta %s\n", path);
+		out_modc("error", "cannot write linkmeta %s", path);
 		free(buf);
 		return 1;
 	}
 	free(buf);
 	return 0;
 fail:
-	fprintf(stderr, "modc: linkmeta too large to format\n");
+	out_modc("error", "linkmeta too large to format");
 	free(buf);
 	return 1;
 }
@@ -2022,12 +2060,12 @@ emit_pkg_qbe(Compiler* c, BuildPkg* pkg, int pkg_index, const char* dir, char* q
 	pkg_strsym(pkg, strsym, sizeof(strsym));
 	f = fopen(qbe, "w");
 	if (f == NULL) {
-		fprintf(stderr, "modc: cannot write %s: %s\n", qbe, strerror(errno));
+		out_modc("error", "cannot write %s: %s", qbe, strerror(errno));
 		return 1;
 	}
 	emit_qbe_pkg(c, f, pkg->dir, strsym);
 	if (fclose(f) != 0) {
-		fprintf(stderr, "modc: cannot finish %s: %s\n", qbe, strerror(errno));
+		out_modc("error", "cannot finish %s: %s", qbe, strerror(errno));
 		(void)host_unlink(qbe);
 		return 1;
 	}
@@ -2049,6 +2087,25 @@ log_argv(int verbose, const char* const argv[]) {
 
 	if (!verbose)
 		return;
+	if (out_format() == FmtJson) {
+		char buf[2048];
+		size_t n = 0;
+
+		buf[0] = 0;
+		for (i = 0; argv[i]; i++) {
+			size_t L = strlen(argv[i] ? argv[i] : "");
+
+			if (n + L + 2 >= sizeof(buf))
+				break;
+			if (n)
+				buf[n++] = ' ';
+			memcpy(buf + n, argv[i], L);
+			n += L;
+			buf[n] = 0;
+		}
+		out_modc("info", "+ %s", buf);
+		return;
+	}
 	fputc('+', stderr);
 	for (i = 0; argv[i]; i++) {
 		fputc(' ', stderr);
@@ -2065,7 +2122,7 @@ spawn_argv(int verbose, const char* const argv[]) {
 	log_argv(verbose, argv);
 	pid = host_spawn_async(argv);
 	if (pid < 0)
-		fprintf(stderr, "modc: failed to run command: %s\n", strerror(errno));
+		out_modc("error", "failed to run command: %s", strerror(errno));
 	return pid;
 }
 
@@ -2077,7 +2134,7 @@ wait_argv(HostPid pid) {
 	st = host_wait_pid(pid);
 	if (st != 0) {
 		if (st == -1)
-			fprintf(stderr, "modc: failed to run command: %s\n", strerror(errno));
+			out_modc("error", "failed to run command: %s", strerror(errno));
 		return 1;
 	}
 	return 0;
@@ -2568,7 +2625,7 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 			if (!pkgs[pi].need_emit)
 				continue;
 			if (iface_write_pkg(c, pkgs[pi].dir, pkgs[pi].ifacepath) != 0) {
-				fprintf(stderr, "modc: failed to write iface for %s\n",
+				out_modc("error", "failed to write iface for %s",
 					pkgs[pi].id);
 				return 1;
 			}
@@ -2595,7 +2652,7 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 			break;
 	}
 	if (pass >= MaxCachePkgs) {
-		fprintf(stderr, "modc: package API cascade did not converge\n");
+		out_modc("error", "package API cascade did not converge");
 		return 1;
 	}
 
@@ -2603,7 +2660,7 @@ pkgs_frontend_compile(Compiler* c, CliOpts* o, BuildPkg* pkgs, int npkgs,
 		if (!pkgs[i].need_emit)
 			continue;
 		if (pkg_write_build_meta(c, pkgs, npkgs, i, knobs) != 0) {
-			fprintf(stderr, "modc: failed to write meta for %s\n", pkgs[i].id);
+			out_modc("error", "failed to write meta for %s", pkgs[i].id);
 			return 1;
 		}
 	}
@@ -2679,7 +2736,7 @@ pkgs_cache_prepare(Compiler* c, const char* path, int require_obj, PkgCacheState
 	cache_project_root(path, st->projroot, sizeof(st->projroot));
 	if (collect_build_pkgs(st->files, st->nfiles, st->pkgs, &st->npkgs, st->projroot) !=
 	    0) {
-		fprintf(stderr, "modc: too many packages in build graph\n");
+		out_modc("error", "too many packages in build graph");
 		pkgs_free_files(st);
 		return 1;
 	}
@@ -2753,8 +2810,7 @@ compile_link_exe(Compiler* c, CliOpts* o, const char* path, const char* dir, con
 
 		cc = tool_cc(c);
 		if (cc && strchr(cc, '/') && !host_is_file(cc)) {
-			fprintf(stderr,
-				"modc: --target=windows needs x86_64-w64-mingw32-gcc (or set MODC_CC)\n");
+			out_modc("error", "--target=windows needs x86_64-w64-mingw32-gcc (or set MODC_CC)");
 			return 1;
 		}
 	}

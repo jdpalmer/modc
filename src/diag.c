@@ -17,6 +17,7 @@
 /* ---- conservative ANSI color (tty + NO_COLOR / --color) ---- */
 
 static int g_color_mode = ColorAuto; /* ColorAuto / Always / Never */
+static int g_out_format = FmtText;   /* FmtText / FmtJson */
 
 void
 color_set_mode(int mode) {
@@ -28,6 +29,89 @@ color_set_mode(int mode) {
 int
 color_mode(void) {
 	return g_color_mode;
+}
+
+void
+out_set_format(int fmt) {
+	if (fmt != FmtText && fmt != FmtJson)
+		fmt = FmtText;
+	g_out_format = fmt;
+	/* JSON is for machines — never mix ANSI into the stream. */
+	if (fmt == FmtJson)
+		g_color_mode = ColorNever;
+}
+
+int
+out_format(void) {
+	return g_out_format;
+}
+
+/* Append JSON string contents (no surrounding quotes) into dst. */
+static void
+json_escape_to(char* dst, size_t dstn, const char* s) {
+	size_t o = 0;
+
+	if (dstn == 0)
+		return;
+	if (s == NULL)
+		s = "";
+	while (*s && o + 1 < dstn) {
+		unsigned char c = (unsigned char)*s++;
+
+		if (c == '"' || c == '\\') {
+			if (o + 2 >= dstn)
+				break;
+			dst[o++] = '\\';
+			dst[o++] = (char)c;
+		} else if (c < 0x20) {
+			if (o + 6 >= dstn)
+				break;
+			snprintf(dst + o, dstn - o, "\\u%04x", c);
+			o += 6;
+		} else
+			dst[o++] = (char)c;
+	}
+	dst[o] = 0;
+}
+
+void
+out_record(const char* type, const char* file, int line, int col, const char* message) {
+	char esc[1024];
+	char escfile[512];
+
+	if (type == NULL || type[0] == 0)
+		type = "info";
+	if (message == NULL)
+		message = "";
+	progress_interrupt();
+	if (g_out_format != FmtJson) {
+		/* Text path is handled by callers (error_at keeps caret UI). */
+		return;
+	}
+	json_escape_to(esc, sizeof(esc), message);
+	if (file && file[0]) {
+		json_escape_to(escfile, sizeof(escfile), file);
+		fprintf(stderr,
+			"{\"type\":\"%s\",\"file\":\"%s\",\"line\":%d,\"col\":%d,\"message\":\"%s\"}\n",
+			type, escfile, line > 0 ? line : 0, col > 0 ? col : 0, esc);
+	} else
+		fprintf(stderr, "{\"type\":\"%s\",\"message\":\"%s\"}\n", type, esc);
+}
+
+void
+out_modc(const char* type, const char* fmt, ...) {
+	va_list ap;
+	char msg[1024];
+
+	va_start(ap, fmt);
+	vsnprintf(msg, sizeof(msg), fmt, ap);
+	va_end(ap);
+	if (g_out_format == FmtJson) {
+		out_record(type ? type : "info", NULL, 0, 0, msg);
+		return;
+	}
+	progress_interrupt();
+	fprintf(stderr, "modc: %s\n", msg);
 }
 
 int
@@ -249,13 +333,17 @@ char* xstrndup(const char* s, size_t n) {
 // Internal fatal error (OOM, impossible state): print and exit; not counted in Compiler.error_count.
 void die(const char* fmt, ...) {
 	va_list ap;
+	char msg[1024];
 
-	progress_interrupt();
-	fprintf(stderr, "modc: ");
 	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
+	vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
-	fprintf(stderr, "\n");
+	if (out_format() == FmtJson)
+		out_record("fatal", NULL, 0, 0, msg);
+	else {
+		progress_interrupt();
+		fprintf(stderr, "modc: %s\n", msg);
+	}
 	exit(1);
 }
 
@@ -268,6 +356,7 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	char msg[512];
 	char head[1100];
 	size_t need;
+	int json;
 
 	c->diag.error_count++;
 	if (c->diag.quiet_pp)
@@ -275,6 +364,7 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	va_start(ap, fmt);
 	vsnprintf(msg, sizeof(msg), fmt, ap);
 	va_end(ap);
+	json = (out_format() == FmtJson);
 	/* Plain head for diag_log / needles; color only on live stderr. */
 	if (sp.file)
 		snprintf(head, sizeof(head), "%s:%d:%d: error: ", sp.file, sp.line,
@@ -282,18 +372,22 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 	else
 		snprintf(head, sizeof(head), "error: ");
 	if (!c->diag.quiet_diag) {
-		char loc[1024];
+		if (json)
+			out_record("error", sp.file, sp.line, sp.col > 0 ? sp.col : 1, msg);
+		else {
+			char loc[1024];
 
-		progress_interrupt();
-		if (sp.file) {
-			snprintf(loc, sizeof(loc), "%s:%d:%d:", sp.file, sp.line,
-				 sp.col > 0 ? sp.col : 1);
-			color_span(stderr, COL_BOLD, loc);
-			fputc(' ', stderr);
+			progress_interrupt();
+			if (sp.file) {
+				snprintf(loc, sizeof(loc), "%s:%d:%d:", sp.file, sp.line,
+					 sp.col > 0 ? sp.col : 1);
+				color_span(stderr, COL_BOLD, loc);
+				fputc(' ', stderr);
+			}
+			color_sev(stderr, "error");
+			fputs(msg, stderr);
+			fputc('\n', stderr);
 		}
-		color_sev(stderr, "error");
-		fputs(msg, stderr);
-		fputc('\n', stderr);
 	}
 	if (c->diag.diag_log != NULL || c->diag.quiet_diag) {
 		need = strlen(head) + strlen(msg) + 2;
@@ -312,6 +406,13 @@ void error_at(Compiler* c, Span sp, const char* fmt, ...) {
 			c->diag.diag_log[c->diag.diag_log_len++] = '\n';
 			c->diag.diag_log[c->diag.diag_log_len] = 0;
 		}
+	}
+
+	/* Caret underline is text-only; JSON records carry file/line/col. */
+	if (json) {
+		if (c->diag.error_count >= MaxErr)
+			c->diag.fatal = 1;
+		return;
 	}
 
 	text = NULL;
@@ -424,9 +525,13 @@ help_topic(Compiler* c, const char* topic) {
 		c->diag.help_topics[c->diag.help_topics_len++] = name;
 	snprintf(line, sizeof(line), "note: modc doc %s", name);
 	if (!c->diag.quiet_diag) {
-		progress_interrupt();
-		color_sev(stderr, "note");
-		fprintf(stderr, "modc doc %s\n", name);
+		if (out_format() == FmtJson)
+			out_record("note", NULL, 0, 0, line + 6); /* drop "note: " */
+		else {
+			progress_interrupt();
+			color_sev(stderr, "note");
+			fprintf(stderr, "modc doc %s\n", name);
+		}
 	}
 	diag_note_log(c, line);
 }

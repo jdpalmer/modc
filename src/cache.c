@@ -260,10 +260,15 @@ void cache_path_key(const char* path, const char* projroot, char* out, size_t ou
 
 // Print "modc cache hit|miss …" when -v is set.
 void cache_log(int verbose, const char* hitmiss, const char* what) {
-	if (!verbose) {
+	char msg[256];
+
+	if (!verbose)
 		return;
-	}
-	fprintf(stderr, "modc cache %s %s\n", hitmiss, what ? what : "");
+	snprintf(msg, sizeof(msg), "cache %s %s", hitmiss, what ? what : "");
+	if (out_format() == FmtJson)
+		out_record("info", NULL, 0, 0, msg);
+	else
+		fprintf(stderr, "modc %s\n", msg); /* "modc cache hit …" */
 }
 
 // Copy src to dst, creating parent dirs; used to materialize cache hits.

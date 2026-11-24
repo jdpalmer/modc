@@ -802,6 +802,14 @@ int color_mode(void);
 int color_enabled(FILE* f); /* 1 when ANSI SGR should be emitted on f */
 void color_sev(FILE* f, const char* kind); /* "error"/"warning"/"note" + ": " */
 void color_span(FILE* f, const char* sgr, const char* text); /* text with optional SGR */
+/* Driver/diagnostic output: text (default) or NDJSON on stderr (--format=json). */
+enum { FmtText = 0, FmtJson = 1 };
+void out_set_format(int fmt); /* FmtText / FmtJson */
+int out_format(void);
+/* One record: type is error|note|warning|info|fatal. file may be NULL; line/col 0 if N/A. */
+void out_record(const char* type, const char* file, int line, int col, const char* message);
+/* Printf-style driver line: text → "modc: …\n"; json → {"type":…,"message":…}. */
+void out_modc(const char* type, const char* fmt, ...);
 /* Common SGR snippets (empty when color off — prefer color_span). */
 #define COL_RESET "\033[0m"
 #define COL_BOLD "\033[1m"

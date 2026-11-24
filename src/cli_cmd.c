@@ -24,13 +24,13 @@ cmd_check(Compiler* c, CliOpts* o, int argc, char** argv) {
 	o->check_only = 1;
 	c->opt.check_only = 1;
 	if (o->files_len == 0) {
-		fprintf(stderr, "modc check: no input files\n");
+		out_modc("error", "check: no input files");
 		return 1;
 	}
 	err = 0;
 	for (r = 0; r < o->files_len; r++) {
 		if (o->verbose)
-			fprintf(stderr, "checking %s\n", o->files[r]);
+			out_modc("info", "checking %s", o->files[r]);
 		if (compile_check(c, o, o->files[r]))
 			err = 1;
 		if (r + 1 < o->files_len)
@@ -54,11 +54,11 @@ cmd_emit(Compiler* c, CliOpts* o, int argc, char** argv) {
 		return 1;
 	apply_cli(c, o);
 	if (o->files_len != 1) {
-		fprintf(stderr, "modc emit: exactly one input file required\n");
+		out_modc("error", "emit: exactly one input file required");
 		return 1;
 	}
 	if (o->verbose)
-		fprintf(stderr, "emitting QBE from %s\n", o->files[0]);
+		out_modc("info", "emitting QBE from %s", o->files[0]);
 	return emit_one(c, o, o->files[0]);
 }
 
@@ -80,7 +80,7 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 	apply_cli(c, o);
 	ensure_build_root(o);
 	if (o->files_len != 1) {
-		fprintf(stderr, "modc build: at most one input path (file or directory)\n");
+		out_modc("error", "build: at most one input path (file or directory)");
 		return 1;
 	}
 	outname = NULL;
@@ -93,9 +93,9 @@ cmd_build(Compiler* c, CliOpts* o, int argc, char** argv) {
 	    (strncmp(o->output, "build/", 6) == 0 || strncmp(o->output, "build\\", 6) == 0))
 		(void)host_mkdir("build");
 	if (o->verbose)
-		fprintf(stderr, "building %s -> %s\n", o->files[0], o->output);
+		out_modc("info", "building %s -> %s", o->files[0], o->output);
 	if (host_mkdtemp(dir, sizeof(dir), "modc-build") != 0) {
-		fprintf(stderr, "modc: cannot create temp dir: %s\n", strerror(errno));
+		out_modc("error", "cannot create temp dir: %s", strerror(errno));
 		free(outname);
 		return 1;
 	}
@@ -171,7 +171,7 @@ tool_wine(void) {
 	if (w && w[0]) {
 		if (wine_is_bin(w))
 			return w;
-		fprintf(stderr, "modc: MODC_WINE=%s is not an executable file\n", w);
+		out_modc("error", "MODC_WINE=%s is not an executable file", w);
 		return NULL;
 	}
 	w = getenv("CX_ROOT");
@@ -206,7 +206,7 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	c->paths.frameworks_len = 0;
 	c->paths.csources_len = 0;
 	if (host_mkdtemp(dir, sizeof(dir), "modc-run") != 0) {
-		fprintf(stderr, "modc: cannot create temp dir: %s\n", strerror(errno));
+		out_modc("error", "cannot create temp dir: %s", strerror(errno));
 		return 1;
 	}
 	use_wine = 0;
@@ -234,8 +234,7 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	if (use_wine) {
 		wine = tool_wine();
 		if (wine == NULL) {
-			fprintf(stderr,
-				"modc: --target=windows: no Wine runner found\n"
+			out_modc("error", "--target=windows: no Wine runner found"
 				"  install CrossOver or Homebrew wine, or set MODC_WINE to the wine binary\n");
 			cleanup_tmpdir(dir);
 			return 1;
@@ -271,7 +270,7 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	}
 	runargv[i] = NULL;
 	if (o->verbose) {
-		fprintf(stderr, "+");
+		out_modc("error", "+");
 		for (i = 0; runargv[i]; i++)
 			fprintf(stderr, " %s", runargv[i]);
 		fprintf(stderr, "\n");
@@ -279,7 +278,7 @@ build_and_run_root(Compiler* c, CliOpts* o, const char* path) {
 	st = host_spawn_wait(runargv);
 	free(runargv);
 	if (st < 0) {
-		fprintf(stderr, "modc: failed to run %s: %s\n", prog, strerror(errno));
+		out_modc("error", "failed to run %s: %s", prog, strerror(errno));
 		cleanup_tmpdir(dir);
 		return 1;
 	}
@@ -303,11 +302,11 @@ cmd_run(Compiler* c, CliOpts* o, int argc, char** argv) {
 	apply_cli(c, o);
 	ensure_build_root(o);
 	if (o->files_len != 1) {
-		fprintf(stderr, "modc run: at most one input path (file or directory)\n");
+		out_modc("error", "run: at most one input path (file or directory)");
 		return 1;
 	}
 	if (o->verbose)
-		fprintf(stderr, "running %s\n", o->files[0]);
+		out_modc("info", "running %s", o->files[0]);
 	return build_and_run_root(c, o, o->files[0]);
 }
 
@@ -327,20 +326,19 @@ cmd_test(Compiler* c, CliOpts* o, int argc, char** argv) {
 	if (r != 0)
 		return 1;
 	if (o->corpus) {
-		fprintf(stderr,
-			"modc test: --corpus is removed; use 'modc selftest' (portable corpus)\n");
+		out_modc("info", "test: --corpus is removed; use 'modc selftest' (portable corpus)");
 		return 1;
 	}
 	apply_cli(c, o);
 	if (o->files_len > 1) {
-		fprintf(stderr, "modc test: at most one path (directory or *_test.mc)\n");
+		out_modc("error", "test: at most one path (directory or *_test.mc)");
 		return 1;
 	}
 	root = o->files_len == 1 ? o->files[0] : ".";
 	tests = NULL;
 	ntests = 0;
 	if (pkg_list_tests(root, &tests, &ntests)) {
-		fprintf(stderr, "modc test: no tests at \"%s\" (need *_test.mc)\n", root);
+		out_modc("error", "test: no tests at \"%s\" (need *_test.mc)", root);
 		return 1;
 	}
 	if (ntests == 0) {
@@ -363,7 +361,7 @@ cmd_test(Compiler* c, CliOpts* o, int argc, char** argv) {
 			c->paths.cli_defs_len = 0;
 		}
 		if (o->verbose)
-			fprintf(stderr, "testing %s\n", tests[i]);
+			out_modc("info", "testing %s", tests[i]);
 		st = build_and_run_root(c, o, tests[i]);
 		if (st == 0)
 			printf("ok\t%s\n", tests[i]);
@@ -1193,7 +1191,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 	o->check_only = 1;
 	c->opt.check_only = 1;
 	if (o->files_len > 1) {
-		fprintf(stderr, "modc doc: at most one target\n");
+		out_modc("error", "doc: at most one target");
 		return 1;
 	}
 	target = o->files_len == 1 ? o->files[0] : NULL;
@@ -1230,7 +1228,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 		snprintf(pkgbuf, sizeof(pkgbuf), "%.*s", (int)(dot - target), target);
 		snprintf(symbuf, sizeof(symbuf), "%s", dot + 1);
 		if (pkg_resolve_spec(c, pkgbuf, resolved, sizeof(resolved))) {
-			fprintf(stderr, "modc doc: cannot find package \"%s\"\n", pkgbuf);
+			out_modc("error", "doc: cannot find package \"%s\"", pkgbuf);
 			return 1;
 		}
 		load = resolved;
@@ -1242,7 +1240,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 		if (dir_has_mc(".")) {
 			if (compile_file(c, ".", NULL) == 0) {
 				if (doc_resolve_pkg_root(".", pkg_root, sizeof(pkg_root)) != 0) {
-					fprintf(stderr, "modc doc: cannot resolve package root\n");
+					out_modc("error", "doc: cannot resolve package root");
 					return 1;
 				}
 				{
@@ -1265,20 +1263,20 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 			load = resolved;
 			sym = NULL;
 		} else {
-			fprintf(stderr, "modc doc: unknown symbol or package \"%s\"\n", symbuf);
+			out_modc("error", "doc: unknown symbol or package \"%s\"", symbuf);
 			return 1;
 		}
 	} else {
-		fprintf(stderr, "modc doc: cannot find \"%s\"\n", target);
+		out_modc("error", "doc: cannot find \"%s\"", target);
 		return 1;
 	}
 	(void)bare_name;
 	if (o->verbose)
-		fprintf(stderr, "doc %s\n", load);
+		out_modc("info", "doc %s", load);
 	if (compile_file(c, load, NULL))
 		return 1;
 	if (doc_resolve_pkg_root(load, pkg_root, sizeof(pkg_root)) != 0) {
-		fprintf(stderr, "modc doc: cannot resolve package root for %s\n", load);
+		out_modc("error", "doc: cannot resolve package root for %s", load);
 		return 1;
 	}
 	if (o->doc_check) {
@@ -1286,7 +1284,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 			Symbol** tmp;
 			if (doc_collect_package(c, pkg_root, sym, &tmp) == 0) {
 				free(tmp);
-				fprintf(stderr, "modc doc: unknown symbol \"%s\"\n", sym);
+				out_modc("error", "doc: unknown symbol \"%s\"", sym);
 				return 1;
 			}
 			free(tmp);
@@ -1297,7 +1295,7 @@ cmd_doc(Compiler* c, CliOpts* o, int argc, char** argv) {
 	if (sym) {
 		n = doc_print_package(c, pkg_root, sym);
 		if (n == 0) {
-			fprintf(stderr, "modc doc: unknown symbol \"%s\"\n", sym);
+			out_modc("error", "doc: unknown symbol \"%s\"", sym);
 			return 1;
 		}
 		return 0;
@@ -1320,7 +1318,7 @@ format_one(Compiler* c, const char* path) {
 
 	text = read_file(path, &n);
 	if (text == NULL) {
-		fprintf(stderr, "modc format: cannot read %s: %s\n", path, strerror(errno));
+		out_modc("error", "format: cannot read %s: %s", path, strerror(errno));
 		return 1;
 	}
 	c->lex.tokens = NULL;
@@ -1344,7 +1342,7 @@ format_one(Compiler* c, const char* path) {
 		return 1;
 	writepath = host_realpath(path, resolved, sizeof(resolved)) == 0 ? resolved : path;
 	if (host_write_atomic(writepath, out, strlen(out)) != 0) {
-		fprintf(stderr, "modc format: cannot write %s: %s\n", path, strerror(errno));
+		out_modc("error", "format: cannot write %s: %s", path, strerror(errno));
 		free(out);
 		return 1;
 	}
@@ -1401,7 +1399,7 @@ clean_pkg_artifacts(const char* dir, int verbose) {
 		if (host_unlink(path) == 0) {
 			n++;
 			if (verbose)
-				fprintf(stderr, "modc clean: removed %s\n", path);
+				out_modc("info", "clean: removed %s", path);
 		}
 	}
 	host_closedir(d);
@@ -1506,12 +1504,11 @@ cmd_install(Compiler* c, CliOpts* o, int argc, char** argv) {
 	apply_cli(c, o);
 	ensure_build_root(o);
 	if (o->files_len != 1) {
-		fprintf(stderr, "modc install: at most one input path (file or directory)\n");
+		out_modc("error", "install: at most one input path (file or directory)");
 		return 1;
 	}
 	if (o->target != TargetHost) {
-		fprintf(stderr,
-			"modc install: only --target=host is supported "
+		out_modc("error", "install: only --target=host is supported "
 			"(use 'modc build --target=… -o …' for cross builds)\n");
 		return 1;
 	}
@@ -1520,13 +1517,12 @@ cmd_install(Compiler* c, CliOpts* o, int argc, char** argv) {
 	name = NULL;
 	if (outspec && (host_path_is_abs(outspec) || host_path_has_sep(outspec))) {
 		if (snprintf(dest, sizeof(dest), "%s", outspec) >= (int)sizeof(dest)) {
-			fprintf(stderr, "modc install: -o path too long\n");
+			out_modc("error", "install: -o path too long");
 			return 1;
 		}
 	} else {
 		if (install_default_bindir(bindir, sizeof(bindir)) != 0) {
-			fprintf(stderr,
-				"modc install: set MODC_BIN to a writable directory"
+			out_modc("error", "install: set MODC_BIN to a writable directory"
 #ifdef _WIN32
 				" (or LOCALAPPDATA / USERPROFILE)\n");
 #else
@@ -1540,7 +1536,7 @@ cmd_install(Compiler* c, CliOpts* o, int argc, char** argv) {
 			name = install_bin_name(o->files[0], o->target);
 		if (snprintf(dest, sizeof(dest), "%s/%s", bindir, name) >= (int)sizeof(dest)) {
 			free(name);
-			fprintf(stderr, "modc install: install path too long\n");
+			out_modc("error", "install: install path too long");
 			return 1;
 		}
 		free(name);
@@ -1548,17 +1544,17 @@ cmd_install(Compiler* c, CliOpts* o, int argc, char** argv) {
 	}
 	host_path_slashify(dest);
 	if (install_mkdir_parents(dest) != 0) {
-		fprintf(stderr, "modc install: cannot create directory for %s\n", dest);
+		out_modc("error", "install: cannot create directory for %s", dest);
 		return 1;
 	}
 	if (snprintf(tmp, sizeof(tmp), "%s.modc-tmp", dest) >= (int)sizeof(tmp)) {
-		fprintf(stderr, "modc install: temp path too long\n");
+		out_modc("error", "install: temp path too long");
 		return 1;
 	}
 	if (o->verbose)
-		fprintf(stderr, "installing %s -> %s\n", o->files[0], dest);
+		out_modc("info", "installing %s -> %s", o->files[0], dest);
 	if (host_mkdtemp(dir, sizeof(dir), "modc-build") != 0) {
-		fprintf(stderr, "modc: cannot create temp dir: %s\n", strerror(errno));
+		out_modc("error", "cannot create temp dir: %s", strerror(errno));
 		return 1;
 	}
 	r = compile_link_exe(c, o, o->files[0], dir, tmp);
@@ -1568,17 +1564,17 @@ cmd_install(Compiler* c, CliOpts* o, int argc, char** argv) {
 		return r;
 	}
 	if (host_publish_file(tmp, dest) != 0) {
-		fprintf(stderr, "modc install: cannot write %s: %s\n", dest, strerror(errno));
+		out_modc("error", "install: cannot write %s: %s", dest, strerror(errno));
 		(void)host_unlink(tmp);
 		return 1;
 	}
 #ifndef _WIN32
 	if (chmod(dest, 0755) != 0) {
-		fprintf(stderr, "modc install: chmod %s: %s\n", dest, strerror(errno));
+		out_modc("error", "install: chmod %s: %s", dest, strerror(errno));
 		return 1;
 	}
 #endif
-	fprintf(stderr, "installed %s\n", dest);
+	out_modc("info", "installed %s", dest);
 	return 0;
 }
 
@@ -1600,32 +1596,32 @@ cmd_clean(CliOpts* o, int argc, char** argv) {
 			continue;
 		}
 		if (argv[i][0] == '-') {
-			fprintf(stderr, "modc clean: unknown option %s\n", argv[i]);
+			out_modc("error", "clean: unknown option %s", argv[i]);
 			usage("clean");
 			return 1;
 		}
 		if (entry != NULL && strcmp(entry, ".") != 0) {
-			fprintf(stderr, "modc clean: at most one path\n");
+			out_modc("error", "clean: at most one path");
 			return 1;
 		}
 		entry = argv[i];
 	}
 	if (cache_project_root(entry, projroot, sizeof(projroot)) != 0) {
-		fprintf(stderr, "modc clean: cannot resolve project root\n");
+		out_modc("error", "clean: cannot resolve project root");
 		return 1;
 	}
 	n = clean_pkg_artifacts(projroot, o->verbose);
 	if (cache_root_for(entry, crooot, sizeof(crooot)) == 0 && host_is_dir(crooot)) {
 		if (host_rmtree(crooot) != 0) {
-			fprintf(stderr, "modc clean: cannot remove %s\n", crooot);
+			out_modc("error", "clean: cannot remove %s", crooot);
 			return 1;
 		}
 		if (o->verbose)
-			fprintf(stderr, "modc clean: removed %s\n", crooot);
+			out_modc("info", "clean: removed %s", crooot);
 		n++;
 	}
 	if (o->verbose && n == 0)
-		fprintf(stderr, "modc clean: nothing to remove\n");
+		out_modc("info", "clean: nothing to remove");
 	return 0;
 }
 
@@ -1648,7 +1644,7 @@ cmd_format(Compiler* c, CliOpts* o, int argc, char** argv) {
 			return 0;
 		}
 		if (path[0] == '-') {
-			fprintf(stderr, "modc format: unknown option %s\n", path);
+			out_modc("error", "format: unknown option %s", path);
 			usage("format");
 			return 1;
 		}

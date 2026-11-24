@@ -43,7 +43,13 @@ modc check hello.mc           # API/signature check only (not function bodies)
 modc emit hello.mc            # QBE IL to stdout
 modc run hello.mc             # build temp, run, delete
 modc build hello.mc -o hello -- -lglfw   # extra linker flags after --
+modc build --format=json …    # NDJSON diagnostics / driver messages on stderr
 ```
+
+With `--format=json`, every driver and diagnostic line on stderr is one JSON
+object (`type`, optional `file`/`line`/`col`, `message`) — errors, notes,
+verbose cache lines, and progress alike. Payload streams (QBE emit, `modc
+format` rewrites, `modc doc` text) stay unchanged on their normal destinations.
 
 `modc install` is for developers: it builds the current package (or a path) for the host and copies the binary into `$MODC_BIN` if set, otherwise `~/bin` on POSIX or `%LOCALAPPDATA%\modc\bin` on Windows. Use `-o name` for the basename or `-o path` for an explicit destination. End users should prefer release binaries or Homebrew recipes.
 

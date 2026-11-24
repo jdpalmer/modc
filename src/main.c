@@ -25,6 +25,7 @@ usage(const char* sub) {
 			"      --no-system-includes    omit host system include paths\n"
 			"      --release               omit runtime bounds/null/size traps (production)\n"
 			"      --color auto|always|never  ANSI color (default: auto; off if not a TTY)\n"
+			"      --format text|json         driver/diagnostic output (default: text)\n"
 			"      --target host|windows|macos|linux\n"
 			"                              codegen / ABI / macros (default: host)\n"
 			"  -h, --help                  show help\n"
@@ -257,6 +258,7 @@ usage(const char* sub) {
 		"      --no-system-includes    omit host system include paths\n"
 		"      --release               omit runtime bounds/null/size traps (production)\n"
 		"      --color auto|always|never  ANSI color (default: auto; off if not a TTY)\n"
+		"      --format text|json         driver/diagnostic output as text or NDJSON\n"
 		"      --target host|windows|macos|linux\n"
 		"  -h, --help                  show help\n"
 		"  -V, --version               show version\n"
@@ -536,14 +538,14 @@ add_homebrew_prefix(Compiler* c, const char* prefix, int verbose) {
 	snprintf(buf, sizeof(buf), "%s/include", prefix);
 	if (dir_exists(buf)) {
 		if (verbose)
-			fprintf(stderr, "system include: %s\n", buf);
+			out_modc("info", "system include: %s", buf);
 		add_sysinc(c, buf);
 		found = 1;
 	}
 	snprintf(buf, sizeof(buf), "%s/lib", prefix);
 	if (dir_exists(buf)) {
 		if (verbose)
-			fprintf(stderr, "library path: %s\n", buf);
+			out_modc("info", "library path: %s", buf);
 		add_syslib(c, buf);
 		found = 1;
 	}
@@ -579,12 +581,12 @@ discover_macos_sysincludes(Compiler* c, int verbose) {
 			sdk[strcspn(sdk, "\r\n")] = 0;
 			snprintf(buf, sizeof(buf), "%s/usr/include", sdk);
 			if (verbose)
-				fprintf(stderr, "system include: %s\n", buf);
+				out_modc("info", "system include: %s", buf);
 			add_sysinc(c, buf);
 			snprintf(buf, sizeof(buf), "%s/System/Library/Frameworks", sdk);
 			if (dir_exists(buf)) {
 				if (verbose)
-					fprintf(stderr, "framework path: %s\n", buf);
+					out_modc("info", "framework path: %s", buf);
 				comp_add_framework_path(c, buf);
 			}
 		}
@@ -612,7 +614,7 @@ discover_linux_sysincludes(Compiler* c, int verbose) {
 		if (!dir_exists(paths[i]))
 			continue;
 		if (verbose)
-			fprintf(stderr, "system include: %s\n", paths[i]);
+			out_modc("info", "system include: %s", paths[i]);
 		add_sysinc(c, paths[i]);
 	}
 }
@@ -641,7 +643,7 @@ add_win_sdk_includes(Compiler* c, const char* sdk, const char* ver, int verbose)
 		if (!dir_exists(buf))
 			continue;
 		if (verbose)
-			fprintf(stderr, "system include: %s\n", buf);
+			out_modc("info", "system include: %s", buf);
 		add_sysinc(c, buf);
 	}
 }
@@ -661,7 +663,7 @@ discover_windows_sysincludes(Compiler* c, int verbose) {
 			int i;
 
 			for (i = before; i < c->paths.sysincpaths_len; i++)
-				fprintf(stderr, "system include: %s\n", c->paths.sysincpaths[i]);
+				out_modc("info", "system include: %s", c->paths.sysincpaths[i]);
 		}
 		return;
 	}
@@ -675,7 +677,7 @@ discover_windows_sysincludes(Compiler* c, int verbose) {
 			host_path_slashify(buf);
 			if (dir_exists(buf)) {
 				if (verbose)
-					fprintf(stderr, "system include: %s\n", buf);
+					out_modc("info", "system include: %s", buf);
 				add_sysinc(c, buf);
 			}
 		}
@@ -749,14 +751,15 @@ apply_cli(Compiler* c, CliOpts* o) {
 	c->opt.check_only = o->check_only;
 	c->opt.runtime_check = !o->release;
 	c->opt.target = o->target;
-	color_set_mode(o->color);
+	out_set_format(o->format);
+	color_set_mode(o->format == FmtJson ? ColorNever : o->color);
 	discover_sysincludes(c, o->verbose);
 	if (o->verbose && c->paths.modc_include && c->paths.modc_include[0])
-		fprintf(stderr, "modc include: %s\n", c->paths.modc_include);
+		out_modc("info", "include: %s", c->paths.modc_include);
 	if (o->verbose && c->paths.modc_pkg && c->paths.modc_pkg[0])
-		fprintf(stderr, "modc pkg: %s\n", c->paths.modc_pkg);
+		out_modc("info", "pkg: %s", c->paths.modc_pkg);
 	if (o->verbose && c->paths.modc_driver && c->paths.modc_driver[0])
-		fprintf(stderr, "modc driver: %s\n", c->paths.modc_driver);
+		out_modc("info", "driver: %s", c->paths.modc_driver);
 	if (o->verbose && o->target != TargetHost) {
 		const char* tname;
 
@@ -764,7 +767,7 @@ apply_cli(Compiler* c, CliOpts* o) {
 			: o->target == TargetMacos   ? "macos"
 			: o->target == TargetLinux   ? "linux"
 						     : "host";
-		fprintf(stderr, "modc target: %s\n", tname);
+		out_modc("info", "target: %s", tname);
 	}
 }
 
@@ -881,7 +884,32 @@ parse_common(Compiler* c, CliOpts* o, int* i, int argc, char** argv, int need_ou
 				fprintf(stderr, "modc: unknown --color (want auto|always|never)\n");
 				return 1;
 			}
-			color_set_mode(o->color);
+			if (o->format != FmtJson)
+				color_set_mode(o->color);
+			continue;
+		}
+		if (strcmp(a, "--format") == 0 || strncmp(a, "--format=", 9) == 0) {
+			const char* v;
+
+			if (strcmp(a, "--format") == 0) {
+				if (*i + 1 >= argc) {
+					fprintf(stderr, "modc: %s requires text|json\n", a);
+					return 1;
+				}
+				v = argv[++(*i)];
+			} else
+				v = a + 9;
+			if (strcmp(v, "text") == 0)
+				o->format = FmtText;
+			else if (strcmp(v, "json") == 0)
+				o->format = FmtJson;
+			else {
+				fprintf(stderr, "modc: unknown --format (want text|json)\n");
+				return 1;
+			}
+			out_set_format(o->format);
+			if (o->format == FmtJson)
+				color_set_mode(ColorNever);
 			continue;
 		}
 		if (strcmp(a, "--release") == 0) {

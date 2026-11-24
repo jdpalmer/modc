@@ -610,6 +610,17 @@ check-special: $(MODC)
 	MODC_BIN=$(BUILD)/install_bin ./modc install test/cli_build_test.mc
 	@test -x $(BUILD)/install_bin/cli_build_test
 	$(BUILD)/install_bin/cli_build_test
+	# --- --format=json: NDJSON diagnostics (no caret / human chrome) ---
+	@./modc build --format=json test/const_fail.mc -o $(BUILD)/fmt_json_bin \
+		>/dev/null 2>$(BUILD)/fmt_json.err; test $$? -ne 0
+	@grep -q '"type":"error"' $(BUILD)/fmt_json.err
+	@grep -q '"message":' $(BUILD)/fmt_json.err
+	@! grep -q 'error: ' $(BUILD)/fmt_json.err
+	@! grep -q '\^' $(BUILD)/fmt_json.err
+	@./modc build -v --format=json test/cli_build_test.mc -o $(BUILD)/fmt_json_ok \
+		>/dev/null 2>$(BUILD)/fmt_json_ok.err
+	@grep -q '"type":"info"' $(BUILD)/fmt_json_ok.err
+	$(BUILD)/fmt_json_ok
 	# --- langdoc: topics index + error footnotes ---
 	./modc doc topics | grep -q '^  defer '
 	./modc doc defer | grep -q 'block-scoped LIFO cleanup'
