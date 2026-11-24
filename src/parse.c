@@ -2410,6 +2410,20 @@ parse_unary(Compiler* c) {
 	return parse_postfix(c, parse_primary(c));
 }
 
+/* True when a brace list is element values for (T[..]){…}, not header fields. */
+static int
+init_is_ranged_elem_list(Initializer* in) {
+	int i;
+
+	if (in == NULL || !in->is_list)
+		return 0;
+	for (i = 0; i < in->items_len; i++) {
+		if (in->items[i].designator == IdFieldDot)
+			return 0;
+	}
+	return 1;
+}
+
 // Cast expressions, C99 compound literals (T){…}, or unary.
 static Node*
 parse_cast(Compiler* c) {
@@ -2426,6 +2440,18 @@ parse_cast(Compiler* c) {
 			n = node(NdInit, t->span);
 			n->type = ty;
 			n->init = parse_init(c);
+			/*
+			 * (T[..]){ e0, e1, … } → (T[N]){ … }. Fixed temp then converts
+			 * to T[..] at ranged sinks (same as (T[N]){ … } today).
+			 * Field designators (.ptr = …) keep the ranged header type.
+			 */
+			if (is_ranged(ty) && init_is_ranged_elem_list(n->init)) {
+				if (n->init->items_len == 0)
+					error_at(c, n->span,
+						 "empty (T[..]){ } compound literal");
+				else
+					n->type = type_array(c, ty->base, -1);
+			}
 			finish_array_from_init(c, &n->type, n->init);
 			validate_initializer(c, n->type, n->init, n->span);
 			n->is_lvalue = 1;

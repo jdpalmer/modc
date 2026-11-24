@@ -152,6 +152,22 @@ s = a[2..];             /* open end through len(a) */
 line = "James";         /* requires const char[..]; NUL excluded from len and cap */
 ```
 
+**Literal slices.** At a `T[..]` sink you can pass a fixed-array compound
+literal — no named temporary required:
+
+```c
+int sum(int[..] s);
+
+sum((int[3]){1, 2, 3});   /* C99 compound literal → T[..] */
+sum((int[..]){1, 2, 3});  /* same: (T[..]){…} lowers to (T[N]){…} */
+```
+
+`(T[..]){ e0, e1, … }` is sugar for a stack temp of type `T[N]` (N from the
+brace list) that then converts like any other `T[N]` → `T[..]`. Empty
+`(T[..]){ }` is an error. Field designators (`.ptr = …`) are not element
+lists — they keep the ranged header type. There is still no heap allocation
+and no VLA; the backing storage is the compound-literal temporary.
+
 Assigning a string literal to `const char[..]` sets length and capacity to the byte
 length of the text **excluding** the trailing NUL terminator. However, the
 backing read-only memory retains the NUL byte, preserving compatibility with
