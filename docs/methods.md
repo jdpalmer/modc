@@ -43,7 +43,17 @@ Method declarations follow the form `ret (receiver).name(params)`. Receivers may
 - a ranged header by value: `(const char[..] s).eq(const char[..] other)`
 - a pointer to a ranged header: `(char[..]* s).…` for mutators that need to rebind the header
 
-A method may be defined in any package that can see the receiver type (including outside a named `T`'s origin package); for named structs the linker name still uses `T`'s origin package, while `T[..]` methods use the defining package. Multiple methods may share the same receiver shape and name when their parameter lists differ; call-site resolution matches free-function overloads (arity and types, never return type alone). Exact duplicates are rejected. Methods cannot be nested inside functions or marked with the `overload` keyword (receiver methods are always overloadable by signature). Method names exist in a per-receiver-shape namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a field (including synthetic `ptr` / `len` / `cap` on `T[..]`), the compiler rejects the method at define time. Visibility follows ordinary package rules: import the defining package to use the method.
+**Not allowed:** by-value receivers on named structs/unions (`(Window w).show`). Object handles stay pointers; `T[..]` by value is the exception because the header is a small value type. See [stability.md](stability.md).
+
+### Extension methods
+
+Any package that can see the receiver type may define methods on it (including outside a named `T`'s origin package). Callers must `import` the defining package to use those methods — methods are not ambient on `T` worldwide.
+
+Duplicate `(receiver shape, name, parameter types)` is an error (redefinition at define time within a unit; linker name collision across objects). Do not rely on “best effort” or silent preference between two packages’ identical signatures.
+
+Mangling: named-struct methods use **T’s origin package** in the linker prefix; `T[..]` / `T[..]*` methods use the **defining** package and a structural receiver encoding (below).
+
+Multiple methods may share the same receiver shape and name when their parameter lists differ; call-site resolution matches free-function overloads (arity and types, never return type alone). Methods cannot be nested inside functions or marked with the `overload` keyword (receiver methods are always overloadable by signature). Method names exist in a per-receiver-shape namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a field (including synthetic `ptr` / `len` / `cap` on `T[..]`), the compiler rejects the method at define time.
 
 When calling `expr.name()` on a named aggregate, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. By-value `T[..]` methods take the header as a value (literals and temporaries are fine). Calling a method on a null `T *` / `T[..]*` is a caller error (see below). Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
 

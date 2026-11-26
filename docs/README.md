@@ -17,6 +17,7 @@ Start with [Installation](installation.md) and the [Quickstart](quickstart.md).
 
 | Document | Description |
 | -------- | ----------- |
+| [Stability](stability.md) | Frozen design lines (no generics/closures/…); extension-method policy |
 | [Memory](memory.md) | Pools, `[[provides]]`/`[[releases]]`, slices, escapes, C boundary |
 | [Interop](interop.md) | User `.mc` sources versus `#include` headers |
 | [Structs](struct.md) | Unified tags, auto-dot, and Plan 9 embeds |

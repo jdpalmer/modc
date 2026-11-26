@@ -6,6 +6,12 @@ Declare third-party dependencies in `modc.ini`, fetch them with `modc vendor`, a
 
 This guide covers package mechanics, import resolution, and the interaction between vendoring and linking. For a brief intro to `import`, see the Packages section in [quickstart.md](quickstart.md).
 
+**Distribution unit:** depend on `.mc` source packages (and `modc vendor`).
+`.pkg.o` / `.pkg.mc` are a local build cache, not a cross-version `%C`↔`%C`
+binary ABI. Stable link names for foreign or long-lived C boundaries are
+unmangled free functions; see [stability.md](stability.md) and
+[interop.md](interop.md).
+
 ## Your first package
 
 A package is either a single `name.mc` file or a directory containing `.mc` files. Consider a small game project containing a local `util` package:

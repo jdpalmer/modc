@@ -58,6 +58,9 @@
 
 * Not a drop-in replacement for C: stricter `.mc` dialect, more forgiving headers
 
+Design freezes (polymorphism ceiling, ownership attrs, ABI, extension methods):
+[stability.md](docs/stability.md).
+
 ## Install
 
 ```sh
