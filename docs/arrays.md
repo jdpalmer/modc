@@ -118,8 +118,9 @@ not inherited by a subslice.
 
 ### Runtime checks (on by default)
 
-By default, `modc build` / `run` / `test` / `emit` insert traps via the `crash`
-package (message, cleanups, abort). Pass `--release` to omit them (production):
+Inventory and limitations: [safety.md](safety.md). By default, `modc build` /
+`run` / `test` / `emit` insert traps via the `crash` package (message,
+cleanups, abort). Pass `--release` to omit them (production):
 
 - `a[i]` / `s[i]` — require `i < N` or `i < len(s)` (`__modc_bounds_fail`;
   when `index == len`, the message notes a likely off-by-one)

@@ -272,8 +272,9 @@ void tty_reapply_editor_mode(File *f); /* Win32: restore VT/editor modes; POSIX:
 ## `crash`
 
 Process-fatal funnel (no `recover`). Linked into every `modc` build so
-Runtime checks (bounds + null receivers + size overflow + integer division +
-signed overflow; omit with `--release`) and `<assert.h>` share one death path.
+runtime checks (bounds + null receivers + size overflow + integer division +
+signed overflow; omit with `--release`; inventory in [safety.md](safety.md))
+and `<assert.h>` share one death path.
 Import the package to
 call `panic` / `crash_init` from user code:
 

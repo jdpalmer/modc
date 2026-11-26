@@ -137,6 +137,7 @@ Full index: [docs/README.md](docs/README.md).
 | --- | ----- |
 | [Installation](docs/installation.md) | Build and install `modc` |
 | [Quickstart](docs/quickstart.md) | Write and build a first program |
+| [Safety](docs/safety.md) | Contracts, runtime traps, `--release`, limitations |
 | [Memory](docs/memory.md) | Pools, ownership, slices, escapes, C boundary |
 | [Interop](docs/interop.md) | User `.mc` versus `#include` headers |
 | [Packages](docs/packages.md) | `import`, vendoring, and cache |

@@ -34,4 +34,5 @@ package**; `T[..]` methods mangle under the **defining** package. Details:
 ## What still moves
 
 Diagnostics, escape/ownership edge cases, stdlib APIs, `modc` CLI/docs/install,
-and CalVer releases. Prefer clarifying rules over new syntax.
+and CalVer releases. Prefer clarifying rules over new syntax. What the dialect
+actually checks (and what it does not) is summarized in [safety.md](safety.md).

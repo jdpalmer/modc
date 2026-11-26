@@ -473,9 +473,10 @@ See [arrays.md](arrays.md) and [interop.md](interop.md).
 
 ### Runtime checks (bounds, null receivers, size, division, signed overflow)
 
-Compile-time contracts catch ownership and escape mistakes. Runtime traps
-catch indexing, method-call, allocation-size, integer-division, and signed
-overflow bugs unless you pass `--release`:
+Inventory and limitations: [safety.md](safety.md). Compile-time contracts catch
+ownership and escape mistakes. Runtime traps catch indexing, method-call,
+allocation-size, integer-division, and signed overflow bugs unless you pass
+`--release`:
 
 - **Bounds:** `s[i]` and `s[lo..hi]` on `T[..]` / `T[N]` check against the
   length and trap on overflow (`__modc_bounds_fail`).
