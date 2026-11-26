@@ -873,7 +873,21 @@ list_sources(const char* root, char*** out, int* out_len) {
 	return list_mc_files(root, want_pkg_src, 0, out, out_len);
 }
 
-// Lex+preprocess one file and collect top-level import strings (discovery only).
+/* Drop discovery lex state and restore the caller's Compiler lex/infile. */
+static void
+scan_imports_restore(Compiler* c, Tok* save_toks, int save_ntok, int save_tokcap,
+		     int save_pos, int save_nerror, char* save_infile) {
+	free(c->lex.tokens);
+	free(c->paths.infile);
+	c->lex.tokens = save_toks;
+	c->lex.tokens_len = save_ntok;
+	c->lex.tokens_cap = save_tokcap;
+	c->lex.pos = save_pos;
+	c->diag.error_count = save_nerror;
+	c->paths.infile = save_infile;
+}
+
+// Lex one file (no PP) and collect top-level import strings (discovery only).
 static int
 scan_imports(Compiler* c, const char* path, char*** imps, int* nimps) {
 	char* text;
@@ -911,12 +925,8 @@ scan_imports(Compiler* c, const char* path, char*** imps, int* nimps) {
 	lex_file(c, c->paths.infile, text, 1);
 	free(text);
 	if (c->diag.error_count) {
-		c->lex.tokens = save_toks;
-		c->lex.tokens_len = save_ntok;
-		c->lex.tokens_cap = save_tokcap;
-		c->lex.pos = save_pos;
-		c->diag.error_count = save_nerror;
-		c->paths.infile = save_infile;
+		scan_imports_restore(c, save_toks, save_ntok, save_tokcap, save_pos,
+				    save_nerror, save_infile);
 		return 1;
 	}
 	list = NULL;
@@ -941,12 +951,8 @@ scan_imports(Compiler* c, const char* path, char*** imps, int* nimps) {
 			}
 		}
 	}
-	c->lex.tokens = save_toks;
-	c->lex.tokens_len = save_ntok;
-	c->lex.tokens_cap = save_tokcap;
-	c->lex.pos = save_pos;
-	c->diag.error_count = save_nerror;
-	c->paths.infile = save_infile;
+	scan_imports_restore(c, save_toks, save_ntok, save_tokcap, save_pos, save_nerror,
+			     save_infile);
 	*imps = list;
 	*nimps = n;
 	return 0;
