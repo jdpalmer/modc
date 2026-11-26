@@ -9,6 +9,8 @@
  */
 #include "ast.h"
 #include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "host_os.h"
@@ -16,6 +18,24 @@
 
 enum { MaxPkgFiles = 256,
        MaxImportDepth = 64 };
+
+/* 0 ok; 1 on truncate/encoding error (clears buf when n > 0). */
+static int
+path_snprintf(char* buf, size_t n, const char* fmt, ...) {
+	va_list ap;
+	int r;
+
+	if (buf == NULL || n == 0)
+		return 1;
+	va_start(ap, fmt);
+	r = vsnprintf(buf, n, fmt, ap);
+	va_end(ap);
+	if (r < 0 || (size_t)r >= n) {
+		buf[0] = 0;
+		return 1;
+	}
+	return 0;
+}
 
 // Register a directory searched when resolving import "spec".
 void pkg_add_search_path(Compiler* c, const char* dir) {
@@ -234,7 +254,10 @@ pkg_effective_dir(const char* dir, char* out, size_t out_len) {
 			dir);
 		return 1;
 	}
-	snprintf(path, sizeof(path), "%s/%s", dir, root);
+	if (path_snprintf(path, sizeof(path), "%s/%s", dir, root)) {
+		fprintf(stderr, "modc: path too long under %s\n", dir);
+		return 1;
+	}
 	host_path_slashify(path);
 	if (!host_is_dir(path)) {
 		fprintf(stderr, "modc: [package] root \"%s\" not found under %s\n", root, dir);
@@ -248,10 +271,16 @@ pkg_effective_dir(const char* dir, char* out, size_t out_len) {
 			fprintf(stderr, "modc: [package] root \"%s\" escapes %s\n", root, dir);
 			return 1;
 		}
-		snprintf(out, out_len, "%s", rpath);
+		if (path_snprintf(out, out_len, "%s", rpath)) {
+			fprintf(stderr, "modc: path too long: %s\n", rpath);
+			return 1;
+		}
 		return 0;
 	}
-	snprintf(out, out_len, "%s", path);
+	if (path_snprintf(out, out_len, "%s", path)) {
+		fprintf(stderr, "modc: path too long: %s\n", path);
+		return 1;
+	}
 	return 0;
 }
 
@@ -453,29 +482,49 @@ pkg_artifact_paths(const char* pkg_root, char* mc_out, size_t mc_n, char* o_out,
 
 	if (pkg_root == NULL || pkg_root[0] == 0)
 		return 1;
-	if (host_abspath(pkg_root, abs, sizeof(abs)) != 0)
-		snprintf(abs, sizeof(abs), "%s", pkg_root);
+	if (host_abspath(pkg_root, abs, sizeof(abs)) != 0) {
+		if (path_snprintf(abs, sizeof(abs), "%s", pkg_root)) {
+			fprintf(stderr, "modc: path too long: %s\n", pkg_root);
+			return 1;
+		}
+	}
 	if (host_is_file(abs)) {
 		host_dirname(abs, dir, sizeof(dir));
 		base = host_path_basename(abs);
-		snprintf(stem, sizeof(stem), "%s", base);
+		if (path_snprintf(stem, sizeof(stem), "%s", base)) {
+			fprintf(stderr, "modc: path too long: %s\n", abs);
+			return 1;
+		}
 		dot = strrchr(stem, '.');
 		if (dot && strcmp(dot, ".mc") == 0)
 			*dot = 0;
-		if (mc_out && mc_n)
-			snprintf(mc_out, mc_n, "%s/%s.pkg.mc", dir, stem);
-		if (o_out && o_n)
-			snprintf(o_out, o_n, "%s/%s.pkg.o", dir, stem);
-		if (meta_out && meta_n)
-			snprintf(meta_out, meta_n, "%s/%s.pkg.meta", dir, stem);
+		if (mc_out && mc_n && path_snprintf(mc_out, mc_n, "%s/%s.pkg.mc", dir, stem)) {
+			fprintf(stderr, "modc: path too long under %s\n", dir);
+			return 1;
+		}
+		if (o_out && o_n && path_snprintf(o_out, o_n, "%s/%s.pkg.o", dir, stem)) {
+			fprintf(stderr, "modc: path too long under %s\n", dir);
+			return 1;
+		}
+		if (meta_out && meta_n &&
+		    path_snprintf(meta_out, meta_n, "%s/%s.pkg.meta", dir, stem)) {
+			fprintf(stderr, "modc: path too long under %s\n", dir);
+			return 1;
+		}
 		return 0;
 	}
-	if (mc_out && mc_n)
-		snprintf(mc_out, mc_n, "%s/.pkg.mc", abs);
-	if (o_out && o_n)
-		snprintf(o_out, o_n, "%s/.pkg.o", abs);
-	if (meta_out && meta_n)
-		snprintf(meta_out, meta_n, "%s/.pkg.meta", abs);
+	if (mc_out && mc_n && path_snprintf(mc_out, mc_n, "%s/.pkg.mc", abs)) {
+		fprintf(stderr, "modc: path too long under %s\n", abs);
+		return 1;
+	}
+	if (o_out && o_n && path_snprintf(o_out, o_n, "%s/.pkg.o", abs)) {
+		fprintf(stderr, "modc: path too long under %s\n", abs);
+		return 1;
+	}
+	if (meta_out && meta_n && path_snprintf(meta_out, meta_n, "%s/.pkg.meta", abs)) {
+		fprintf(stderr, "modc: path too long under %s\n", abs);
+		return 1;
+	}
 	return 0;
 }
 
@@ -665,18 +714,30 @@ void pkg_mangle_from_file(const char* mcfile, char* out, size_t out_len) {
  */
 static int
 try_pkg_at(const char* base, const char* spec, char* out, size_t out_len) {
-	char path[1024], eff[HOST_PATH_MAX];
+	char path[HOST_PATH_MAX], eff[HOST_PATH_MAX];
 
-	snprintf(path, sizeof(path), "%s/%s", base, spec);
+	if (path_snprintf(path, sizeof(path), "%s/%s", base, spec)) {
+		fprintf(stderr, "modc: path too long under %s\n", base);
+		return -1;
+	}
 	if (is_dir(path)) {
 		if (pkg_effective_dir(path, eff, sizeof(eff)))
 			return -1;
-		snprintf(out, out_len, "%s", eff);
+		if (path_snprintf(out, out_len, "%s", eff)) {
+			fprintf(stderr, "modc: path too long: %s\n", eff);
+			return -1;
+		}
 		return 1;
 	}
-	snprintf(path, sizeof(path), "%s/%s.mc", base, spec);
+	if (path_snprintf(path, sizeof(path), "%s/%s.mc", base, spec)) {
+		fprintf(stderr, "modc: path too long under %s\n", base);
+		return -1;
+	}
 	if (is_file(path)) {
-		snprintf(out, out_len, "%s", path);
+		if (path_snprintf(out, out_len, "%s", path)) {
+			fprintf(stderr, "modc: path too long: %s\n", path);
+			return -1;
+		}
 		return 1;
 	}
 	return 0;
