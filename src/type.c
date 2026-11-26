@@ -2977,6 +2977,9 @@ type_expr_call(Compiler* c, Node* n) {
 			n->a->symbol = osym;
 			n->a->type = osym->type;
 			n->a->overload_pending = 0;
+		} else {
+			n->a->overload_pending = 0;
+			return type_poison(c, n);
 		}
 		n->int_val = 1;
 	}

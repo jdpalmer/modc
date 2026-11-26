@@ -754,7 +754,7 @@ resolve_methods_on_tag(Compiler* c, const char* recv_tag, const char* method,
 			error_at(c, sp, "ambiguous call to method %s", method);
 			if (any_out)
 				*any_out = any;
-			return best;
+			return NULL;
 		}
 	}
 	if (any_out)
@@ -795,7 +795,7 @@ resolve_methods_ranged(Compiler* c, const char* method, Node** args, int args_le
 			error_at(c, sp, "ambiguous call to method %s", method);
 			if (any_out)
 				*any_out = any;
-			return best;
+			return NULL;
 		}
 	}
 	if (any_out)
@@ -855,7 +855,7 @@ Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* metho
 			continue;
 		if (hit_tag && strcmp(hit_tag, ts->recv_tag) != 0) {
 			error_at(c, sp, "ambiguous method %s for receiver", method);
-			return ts;
+			return NULL;
 		}
 		hit_tag = ts->recv_tag;
 	}
@@ -1090,7 +1090,7 @@ Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int 
 			bestscore = score;
 		} else if (score == bestscore && best) {
 			error_at(c, sp, "ambiguous call to overloaded %s", name);
-			return best;
+			return NULL;
 		}
 	}
 	if (best == NULL)
@@ -1167,7 +1167,7 @@ symbol_resolve_overload_addr(Compiler* c, const char* name, Type* target, Span s
 			continue;
 		if (best) {
 			error_at(c, sp, "ambiguous address of overloaded function %s", name);
-			return best;
+			return NULL;
 		}
 		best = s;
 	}
@@ -1215,8 +1215,8 @@ Symbol* symbol_resolve_range_count(Compiler* c, Type* range_ty, Type** elem_out,
 		} else if (sc == bestscore && best) {
 			error_at(c, sp, "ambiguous call to overloaded range_count");
 			if (elem_out)
-				*elem_out = elem;
-			return best;
+				*elem_out = NULL;
+			return NULL;
 		}
 	}
 	if (best == NULL)
@@ -1258,7 +1258,7 @@ Symbol* symbol_resolve_range_at(Compiler* c, Type* range_ty, Type* elem, Span sp
 			bestscore = sc;
 		} else if (sc == bestscore && best) {
 			error_at(c, sp, "ambiguous call to overloaded range_at");
-			return best;
+			return NULL;
 		}
 	}
 	return best;
