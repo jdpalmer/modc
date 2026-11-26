@@ -37,18 +37,22 @@ call `__modc_*_fail` helpers that share the `crash` death path (cleanups,
 one-line stderr, abort). Full bullets: [arrays.md](arrays.md#runtime-checks-on-by-default);
 death path: [os.md](os.md#crash).
 
-| Check | Fail helper | `--release` |
-| ----- | ----------- | ----------- |
-| `a[i]` / `s[i]` / slices / `copy` length | `__modc_bounds_fail` | omitted (`copy` soft-fails: false, no write) |
-| Pointer method entry | `__modc_null_fail` | omitted |
-| `alloc` / `reserve` / `push` / `append` size wrap | `__modc_size_fail` | soft-fail (NULL / false) |
-| Integer `/` `%` zero or signed `MIN/-1` | `__modc_div_fail` | omitted |
-| Signed `+` `-` `*` unary `-` (and compounds) | `__modc_overflow_fail` | wraps (two’s complement) |
-| Signed `<<` (neg LHS or unrepresentable) | `__modc_shift_fail` | omitted |
+`--release` is **not** one behavior: some checks are omitted, some wrap, some
+soft-fail. Skimming “omit traps” as “same as debug without abort” is wrong.
 
-Unsigned arithmetic wraps without traps. Floating-point `/` follows IEEE and
-is not trapped. Shift **counts** are still masked to the type width in both
-modes.
+| Check | Default | `--release` |
+| ----- | ------- | ----------- |
+| `a[i]` / `s[i]` / slices | `__modc_bounds_fail` (abort) | omitted (unchecked) |
+| `copy(dst, src)` length | `__modc_bounds_fail` (abort) | soft-fail: false, no write |
+| Pointer method entry | `__modc_null_fail` (abort) | omitted (unchecked) |
+| `alloc` / `reserve` / `push` / `append` size wrap | `__modc_size_fail` (abort) | soft-fail: NULL / false |
+| Integer `/` `%` zero or signed `MIN/-1` | `__modc_div_fail` (abort) | omitted (unchecked) |
+| Signed `+` `-` `*` unary `-` (and compounds) | `__modc_overflow_fail` (abort) | wraps (two’s complement) |
+| Signed `<<` (neg LHS or unrepresentable) | `__modc_shift_fail` (abort) | omitted (unchecked) |
+
+Unsigned arithmetic wraps without traps in both modes. Floating-point `/`
+follows IEEE and is not trapped. Shift **counts** are still masked to the type
+width in both modes.
 
 ## Limitations
 
