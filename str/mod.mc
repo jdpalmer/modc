@@ -17,18 +17,18 @@
 //   str_from_cstr(NULL) and str_eq_cstr(a, NULL) treat NULL C strings as empty.
 //   str_free(NULL) / mutators with NULL s are no-ops / false.
 //
-// API: const char[..] / str_* — read, slice, compare, split, trim; *_cstr reads const char*.
-//      Prefer const char[..] / non-*_cstr for string literals (str_eq(s, "x"));
+// API: char[..] reader methods — eq, cmp, find, trim, …; *_cstr reads const char*.
+//      Prefer method form for literals (s.eq("x")); factories/mutators stay str_*.
 //      str_from_cstr / *_cstr are for foreign NUL-terminated const char*.
 //      cstr_* — write into caller char[N] (NUL-terminated C boundary).
 //
 // Export: cstr_write(buf, s) on fixed char[N]; cstr_zlen(buf) / cstr_reset(buf) same.
 //   Three-arg cstr_* forms for sizing-only (cap==0 / dst==NULL) and open arrays.
 //
-// str_split_once(s, delims) → (token, rest); no delimiter → (s, empty).
-// str_find / str_ifind / str_rfind / str_irfind: empty needle → (true, hay[0..0]) or
+// s.split_once(delims) → (token, rest); no delimiter → (s, empty).
+// find / ifind / rfind / irfind: empty needle → (true, hay[0..0]) or
 //   hay[hlen..hlen] for reverse on non-empty hay.
-// str_icmp / str_ifind / str_irfind: ASCII case fold only (not Unicode).
+// icmp / ifind / irfind: ASCII case fold only (not Unicode).
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -146,12 +146,12 @@ bool str_set(char[..]* s, const char[..] src) {
 }
 
 // True when the view has length zero.
-bool str_is_empty(const char[..] s) {
+bool (const char[..] s).is_empty() {
 	return len(s) == 0;
 }
 
 // Byte-wise equality of two views.
-bool str_eq(const char[..] a, const char[..] b) {
+bool (const char[..] a).eq(const char[..] b) {
 	size_t n = len(a);
 	if (n != len(b)) {
 		return false;
@@ -172,7 +172,7 @@ bool str_eq_cstr(const char[..] a, const char* z) {
 }
 
 // memcmp-style ordering; shorter view sorts first when prefixes match.
-int str_cmp(const char[..] a, const char[..] b) {
+int (const char[..] a).cmp(const char[..] b) {
 	size_t n = len(a);
 	if (len(b) < n) {
 		n = len(b);
@@ -193,7 +193,7 @@ int str_cmp(const char[..] a, const char[..] b) {
 }
 
 // Case-insensitive ASCII byte compare; shorter view sorts first when prefixes match.
-int str_icmp(const char[..] a, const char[..] b) {
+int (const char[..] a).icmp(const char[..] b) {
 	size_t n = len(a);
 	if (len(b) < n) {
 		n = len(b);
@@ -215,7 +215,7 @@ int str_icmp(const char[..] a, const char[..] b) {
 }
 
 // True when s begins with prefix.
-bool str_starts_with(const char[..] s, const char[..] prefix) {
+bool (const char[..] s).starts_with(const char[..] prefix) {
 	size_t n = len(prefix);
 	if (n > len(s)) {
 		return false;
@@ -223,13 +223,13 @@ bool str_starts_with(const char[..] s, const char[..] prefix) {
 	return memcmp(ptr(s), ptr(prefix), n) == 0;
 }
 
-// str_starts_with against a C string.
+// starts_with against a C string.
 bool str_starts_with_cstr(const char[..] s, const char* prefix) {
-	return str_starts_with(s, str_from_cstr(prefix));
+	return s.starts_with(str_from_cstr(prefix));
 }
 
 // True when s ends with suffix.
-bool str_ends_with(const char[..] s, const char[..] suffix) {
+bool (const char[..] s).ends_with(const char[..] suffix) {
 	size_t n = len(suffix);
 	if (n > len(s)) {
 		return false;
@@ -238,7 +238,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // First occurrence of needle in hay; (false, empty) when missing.
-(bool, const ? char[..]) str_find(const ? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) (const ? char[..] hay).find(const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -256,7 +256,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // Last occurrence of needle in hay.
-(bool, const ? char[..]) str_rfind(const ? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) (const ? char[..] hay).rfind(const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -280,7 +280,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // Case-insensitive forward search.
-(bool, const ? char[..]) str_ifind(const ? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) (const ? char[..] hay).ifind(const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -307,7 +307,7 @@ bool str_ends_with(const char[..] s, const char[..] suffix) {
 }
 
 // Case-insensitive reverse search.
-(bool, const ? char[..]) str_irfind(const ? char[..] hay, const char[..] needle) {
+(bool, const ? char[..]) (const ? char[..] hay).irfind(const char[..] needle) {
 	size_t hlen = len(hay);
 	size_t nlen = len(needle);
 	if (nlen == 0) {
@@ -397,7 +397,7 @@ overload size_t cstr_write(char[..] dst, const char[..] src) {
 }
 
 // Split at the first byte in delims; no delimiter → (s, empty).
-(const ? char[..], const ? char[..]) str_split_once(const ? char[..] s, const char[..] delims) {
+(const ? char[..], const ? char[..]) (const ? char[..] s).split_once(const char[..] delims) {
 	for (size_t i = 0; i < len(s); i++) {
 		if (str_byte_in(delims, s[i])) {
 			return (s[0 .. i], s[(i + 1) ..]);
@@ -407,7 +407,7 @@ overload size_t cstr_write(char[..] dst, const char[..] src) {
 }
 
 // Trim leading and trailing bytes found in chars.
-const ? char[..] str_trim_set(const ? char[..] s, const char[..] chars) {
+const ? char[..] (const ? char[..] s).trim_set(const char[..] chars) {
 	size_t lo = 0;
 	while (lo < len(s) && str_byte_in(chars, s[lo])) {
 		lo = lo + 1;
@@ -425,7 +425,7 @@ const ? char[..] str_trim_set(const ? char[..] s, const char[..] chars) {
 }
 
 // Trim leading ASCII whitespace.
-const ? char[..] str_ltrim(const ? char[..] s) {
+const ? char[..] (const ? char[..] s).ltrim() {
 	size_t i = 0;
 	while (i < len(s) && str_is_space(s[i])) {
 		i = i + 1;
@@ -434,7 +434,7 @@ const ? char[..] str_ltrim(const ? char[..] s) {
 }
 
 // Trim trailing ASCII whitespace.
-const ? char[..] str_rtrim(const ? char[..] s) {
+const ? char[..] (const ? char[..] s).rtrim() {
 	size_t n = len(s);
 	while (n != 0 && str_is_space(s[n - 1])) {
 		n = n - 1;
@@ -443,12 +443,12 @@ const ? char[..] str_rtrim(const ? char[..] s) {
 }
 
 // Trim leading and trailing ASCII whitespace.
-const ? char[..] str_trim(const ? char[..] s) {
-	return str_rtrim(str_ltrim(s));
+const ? char[..] (const ? char[..] s).trim() {
+	return s.ltrim().rtrim();
 }
 
 // Strip one trailing LF or CRLF.
-const ? char[..] str_chomp(const ? char[..] s) {
+const ? char[..] (const ? char[..] s).chomp() {
 	size_t n = len(s);
 	if (n != 0 && s[n - 1] == '\n') {
 		n = n - 1;
@@ -460,7 +460,7 @@ const ? char[..] str_chomp(const ? char[..] s) {
 }
 
 // Parse base-N integer; optional leading + or -.
-(bool, int64_t) str_to_long(const char[..] s, int base) {
+(bool, int64_t) (const char[..] s).to_long(int base) {
 	if (base < 2 || base > 36 || len(s) == 0) {
 		return (false, 0);
 	}

@@ -41,7 +41,7 @@ int test_rw_seek_remove() {
 	}
 	{
 		auto (n, rok) = f.read(got);
-		if (!rok || n != 5 || !str_eq(ranged(got, 5), "hello")) {
+		if (!rok || n != 5 || !ranged(got, 5).eq("hello")) {
 			f.close();
 			fs_remove(name);
 			return 4;
@@ -95,7 +95,7 @@ int test_append() {
 	}
 	{
 		auto (n, rok) = f.read(got);
-		if (!rok || n != 4 || !str_eq(ranged(got, 4), "abcd")) {
+		if (!rok || n != 4 || !ranged(got, 4).eq("abcd")) {
 			f.close();
 			fs_remove(name);
 			return 4;
@@ -230,19 +230,19 @@ int test_stat_dir() {
 			fs_remove(dir);
 			return 7;
 		}
-		if (str_is_empty(name)) {
+		if (name.is_empty()) {
 			break;
 		}
-		if (str_eq(name, ".") || str_eq(name, "..")) {
+		if (name.eq(".") || name.eq("..")) {
 			d.close();
 			fs_remove(fa);
 			fs_remove(fb);
 			fs_remove(dir);
 			return 8;
 		}
-		if (str_eq(name, "a")) {
+		if (name.eq("a")) {
 			saw_a = 1;
-		} else if (str_eq(name, "b")) {
+		} else if (name.eq("b")) {
 			saw_b = 1;
 		} else {
 			d.close();
@@ -617,8 +617,8 @@ int test_temp() {
 			auto (d, ok) = fs_mkdir_temp(&p, "", "modc-*-tmp");
 			if (!ok || len(d) == 0) {
 				rc = 4;
-			} else if (!str_starts_with(path_base(d), "modc-") ||
-				   !str_ends_with(path_base(d), "-tmp")) {
+			} else if (!path_base(d).starts_with("modc-") ||
+				   !path_base(d).ends_with("-tmp")) {
 				fs_remove(d);
 				rc = 5;
 			} else if (!fs_remove(d)) {

@@ -322,7 +322,7 @@ s[0] = 'x';             /* ok: mutates buf[0] */
 Passthrough APIs use `const?` so a mutable argument stays mutable at the
 result. See [const.md](const.md).
 
-For string literals, prefer `const char[..]` rather than wrapping with `str_from_cstr`. Pass `"..."` where a `const` / `const?` `char[..]` parameter is expected. Use `str_eq(a, "x")` and `str_starts_with(s, "pre")`; reserve `str_from_cstr` / `*_cstr` for foreign NUL-terminated `const char *` values. See [packages.md](packages.md) and `str/mod.mc`.
+For string literals, prefer `const char[..]` rather than wrapping with `str_from_cstr`. Pass `"..."` where a `const` / `const?` `char[..]` parameter is expected. Use `a.eq("x")` and `s.starts_with("pre")`; reserve `str_from_cstr` / `*_cstr` for foreign NUL-terminated `const char *` values. See [packages.md](packages.md) and `str/mod.mc`.
 
 ## Quick Reference
 
@@ -341,10 +341,10 @@ For string literals, prefer `const char[..]` rather than wrapping with `str_from
 ## Standard Library Packages
 
 Importing `str` (`import "str";`) provides length-aware helpers on `char[..]`:
-`cstr_write(buf, s)`, `str_split_once`, trim/chomp, compare, parse via
-`str_to_long`, search via `str_find` / `str_ifind`, and heap owners via
+`cstr_write(buf, s)`, `s.split_once`, trim/chomp, compare, parse via
+`s.to_long`, search via `s.find` / `s.ifind`, and heap owners via
 `str_dup` / `str_append` / `str_free` (see `str/mod.mc`). Prefer `char[..]`
-and non-`*_cstr` APIs for literals (`str_eq(s, "ok")`); use `str_from_cstr` /
+reader methods for literals (`s.eq("ok")`); use `str_from_cstr` /
 `*_cstr` only for foreign `char *`.
 
 A `pool p { … }` statement is bump allocation into a region. `p.alloc(T)` and

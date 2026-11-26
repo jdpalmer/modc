@@ -15,7 +15,7 @@ int test_copy_cat() {
 			rc = 1;
 		} else if (cstr_write(buf, out) != 11) {
 			rc = 2;
-		} else if (!str_eq("hello world", ranged(buf, cstr_zlen(buf)))) {
+		} else if (!"hello world".eq(ranged(buf, cstr_zlen(buf)))) {
 			rc = 3;
 		}
 	}
@@ -34,7 +34,7 @@ int test_append() {
 		if (rc == 0 && !p.append(&s, " world")) {
 			rc = 2;
 		}
-		if (rc == 0 && !str_eq(s, "hello world")) {
+		if (rc == 0 && !s.eq("hello world")) {
 			rc = 3;
 		}
 		if (rc == 0 && len(s) != 11) {
@@ -42,15 +42,15 @@ int test_append() {
 		}
 		if (rc == 0) {
 			const char[..] sub = s[0 .. 5];
-			if (!str_eq(sub, "hello")) {
+			if (!sub.eq("hello")) {
 				rc = 5;
-			} else if (!str_eq(s[6 ..], "world")) {
+			} else if (!s[6 ..].eq("world")) {
 				rc = 6;
 			}
 		}
 		if (rc == 0) {
 			s = str_empty();
-			if (len(s) != 0 || !str_eq(s, "")) {
+			if (len(s) != 0 || !s.eq("")) {
 				rc = 8;
 			}
 		}
@@ -69,7 +69,7 @@ int test_append() {
 		if (rc == 0 && len(s) != 100) {
 			rc = 11;
 		}
-		if (rc == 0 && !str_starts_with(s, "aaa")) {
+		if (rc == 0 && !s.starts_with("aaa")) {
 			rc = 12;
 		}
 	}
@@ -89,11 +89,11 @@ int test_join() {
 		bool ok = p.join(&out, ",", parts, 3);
 		if (!ok) {
 			rc = 1;
-		} else if (!str_eq(out, "a,b,c")) {
+		} else if (!out.eq("a,b,c")) {
 			rc = 2;
 		} else if (cstr_write(buf, out) != 5) {
 			rc = 3;
-		} else if (!str_eq(ranged(buf, cstr_zlen(buf)), "a,b,c")) {
+		} else if (!ranged(buf, cstr_zlen(buf)).eq("a,b,c")) {
 			rc = 4;
 		}
 		if (rc == 0) {
@@ -101,7 +101,7 @@ int test_join() {
 			ok = p.join(&out, ",", parts, 1);
 			if (!ok) {
 				rc = 8;
-			} else if (!str_eq(out, "x")) {
+			} else if (!out.eq("x")) {
 				rc = 9;
 			}
 		}
@@ -112,7 +112,7 @@ int test_join() {
 			ok = p.join(&out, " | ", parts, 3);
 			if (!ok) {
 				rc = 5;
-			} else if (!str_eq(out, "a | b | c")) {
+			} else if (!out.eq("a | b | c")) {
 				rc = 6;
 			}
 		}
@@ -120,7 +120,7 @@ int test_join() {
 			ok = p.join(&out, ",", parts, 0);
 			if (!ok) {
 				rc = 7;
-			} else if (!str_is_empty(out)) {
+			} else if (!out.is_empty()) {
 				rc = 10;
 			}
 		}
@@ -137,18 +137,18 @@ int test_replace() {
 		bool ok = p.replace(&out, "foo bar foo", "foo", "baz");
 		if (!ok) {
 			rc = 1;
-		} else if (!str_eq(out, "baz bar baz")) {
+		} else if (!out.eq("baz bar baz")) {
 			rc = 2;
 		} else if (cstr_write(buf, out) != 11) {
 			rc = 3;
-		} else if (!str_eq(ranged(buf, cstr_zlen(buf)), "baz bar baz")) {
+		} else if (!ranged(buf, cstr_zlen(buf)).eq("baz bar baz")) {
 			rc = 4;
 		}
 		if (rc == 0) {
 			ok = p.replace(&out, "x-x-x", "-", "+");
 			if (!ok) {
 				rc = 5;
-			} else if (!str_eq(out, "x+x+x")) {
+			} else if (!out.eq("x+x+x")) {
 				rc = 6;
 			}
 		}
@@ -156,7 +156,7 @@ int test_replace() {
 			ok = p.replace(&out, "abc", "z", "w");
 			if (!ok) {
 				rc = 7;
-			} else if (!str_eq(out, "abc")) {
+			} else if (!out.eq("abc")) {
 				rc = 8;
 			}
 		}
@@ -170,12 +170,12 @@ int test_reset() {
 	pool p {
 		char[..] out = { 0 };
 		bool ok = p.copy(&out, "first");
-		if (!ok || !str_eq(out, "first")) {
+		if (!ok || !out.eq("first")) {
 			rc = 1;
 		} else {
 			p.reset();
 			ok = p.copy(&out, "second");
-			if (!ok || !str_eq(out, "second")) {
+			if (!ok || !out.eq("second")) {
 				rc = 2;
 			}
 		}
@@ -195,7 +195,7 @@ int test_heap_and_helper() {
 		char[..] s = { 0 };
 		if (!p.copy(&s, "x")) {
 			rc = 2;
-		} else if (!p.push(&s, 'y') || !str_eq(s, "xy")) {
+		} else if (!p.push(&s, 'y') || !s.eq("xy")) {
 			rc = 3;
 		}
 	}

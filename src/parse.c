@@ -1417,10 +1417,24 @@ peek_tuple_type(Compiler* c) {
 	return r;
 }
 
-// Parse receiver type T or T* without consuming the receiver identifier.
+/* True for T[..], T[..]*, or named struct/union T*. */
+static int
+method_receiver_type_ok(Type* ty) {
+	if (ty == NULL)
+		return 0;
+	if (is_ranged(ty))
+		return 1;
+	if (!is_ptr(ty) || ty->base == NULL)
+		return 0;
+	if (is_ranged(ty->base))
+		return 1;
+	return is_aggr(ty->base) && !is_ranged(ty->base) && ty->base->tag != NULL;
+}
+
+// Parse receiver type T, T*, T[..], or T[..]* without consuming the receiver name.
 static Type*
 parse_receiver_type(Compiler* c) {
-	int storage, saw;
+	int storage, saw, ro, poly;
 	Type* ty;
 
 	storage = StNone;
@@ -1428,10 +1442,26 @@ parse_receiver_type(Compiler* c) {
 	ty = parse_declspec(c, &storage, &saw);
 	if (!saw)
 		error_tok(c, peek(c), "expected receiver type");
-	return parse_pointers(c, ty);
+	ty = parse_pointers(c, ty);
+	/* Optional [..] then more pointers: char[..] / char[..]*. */
+	if (eat(c, PnLbrack)) {
+		if (!eat(c, PnDotDot)) {
+			error_tok(c, peek(c), "method receiver arrays must be T[..]");
+			skip_to_balance(c);
+			return ty;
+		}
+		expect(c, PnRbrack, "']'");
+		ro = pending_pointee_const;
+		poly = pending_poly;
+		pending_pointee_const = 0;
+		pending_poly = 0;
+		ty = type_ranged_full(c, ty, ro, poly);
+		ty = parse_pointers(c, ty);
+	}
+	return ty;
 }
 
-// True when '(' begins (T *recv).method, not a tuple return type.
+// True when '(' begins (T *recv).method or (T[..] recv).method, not a tuple return.
 static int
 peek_method_receiver(Compiler* c) {
 	int save, save_pc, save_poly;
@@ -1454,7 +1484,7 @@ peek_method_receiver(Compiler* c) {
 		return 0;
 	}
 	ty = parse_receiver_type(c);
-	if (!is_ptr(ty)) {
+	if (!method_receiver_type_ok(ty)) {
 		c->lex.pos = save;
 		pending_pointee_const = save_pc;
 		pending_poly = save_poly;
@@ -1602,13 +1632,20 @@ parse_method_declarator(Compiler* c, Type* ret, char** name, char** recv_name, T
 
 		recv_attrs = parse_attr_seq(c);
 		ft = parse_receiver_type(c);
-		if (!is_ptr(ft) || ft->base == NULL || !is_aggr(ft->base))
-			error_tok(c, peek(c), "method receiver must be a struct or union pointer");
-		tag = ft->base->tag;
-		if (tag == NULL)
-			error_tok(c, peek(c), "method receiver type needs a name");
+		if (!method_receiver_type_ok(ft)) {
+			error_tok(c, peek(c),
+				  "method receiver must be T*, T[..], or T[..]* (T named struct/union or ranged)");
+			help_topic(c, "methods");
+		}
 		*recv_ty = ft;
-		*recv_tag = xstrdup(tag);
+		*recv_tag = NULL;
+		if (is_ptr(ft) && ft->base && is_aggr(ft->base) && !is_ranged(ft->base)) {
+			tag = ft->base->tag;
+			if (tag == NULL)
+				error_tok(c, peek(c), "method receiver type needs a name");
+			else
+				*recv_tag = xstrdup(tag);
+		}
 		if (peek(c)->kind != TkIdent)
 			error_tok(c, peek(c), "expected receiver name");
 		rname = take(c)->s;
@@ -4307,7 +4344,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			return;
 		}
 		if (ismethod) {
-			s = symbol_find_method(c, recv_tag, name, ty);
+			s = symbol_find_method(c, recv_ty, recv_tag, name, ty);
 			if (s == NULL)
 				s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage, sp);
 			else {

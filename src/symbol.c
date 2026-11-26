@@ -584,16 +584,22 @@ mangle_lower(const char* s, char* buf, int* pos, int cap) {
 	}
 }
 
-// Build pkg_typename_method__params linker symbol (post-receiver params; __v if none).
+/* Named-struct path: pkg_tag_method__params. Ranged: pkg_{mangle_type(recv)}_method__params. */
 static void
-mangle_method(const char* pkg, const char* tag, const char* method, Type* fn, char* buf, int cap) {
+mangle_method(const char* pkg, Type* recv, const char* tag, const char* method, Type* fn, char* buf, int cap) {
 	int pos, i;
+	int ranged;
 
 	pos = 0;
 	buf[0] = 0;
+	ranged = recv && (is_ranged(recv) || (is_ptr(recv) && recv->base && is_ranged(recv->base)));
 	if (pkg && pkg[0])
 		mappend(buf, &pos, cap, pkg);
-	if (tag && tag[0]) {
+	if (ranged) {
+		if (pos > 0)
+			mappend(buf, &pos, cap, "_");
+		mangle_type(recv, buf, &pos, cap);
+	} else if (tag && tag[0]) {
 		if (pos > 0)
 			mappend(buf, &pos, cap, "_");
 		mangle_lower(tag, buf, &pos, cap);
@@ -616,16 +622,27 @@ mangle_method(const char* pkg, const char* tag, const char* method, Type* fn, ch
 	}
 }
 
-// Find a file-scope method on recv_tag with name and exact signature.
-Symbol* symbol_find_method(Compiler* c, const char* recv_tag, const char* name, Type* t) {
+static int
+method_recv_match(Symbol* s, Type* recv, const char* recv_tag) {
+	if (s == NULL)
+		return 0;
+	if (recv_tag && recv_tag[0] && s->recv_tag && s->recv_tag[0])
+		return strcmp(s->recv_tag, recv_tag) == 0;
+	if (recv && s->recv_type)
+		return type_eq(s->recv_type, recv);
+	return 0;
+}
+
+// Find a file-scope method with matching receiver and exact signature.
+Symbol* symbol_find_method(Compiler* c, Type* recv, const char* recv_tag, const char* name, Type* t) {
 	Symbol* s;
 
-	if (recv_tag == NULL || name == NULL)
+	if (name == NULL)
 		return NULL;
 	for (s = c->syms.symbols; s; s = s->next) {
 		if (s->hidden || s->dead || !s->is_method || s->block != 0)
 			continue;
-		if (s->recv_tag == NULL || strcmp(s->recv_tag, recv_tag) != 0)
+		if (!method_recv_match(s, recv, recv_tag))
 			continue;
 		if (strcmp(s->name, name) != 0)
 			continue;
@@ -675,6 +692,47 @@ resolve_methods_on_tag(Compiler* c, const char* recv_tag, const char* method,
 	return best;
 }
 
+/* Score ranged (T[..] / T[..]*) methods by overload; set any_out if name exists. */
+static Symbol*
+resolve_methods_ranged(Compiler* c, const char* method, Node** args, int args_len, Span sp, int* any_out) {
+	Symbol *s, *best;
+	Type* rt;
+	int score, bestscore, any;
+
+	best = NULL;
+	bestscore = -1;
+	any = 0;
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->hidden || s->dead || !s->is_method || s->block != 0)
+			continue;
+		if (strcmp(s->name, method) != 0)
+			continue;
+		rt = s->recv_type;
+		if (rt == NULL)
+			continue;
+		if (!(is_ranged(rt) || (is_ptr(rt) && rt->base && is_ranged(rt->base))))
+			continue;
+		if (!symbol_visible(c, s))
+			continue;
+		any = 1;
+		score = overload_score(c, s->type, args, args_len);
+		if (score < 0)
+			continue;
+		if (score > bestscore) {
+			best = s;
+			bestscore = score;
+		} else if (score == bestscore && best) {
+			error_at(c, sp, "ambiguous call to method %s", method);
+			if (any_out)
+				*any_out = any;
+			return best;
+		}
+	}
+	if (any_out)
+		*any_out = any;
+	return best;
+}
+
 // Resolve a method call on recv_ty, including anonymous-embed upcast.
 Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* method,
 				   Node** args, int args_len, Span sp) {
@@ -688,8 +746,22 @@ Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* metho
 	ag = recv_ty;
 	if (is_ptr(ag))
 		ag = ag->base;
-	if (ag == NULL || !is_aggr(ag) || ag->tag == NULL) {
-		error_at(c, sp, "method call requires a struct pointer receiver");
+	if (ag == NULL) {
+		error_at(c, sp, "method call requires a struct pointer or T[..] receiver");
+		return NULL;
+	}
+	if (is_ranged(ag) || is_ranged(recv_ty)) {
+		best = resolve_methods_ranged(c, method, args, args_len, sp, &any);
+		if (any) {
+			if (best == NULL)
+				error_at(c, sp, "no matching overload for method %s", method);
+			return best;
+		}
+		error_at(c, sp, "no method named %s for receiver type", method);
+		return NULL;
+	}
+	if (!is_aggr(ag) || ag->tag == NULL) {
+		error_at(c, sp, "method call requires a struct pointer or T[..] receiver");
 		return NULL;
 	}
 	best = resolve_methods_on_tag(c, ag->tag, method, args, args_len, sp, &any);
@@ -733,37 +805,44 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	Symbol *old, *s;
 	char pkg[128], buf[256];
 	Type* rt;
+	int ranged;
 
 	if (c->syms.block != 0) {
 		error_at(c, sp, "methods must have file scope");
 		return NULL;
 	}
-	if (recv == NULL || !is_ptr(recv) || recv->base == NULL || !is_aggr(recv->base) || recv_tag == NULL) {
-		error_at(c, sp, "method receiver must be a struct or union pointer");
+	ranged = recv && (is_ranged(recv) || (is_ptr(recv) && recv->base && is_ranged(recv->base)));
+	if (recv == NULL ||
+	    (!ranged && (recv_tag == NULL || !is_ptr(recv) || recv->base == NULL || !is_aggr(recv->base) || is_ranged(recv->base)))) {
+		error_at(c, sp, "method receiver must be T*, T[..], or T[..]*");
 		help_topic(c, "methods");
 		return NULL;
 	}
-	rt = recv->base;
-	if (rt->pkg_private)
+	rt = is_ptr(recv) ? recv->base : recv;
+	if (rt && rt->pkg_private)
 		storage = StStatic;
-	if (find_field(rt, name, NULL))
-		error_at(c, sp, "method name %s conflicts with field on %s", name, recv_tag);
-	old = symbol_find_method(c, recv_tag, name, t);
+	if (rt && find_field(rt, name, NULL)) {
+		if (recv_tag && recv_tag[0])
+			error_at(c, sp, "method name %s conflicts with field on %s", name, recv_tag);
+		else
+			error_at(c, sp, "method name %s conflicts with field on T[..]", name);
+	}
+	old = symbol_find_method(c, recv, recv_tag, name, t);
 	if (old && t && old->type && type_eq(old->type, t)) {
 		old->type = t;
 		if (storage == StNone && old->storage == StExtern)
 			old->storage = StNone;
 		return old;
 	}
-	/* Linker name uses the receiver type's origin package (not the defining file). */
 	pkg[0] = 0;
-	if (rt->pkg_root && rt->pkg_root[0])
+	/* Named types: origin package of T. Ranged: defining package. */
+	if (!ranged && rt && rt->pkg_root && rt->pkg_root[0])
 		pkg_mangle_from_root(rt->pkg_root, pkg, sizeof(pkg));
 	if (pkg[0] == 0)
 		pkg_mangle_from_file(c->paths.infile ? c->paths.infile : sp.file, pkg, sizeof(pkg));
 	if (pkg[0] == 0)
 		snprintf(pkg, sizeof(pkg), "main");
-	mangle_method(pkg, recv_tag, name, t, buf, sizeof(buf));
+	mangle_method(pkg, recv, recv_tag, name, t, buf, sizeof(buf));
 	if (linkname_taken(c, buf))
 		error_at(c, sp, "linker name collision for method %s", name);
 	s = xmalloc(sizeof(*s));
@@ -777,7 +856,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 	s->span = sp;
 	s->is_method = 1;
 	s->recv_type = recv;
-	s->recv_tag = xstrdup(recv_tag);
+	s->recv_tag = recv_tag && recv_tag[0] ? xstrdup(recv_tag) : NULL;
 	s->linkname = xstrdup(buf);
 	s->shadow = symbol_lookup(c, name);
 	symbol_set_home(c, s, sp);
@@ -800,16 +879,31 @@ int symbol_has_overload(Compiler* c, const char* name) {
 // Rank how well an argument matches a ranged parameter (exact > array/string).
 static int
 overload_ranged_score(Type* param, Type* argty, Node* expr) {
-	if (param == NULL || argty == NULL)
+	if (param == NULL)
 		return 0;
+	if (argty == NULL) {
+		if (is_ranged(param) && expr && expr->kind == NdStr && param->base &&
+		    (param->base->kind == TyChar || param->base->kind == TyUChar)) {
+			if (!param->is_readonly && !param->is_poly)
+				return 0;
+			return 1;
+		}
+		return 0;
+	}
 	if (is_ranged(param) && is_ranged(argty) && param->base && argty->base &&
 	    type_eq(param->base, argty->base)) {
+		/* const? accepts const or mutable; plain const rejects mutable→const only the other way */
+		if (param->is_poly)
+			return 2;
 		if (argty->is_readonly && !param->is_readonly)
 			return 0;
 		return 2;
 	}
-	if (is_ranged(param) && is_array(argty) && argty->len >= 0 && param->base && type_eq(param->base, argty->base))
+	if (is_ranged(param) && is_array(argty) && argty->len >= 0 && param->base && type_eq(param->base, argty->base)) {
+		if (argty->is_readonly && !param->is_readonly && !param->is_poly)
+			return 0;
 		return 1;
+	}
 	if (is_ranged(param) && expr && expr->kind == NdStr && param->base && (param->base->kind == TyChar || param->base->kind == TyUChar)) {
 		if (!param->is_readonly && !param->is_poly)
 			return 0;

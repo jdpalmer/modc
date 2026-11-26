@@ -17,23 +17,23 @@ int test_abs_dir_base() {
 		return 2;
 	}
 	const char[..] p = "a/b";
-	if (!str_is_empty(path_dir("a")) || !str_eq(path_base(p), "b") || !str_eq(path_dir(p), "a")) {
+	if (!path_dir("a").is_empty() || !path_base(p).eq("b") || !path_dir(p).eq("a")) {
 		return 3;
 	}
 	p = "/a/b";
-	if (!str_eq(path_dir(p), "/a") || !str_eq(path_base(p), "b")) {
+	if (!path_dir(p).eq("/a") || !path_base(p).eq("b")) {
 		return 4;
 	}
 	p = "a/b/";
-	if (!str_eq(path_base(p), "b") || !str_eq(path_dir(p), "a")) {
+	if (!path_base(p).eq("b") || !path_dir(p).eq("a")) {
 		return 5;
 	}
 	p = "/";
-	if (!str_eq(path_dir(p), "/") || !str_eq(path_base(p), "/")) {
+	if (!path_dir(p).eq("/") || !path_base(p).eq("/")) {
 		return 6;
 	}
 	p = "///";
-	if (!str_eq(path_base(p), "/") || !str_eq(path_dir(p), "/")) {
+	if (!path_base(p).eq("/") || !path_dir(p).eq("/")) {
 		return 7;
 	}
 	return 0;

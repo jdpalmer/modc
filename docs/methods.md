@@ -37,9 +37,15 @@ w.show();
 w.set_title("Tasks");
 ```
 
-Method declarations follow the form `ret (T *receiver).name(params)`. Receivers must be pointers to a struct or union. A method may be defined in any package that can see `T` (including outside `T`'s origin package); the linker name still uses `T`'s origin package (see below). Multiple methods may share `(T, name)` when their parameter lists differ; call-site resolution matches free-function overloads (arity and types, never return type alone). Exact duplicates of `(T, name, params)` are rejected. Methods cannot be nested inside functions or marked with the `overload` keyword (receiver methods are always overloadable by signature). Method names exist in a per-type namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a struct field, the compiler rejects the method at define time. Visibility follows ordinary package rules: import the defining package to use the method.
+Method declarations follow the form `ret (receiver).name(params)`. Receivers may be:
 
-When calling `expr.name()`, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. Calling a method on a null `T *` is a caller error (see below). Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
+- a pointer to a named struct or union: `(Window *w).show()`
+- a ranged header by value: `(const char[..] s).eq(const char[..] other)`
+- a pointer to a ranged header: `(char[..]* s).…` for mutators that need to rebind the header
+
+A method may be defined in any package that can see the receiver type (including outside a named `T`'s origin package); for named structs the linker name still uses `T`'s origin package, while `T[..]` methods use the defining package. Multiple methods may share the same receiver shape and name when their parameter lists differ; call-site resolution matches free-function overloads (arity and types, never return type alone). Exact duplicates are rejected. Methods cannot be nested inside functions or marked with the `overload` keyword (receiver methods are always overloadable by signature). Method names exist in a per-receiver-shape namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a field (including synthetic `ptr` / `len` / `cap` on `T[..]`), the compiler rejects the method at define time. Visibility follows ordinary package rules: import the defining package to use the method.
+
+When calling `expr.name()` on a named aggregate, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. By-value `T[..]` methods take the header as a value (literals and temporaries are fine). Calling a method on a null `T *` / `T[..]*` is a caller error (see below). Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
 
 ### Receivers are live, non-null handles
 
@@ -76,14 +82,17 @@ void (File *f).close() {
 
 ## Linker Symbol Mangling
 
-Methods generate linker symbols using the `package_type_method__params` pattern, where **package** is the receiver type’s origin package (not necessarily the file that defines the method). Package paths convert slashes to underscores (`ui/draw` becomes `ui_draw`), struct tags convert to lowercase (`Window` becomes `window`), and method names remain unchanged. The `__params` suffix always encodes the post-receiver parameter types (same encoding as free `overload` mangling); a zero-arity method uses `__v`. The receiver type is already in the prefix, so it is not repeated in the suffix. The table below assumes type `Window` originates in package `ui`:
+Named-struct methods use `package_type_method__params`, where **package** is the receiver type’s origin package. Package paths convert slashes to underscores (`ui/draw` → `ui_draw`), struct tags convert to lowercase (`Window` → `window`), and method names remain unchanged. The `__params` suffix encodes post-receiver parameter types (same encoding as free `overload` mangling); a zero-arity method uses `__v`.
+
+`T[..]` / `T[..]*` methods use the **defining** package and a structural receiver encoding (`R` / `RK` / `RY`, with a leading `p` for pointer receivers), for example `str_RKc_eq__RKc` for `(const char[..] a).eq(const char[..] b)` in package `str`.
 
 | **Source Method Declaration**        | **Generated Linker Symbol**   |
 | ------------------------------------ | ----------------------------- |
-| `void (Window *w).show()`            | `ui_window_show__v`           |
+| `void (Window *w).show()` (pkg `ui`) | `ui_window_show__v`           |
 | `void (Window *w).set_title(char *)` | `ui_window_set_title__pc`     |
 | `void (Window *w).set_title(int)`    | `ui_window_set_title__i`      |
+| `bool (const char[..] a).eq(…)` (`str`) | `str_RKc_eq__RKc`          |
 
-As a design convention, use methods for operations on existing object handles and plain free functions for constructors or package initialization entry points (`window_open()`, `ui_init()`).
+As a design convention, use methods for operations on existing object handles and plain free functions for constructors or package initialization entry points (`window_open()`, `ui_init()`, `str_dup()`).
 
 Event callbacks remain plain C functions like `void on_click(Button *self)`. Advanced features such as method values, ADL, and operator overloading are not supported.

@@ -23,25 +23,25 @@ int test_find() {
 	const char[..] hay = "hello world";
 	const char[..] needle = "world";
 	{
-		auto (ok, hit) = str_find(hay, needle);
-		if (!ok || !str_eq(hit, needle)) {
+		auto (ok, hit) = hay.find(needle);
+		if (!ok || !hit.eq(needle)) {
 			return 1;
 		}
 	}
 	{
-		auto (ok, hit) = str_ifind(hay, "LO");
-		if (!ok || !str_eq(hit, "lo")) {
+		auto (ok, hit) = hay.ifind("LO");
+		if (!ok || !hit.eq("lo")) {
 			return 2;
 		}
 	}
 	{
-		auto (ok, hit) = str_rfind(hay, "l");
-		if (!ok || !str_eq(hit, "l")) {
+		auto (ok, hit) = hay.rfind("l");
+		if (!ok || !hit.eq("l")) {
 			return 3;
 		}
 	}
 	{
-		auto (ok, miss) = str_find(hay, "xyz");
+		auto (ok, miss) = hay.find("xyz");
 		(void)miss;
 		if (ok) {
 			return 4;
@@ -59,8 +59,8 @@ int test_chomp() {
 	raw[4] = '\n';
 	raw[5] = 0;
 	const char[..] s = ranged(raw, 5);
-	const char[..] tok = str_chomp(s);
-	if (!str_eq(tok, "line")) {
+	const char[..] tok = s.chomp();
+	if (!tok.eq("line")) {
 		return 1;
 	}
 	return 0;
@@ -71,18 +71,18 @@ int test_sep_trim() {
 	int n = { 0 };
 	cstr_write(line, "  foo, bar , baz  ");
 	const char[..] rest = str_from_cstr(line);
-	auto (tok, rest1) = str_split_once(rest, " ");
+	auto (tok, rest1) = rest.split_once(" ");
 	rest = rest1;
-	while (str_is_empty(tok) && !str_is_empty(rest)) {
-		auto (t, r) = str_split_once(rest, " ");
+	while (tok.is_empty() && !rest.is_empty()) {
+		auto (t, r) = rest.split_once(" ");
 		tok = t;
 		rest = r;
 	}
-	if (!str_eq(tok, "foo,")) {
+	if (!tok.eq("foo,")) {
 		return 1;
 	}
-	tok = str_trim("  hi  ");
-	if (!str_eq(tok, "hi")) {
+	tok = "  hi  ".trim();
+	if (!tok.eq("hi")) {
 		return 2;
 	}
 	if (test_chomp() != 0) {
@@ -90,18 +90,18 @@ int test_sep_trim() {
 	}
 	cstr_write(line, "a=b=c");
 	rest = str_from_cstr(line);
-	while (!str_is_empty(rest)) {
-		auto (t, r) = str_split_once(rest, "=");
+	while (!rest.is_empty()) {
+		auto (t, r) = rest.split_once("=");
 		tok = t;
 		rest = r;
 		n = n + 1;
-		if (n == 1 && !str_eq(tok, "a")) {
+		if (n == 1 && !tok.eq("a")) {
 			return 4;
 		}
-		if (n == 2 && !str_eq(tok, "b")) {
+		if (n == 2 && !tok.eq("b")) {
 			return 5;
 		}
-		if (n == 3 && !str_eq(tok, "c")) {
+		if (n == 3 && !tok.eq("c")) {
 			return 6;
 		}
 	}
@@ -113,16 +113,16 @@ int test_sep_trim() {
 
 int test_cmp_prefix() {
 	const char[..] s = "Hello";
-	if (!str_starts_with(s, "He")) {
+	if (!s.starts_with("He")) {
 		return 1;
 	}
-	if (!str_ends_with(s, "lo")) {
+	if (!s.ends_with("lo")) {
 		return 2;
 	}
-	if (str_cmp(s, "Hello") != 0) {
+	if (s.cmp("Hello") != 0) {
 		return 3;
 	}
-	if (str_icmp(s, "hello") != 0) {
+	if (s.icmp("hello") != 0) {
 		return 4;
 	}
 	return 0;
@@ -130,19 +130,19 @@ int test_cmp_prefix() {
 
 int test_parse() {
 	{
-		auto (ok, v) = str_to_long("12345", 10);
+		auto (ok, v) = "12345".to_long(10);
 		if (!ok || v != 12345) {
 			return 1;
 		}
 	}
 	{
-		auto (ok, v) = str_to_long("-99", 10);
+		auto (ok, v) = "-99".to_long(10);
 		if (!ok || v != -99) {
 			return 2;
 		}
 	}
 	{
-		auto (ok, badv) = str_to_long("gg", 10);
+		auto (ok, badv) = "gg".to_long(10);
 		(void)badv;
 		if (ok) {
 			return 3;
@@ -158,7 +158,7 @@ int test_subview() {
 	data[2] = '!';
 	char[..] chunk = ranged(data, 3);
 	char[..] word = chunk[0 .. 2];
-	if (!str_eq(word, "hi")) {
+	if (!word.eq("hi")) {
 		return 1;
 	}
 	return 0;
@@ -175,7 +175,7 @@ int test_heap() {
 		str_free(&s);
 		return 2;
 	}
-	if (!str_eq(s, "abcd") || cap(s) < 4) {
+	if (!s.eq("abcd") || cap(s) < 4) {
 		str_free(&s);
 		return 3;
 	}
@@ -183,7 +183,7 @@ int test_heap() {
 		str_free(&s);
 		return 4;
 	}
-	if (!str_eq(s, "abcd!")) {
+	if (!s.eq("abcd!")) {
 		str_free(&s);
 		return 5;
 	}
@@ -191,7 +191,7 @@ int test_heap() {
 		str_free(&s);
 		return 6;
 	}
-	if (!str_eq(s, "x") || !str_reserve(&s, 32) || cap(s) < 32) {
+	if (!s.eq("x") || !str_reserve(&s, 32) || cap(s) < 32) {
 		str_free(&s);
 		return 7;
 	}
@@ -214,7 +214,7 @@ int test_heap() {
 		}
 		str_free(&n);
 	}
-	if (!str_set(&t, "hi") || !str_set(&t, t[1 .. 2]) || !str_eq(t, "i")) {
+	if (!str_set(&t, "hi") || !str_set(&t, t[1 .. 2]) || !t.eq("i")) {
 		str_free(&t);
 		return 11;
 	}

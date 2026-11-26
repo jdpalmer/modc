@@ -166,14 +166,14 @@ pool p {
     xs[0] = *n;
     p.copy(&chunk, "part");
     p.append(&out, chunk);
-    str_eq(out, "part");
+    out.eq("part");
 }
 ```
 
 Mutator operations on pools are methods on `Pool` / `Pool*`; heap growth stays
 free builtins. See `test/pool_pkg_test.mc` for examples.
 
-For routine string operations, use `char[..]` alongside `str_*` helpers for reading, comparison, slicing, and searching. String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `str_eq(a, "x")`, `str_starts_with(s, "pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Heap-owned fields use `str_dup` / `append` / `release` (or the `str_*` wrappers). Region builds use `pool p { … }` (`p.copy`, `p.append`, `p.join`, `p.replace`). Export to C with `cstr_write(buf, s)`, `cstr(s)`, or `p.cstr(s)`. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
+For routine string operations, use `char[..]` reader methods (`s.eq`, `s.starts_with`, `s.find`, …). String literals belong on `const char[..]` (or `const?` passthrough parameters): pass `"..."` into APIs that take `const` / `const?` `char[..]` (for example `a.eq("x")`, `s.starts_with("pre")`). You do not need `str_from_cstr` for literals; that helper and other `*_cstr` entry points are for foreign NUL-terminated `char *` values. Heap-owned fields use `str_dup` / `append` / `release` (or the `str_*` mutator wrappers). Region builds use `pool p { … }` (`p.copy`, `p.append`, `p.join`, `p.replace`). Export to C with `cstr_write(buf, s)`, `cstr(s)`, or `p.cstr(s)`. See [quickstart.md](quickstart.md), [arrays.md](arrays.md), and [const.md](const.md).
 
 ## How imports resolve
 

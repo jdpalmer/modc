@@ -2683,6 +2683,7 @@ lower_method_call(Compiler* c, Node* n) {
 	Node *recv, *nm, *call, **args;
 	Symbol* sym;
 	int i, nargs;
+	int byval_ranged;
 
 	if (n == NULL || n->a == NULL || n->a->kind != NdMethod)
 		return n;
@@ -2695,7 +2696,23 @@ lower_method_call(Compiler* c, Node* n) {
 				n->children[i] = type_expr(c, n->children[i]);
 		return type_poison(c, n);
 	}
-	if (!is_ptr(recv->type)) {
+	byval_ranged = is_ranged(recv->type);
+	/* String literals / fixed arrays → const T[..] for by-value ranged methods. */
+	if (!byval_ranged && !is_ptr(recv->type)) {
+		Type* want = NULL;
+
+		if (recv->kind == NdStr)
+			want = type_ranged_full(c, c->types.type_char, 1, 0);
+		else if (is_array(recv->type) && recv->type->base &&
+			 (recv->type->base->kind == TyChar || recv->type->base->kind == TyUChar ||
+			  is_aggr(recv->type->base) || is_arith(recv->type->base)))
+			want = type_ranged_full(c, recv->type->base, !!recv->type->is_readonly, 0);
+		if (want) {
+			recv = maybe_ranged_conv(c, want, recv);
+			byval_ranged = recv && is_ranged(recv->type);
+		}
+	}
+	if (!byval_ranged && !is_ptr(recv->type)) {
 		if (!recv->is_lvalue)
 			error_at(c, n->span, "method call requires an lvalue receiver");
 		recv = node1(NdAddr, n->span, recv);
@@ -2715,7 +2732,8 @@ lower_method_call(Compiler* c, Node* n) {
 	free(args);
 	if (sym == NULL)
 		return n;
-	if (sym->recv_type)
+	if (sym->recv_type && is_ptr(sym->recv_type) &&
+	    sym->recv_type->base && !is_ranged(sym->recv_type->base))
 		recv = maybe_embed_upcast(c, sym->recv_type, recv);
 	nm = node(NdName, n->span);
 	nm->s = sym->name;

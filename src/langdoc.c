@@ -129,16 +129,16 @@ static const LangTopic topics[] = {
 	{
 		"methods",
 		"receiver methods and overload",
-		"methods — (T *r).name(…) receivers\n"
+		"methods — (T *r).name(…) / (T[..] s).name(…) receivers\n"
 		"\n"
 		"Rules:\n"
-		"  • receivers are explicit pointers: void (T *r).name(…)\n"
-		"  • call with dot syntax: r.name() (auto-deref; no ->)\n"
-		"  • method names must not collide with fields on T (define-time error)\n"
-		"  • in the method body: no null tests on r, and no rebinding r (mutate through it)\n"
-		"  • callers must pass a live T*; entry inserts a null trap (--release omits)\n"
+		"  • receivers: named struct/union T*, or T[..] / T[..]* (by value or pointer)\n"
+		"  • call with dot syntax: r.name() (auto-addr for T / T[..]* methods; no ->)\n"
+		"  • method names must not collide with fields (incl. T[..] ptr/len/cap)\n"
+		"  • in the method body: no null tests on pointer r, and no rebinding r\n"
+		"  • live T* / T[..]*: entry inserts a null trap (--release omits); T[..] by value has none\n"
 		"  • methods may be defined outside T's origin package (import the defining package)\n"
-		"  • same (T, name) may overload on params; no overload keyword (always-suffixed link names)\n"
+		"  • same receiver shape+name may overload on params; no overload keyword\n"
 		"  • free functions still need overload; methods resolve like free overloads + embeds\n"
 		"\n"
 		"See also: auto, import, const\n"

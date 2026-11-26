@@ -853,7 +853,7 @@ Symbol* symbol_lookup_tag(Compiler* c, const char* name);
 Symbol* symbol_define(Compiler* c, const char* name, int kind, Type* t, int storage, Span sp);
 Symbol* symbol_define_func(Compiler* c, const char* name, Type* t, int storage, Span sp, int isoverload);
 Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const char* recv_tag, Type* t, int storage, Span sp);
-Symbol* symbol_find_method(Compiler* c, const char* recv_tag, const char* name, Type* t);
+Symbol* symbol_find_method(Compiler* c, Type* recv, const char* recv_tag, const char* name, Type* t);
 Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* method, Node** args, int args_len, Span sp);
 int symbol_has_overload(Compiler* c, const char* name);
 Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int args_len, Span sp);

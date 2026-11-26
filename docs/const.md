@@ -13,7 +13,7 @@ read-only views are diagnosed.
 
 ```c
 int len(const char *s);
-bool str_eq(const char[..] a, const char[..] b);
+bool (const char[..] a).eq(const char[..] b);
 
 const char *p = "hi";
 const char[..] v = "ab";
@@ -48,8 +48,8 @@ For APIs that return a view into an argument (find, trim, path_dir, …), spell
 `const?` so constness follows the call site:
 
 ```c
-const? char[..] str_trim(const? char[..] s);
-(bool, const? char[..]) str_find(const? char[..] hay, const char[..] needle);
+const? char[..] const? char[..] s.trim();
+(bool, const? char[..]) const? char[..] hay.find(const char[..] needle);
 ```
 
 - At the call site, a const argument yields a const result; a mutable argument

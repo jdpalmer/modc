@@ -19,7 +19,7 @@ int test_env() {
 	}
 	{
 		auto (ok, v) = os_env(key);
-		if (!ok || !str_eq(v, "modc-os")) {
+		if (!ok || !v.eq("modc-os")) {
 			os_set_env(key, "");
 			return 3;
 		}
@@ -218,7 +218,7 @@ int test_cmd_echo() {
 	}
 	{
 		auto (n, ok) = poll_out.read(buf);
-		if (!ok || n < 10 || !str_starts_with(ranged(buf, n), "hello-modc")) {
+		if (!ok || n < 10 || !ranged(buf, n).starts_with("hello-modc")) {
 			poll_out.close();
 			poll_cmd.close();
 			p.close();
