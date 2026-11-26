@@ -143,6 +143,8 @@ cleanups, abort). Pass `--release` to omit them (production):
   is not representable (`__modc_shift_fail`); constant cases are compile-time
   errors. Shift counts are still masked to the type width; `--release` omits
   the traps
+- signed `>>` / `>>=` — **arithmetic** (sign-preserving), not trapped; unsigned
+  `>>` is logical. Float→int casts and related gaps: [safety.md](safety.md)
 
 In `.mc` sources, indexing a raw `T*` (or open `T[]`) is a compile-time error;
 use `T[N]`, `T[..]`, or `ranged(p, n)` first. Forming `*(p + i)` / `*(i + p)`

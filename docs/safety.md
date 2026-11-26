@@ -55,6 +55,10 @@ Unsigned arithmetic wraps without traps in both modes. Floating-point `/`
 follows IEEE and is not trapped. Shift **counts** are still masked to the type
 width in both modes.
 
+**Defined shifts (not traps):** signed `>>` / `>>=` are **arithmetic** (sign-
+preserving; QBE `sar`). Unsigned `>>` / `>>=` are logical. That is a language
+rule, not target luck — unlike C’s implementation-defined signed right shift.
+
 ## Limitations
 
 %C does not make C memory-safe end-to-end. In particular:
@@ -64,11 +68,27 @@ width in both modes.
   contract world. See [memory.md](memory.md#the-foreign-c-boundary) and
   [interop.md](interop.md).
 - **Raw `T*`** — after `ptr()`, casts, or open `T[]` from headers, indexing and
-  arithmetic are unchecked (headers and C still allow `p[i]`).
+  `*(p + i)` are rejected in `.mc`, but `p - q`, relational compares (`p < q`),
+  and one-past-the-end arithmetic remain ordinary C undefined behavior when
+  the pointers are unrelated or out of range. Headers still allow `p[i]`.
+- **Ownership is not full alias analysis** — escapes/`[[releases]]`/`defer`
+  track locals, params, and some straight-line aliases; they do not prove
+  arbitrary heap aliasing (`T *q = p; free(p); *q`) or every pointer stashed
+  in a struct field. See [memory.md](memory.md) and [quickstart.md](quickstart.md).
 - **Function pointers** — calls through function pointers do not track
   `[[provides]]` / `[[releases]]` / `[[retains]]` / escapes. Ownership attrs on
   the pointee type are informational only at an indirect call; prefer a direct
   call when the checker must see the contract.
+- **Float → integer casts** — `(int)x` / `(uint64_t)x` when `x` is NaN, ±Inf,
+  or outside the destination range is **not trapped**. Behavior is
+  target/QBE-defined (architectures disagree); do not assume a portable
+  sentinel or saturation. Floating `/` stays IEEE and untrapped.
+- **No C TBAA** — `%C` does not perform C-style type-based alias analysis.
+  Pointer-cast type punning and reading an inactive member of an *allowed*
+  user union are raw memory reinterpretation at the QBE level (still subject
+  to alignment and lifetime). User `.mc` still bans pointer/non-pointer and
+  aggregate overlay unions ([struct.md](struct.md)); headers may use FFI
+  overlays.
 - **`--release`** — traps are gone; signed overflow wraps; some size/`copy`
   paths soft-fail instead of aborting. Production builds are closer to ordinary
   C performance and closer to ordinary C footguns.

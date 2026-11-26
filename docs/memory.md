@@ -526,7 +526,11 @@ the checker trusts the declarations and does not look inside the callee:
   name-based fallbacks.
 - **`putenv` / `_putenv`** are `[[retains]]` in the hermetic headers — an owned
   argument is discharged at the call (stack addresses are still rejected).
-- **Raw `T*`** after `ptr()` or casts leaves the checked world.
+- **Raw `T*`** after `ptr()` or casts leaves the checked world (`p[i]` /
+  `*(p + i)` banned in `.mc`; `p - q` / `p < q` and one-past-end arithmetic
+  stay C UB — see [safety.md](safety.md)).
+- **Ownership tracking is local** — not a full heap alias analyzer; see
+  [safety.md](safety.md).
 - **Calls through function pointers** do not track retain, release, or
   escapes. Ownership attributes on a function-pointer type are not applied at
   an indirect call; use a direct call when the checker must enforce the
