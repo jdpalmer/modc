@@ -617,8 +617,8 @@ int test_temp() {
 			auto (d, ok) = fs_mkdir_temp(&p, "", "modc-*-tmp");
 			if (!ok || len(d) == 0) {
 				rc = 4;
-			} else if (!path_base(d).starts_with("modc-") ||
-				   !path_base(d).ends_with("-tmp")) {
+			} else if (!d.base().starts_with("modc-") ||
+				   !d.base().ends_with("-tmp")) {
 				fs_remove(d);
 				rc = 5;
 			} else if (!fs_remove(d)) {

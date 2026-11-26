@@ -10,30 +10,30 @@ int expect_z(char[..] dst, const char *want) {
 }
 
 int test_abs_dir_base() {
-	if (path_is_abs("a") || path_is_abs("") || path_is_abs("C:/foo")) {
+	if ("a".is_abs() || "".is_abs() || "C:/foo".is_abs()) {
 		return 1;
 	}
-	if (!path_is_abs("/a") || !path_is_abs("/")) {
+	if (!"/a".is_abs() || !"/".is_abs()) {
 		return 2;
 	}
 	const char[..] p = "a/b";
-	if (!path_dir("a").is_empty() || !path_base(p).eq("b") || !path_dir(p).eq("a")) {
+	if (!"a".dir().is_empty() || !p.base().eq("b") || !p.dir().eq("a")) {
 		return 3;
 	}
 	p = "/a/b";
-	if (!path_dir(p).eq("/a") || !path_base(p).eq("b")) {
+	if (!p.dir().eq("/a") || !p.base().eq("b")) {
 		return 4;
 	}
 	p = "a/b/";
-	if (!path_base(p).eq("b") || !path_dir(p).eq("a")) {
+	if (!p.base().eq("b") || !p.dir().eq("a")) {
 		return 5;
 	}
 	p = "/";
-	if (!path_dir(p).eq("/") || !path_base(p).eq("/")) {
+	if (!p.dir().eq("/") || !p.base().eq("/")) {
 		return 6;
 	}
 	p = "///";
-	if (!path_base(p).eq("/") || !path_dir(p).eq("/")) {
+	if (!p.base().eq("/") || !p.dir().eq("/")) {
 		return 7;
 	}
 	return 0;
@@ -206,7 +206,7 @@ int test_sys() {
 	}
 	{
 		auto (view, ok) = path_from_sys(buf, "C:\\foo\\bar");
-		if (!ok || !expect_z(view, "/C:/foo/bar") || !path_is_abs(view)) {
+		if (!ok || !expect_z(view, "/C:/foo/bar") || !view.is_abs()) {
 			return 3;
 		}
 	}

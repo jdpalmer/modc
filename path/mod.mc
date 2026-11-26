@@ -3,7 +3,7 @@
 // Paths use '/' only. path_join / path_clean mint into a caller [[region]] Pool.
 // path_to_sys / path_from_sys convert separators (and a leading drive letter) on
 // Win32 (identity elsewhere) into a caller buffer — host-bridge writers.
-// Slice helpers return views into the input. T[..] is opaque: use len/cap/ranged.
+// Readers: p.is_abs() / p.dir() / p.base() (views into the input).
 //
 // Buffer writers: on failure, if cap(dst) > 0 the first byte is set to NUL and
 // no partial path is written. Success returns ranged(dst, n, cap(dst)) with a
@@ -46,12 +46,12 @@ static(char[..], bool) path_put(char[..] dst, const char *src, size_t n) {
 }
 
 // True when p starts with '/'. Drive letters are not absolute here.
-bool path_is_abs(const char[..] p) {
+bool (const char[..] p).is_abs() {
 	return len(p) > 0 && path_slash(p[0]);
 }
 
 // Directory of p as a view. "" if none; "/" if p is root.
-const? char[..] path_dir(const? char[..] p) {
+const? char[..] (const? char[..] p).dir() {
 	size_t n = len(p);
 	if (n == 0) {
 		return path_empty();
@@ -77,7 +77,7 @@ const? char[..] path_dir(const? char[..] p) {
 }
 
 // Final component as a view. Trailing slashes ignored. "/" for root.
-const? char[..] path_base(const? char[..] p) {
+const? char[..] (const? char[..] p).base() {
 	size_t n = len(p);
 	if (n == 0) {
 		return path_empty();
@@ -134,7 +134,7 @@ static(char[..], bool) path_mint([[region]] Pool* p, const char* src, size_t n) 
 	size_t n = 0;
 	int aroot = 0;
 	size_t an = path_trim_tail(a, len(a), &aroot);
-	int babs = path_is_abs(b) ? 1: 0;
+	int babs = b.is_abs() ? 1: 0;
 	size_t bi = 0;
 	while (bi < len(b) && path_slash(b[bi])) {
 		bi++;
@@ -176,7 +176,7 @@ static(char[..], bool) path_mint([[region]] Pool* p, const char* src, size_t n) 
 	char tmp[PathMax] = { 0 };
 	size_t n = 0;
 	size_t i = 0;
-	int abs = path_is_abs(path) ? 1: 0;
+	int abs = path.is_abs() ? 1: 0;
 	if (abs) {
 		tmp[n++] = '/';
 	}

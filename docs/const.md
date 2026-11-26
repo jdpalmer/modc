@@ -44,7 +44,7 @@ type system only blocks the accidental mutable binding.
 
 ## `const?` (passthrough)
 
-For APIs that return a view into an argument (find, trim, path_dir, …), spell
+For APIs that return a view into an argument (find, trim, `p.dir()`, …), spell
 `const?` so constness follows the call site:
 
 ```c

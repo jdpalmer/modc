@@ -22,8 +22,9 @@ import "tty";
 
 Logical paths always use `/`. `path_join` / `path_clean` mint into a caller
 `[[region]] Pool`. Host-bridge writers (`path_to_sys` / `path_from_sys`) fill a
-caller buffer (`cap(dst)` is room) and return a view into that buffer. Slice
-helpers return views into the input and do not allocate. `T[..]` is opaque: use
+caller buffer (`cap(dst)` is room) and return a view into that buffer. Path
+readers are methods on `char[..]` (`p.is_abs()`, `p.dir()`, `p.base()`) and
+return views into the input without allocating. `T[..]` is opaque: use
 `len` / `cap` / `ptr`.
 
 Buffer writers: on failure, if `cap(dst) > 0` the first byte is set to NUL and
@@ -31,13 +32,13 @@ no partial path is written. `cap(dst) == 0` is left unchanged. A successful
 write stores the path bytes and, when one extra byte remains, a trailing NUL.
 Pass `char[N]` or `ranged(p, 0, n)` for writable space.
 
-- `bool path_is_abs(const char[..] p)` — true if `p` starts with `/`. Drive letters are not absolute until `path_from_sys`.
-- `const? char[..] path_dir(const? char[..] p)` — view; `""` if none; `"/"` if root.
-- `const? char[..] path_base(const? char[..] p)` — view; trailing slashes ignored; `"/"` for root.
+- `bool (const char[..] p).is_abs()` — true if `p` starts with `/`. Drive letters are not absolute until `path_from_sys`.
+- `const? char[..] (const? char[..] p).dir()` — view; `""` if none; `"/"` if root.
+- `const? char[..] (const? char[..] p).base()` — view; trailing slashes ignored; `"/"` for root.
 - `(char[..], bool) path_join([[region]] Pool *p, const char[..] a, const char[..] b)` — mint `a/b` into `p`, collapsing slashes at the boundary. An absolute `b` does not replace `a`; leading slashes on `b` are dropped. If `a` is empty and `b` started with `/`, the result stays absolute.
 - `(char[..], bool) path_clean([[region]] Pool *p, const char[..] path)` — mint a cleaned path into `p` (`//`, `.`, and `..` collapsed). `..` does not climb above root or the start of a relative path.
 - `(char[..], bool) path_to_sys(char[..] dst, const char[..] p)` — host form. Identity except on Win32, where `/` becomes `\` and a logical drive `/C:/…` becomes `C:\…`.
-- `(char[..], bool) path_from_sys(char[..] dst, const char[..] sys)` — logical form. Identity except on Win32, where `\` becomes `/` and a host drive `C:\…` becomes `/C:/…` (so `path_is_abs` is true).
+- `(char[..], bool) path_from_sys(char[..] dst, const char[..] sys)` — logical form. Identity except on Win32, where `\` becomes `/` and a host drive `C:\…` becomes `/C:/…` (so `p.is_abs()` is true).
 
 No `stat`, `open`, or host separators in this package.
 
