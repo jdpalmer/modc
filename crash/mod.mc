@@ -262,6 +262,26 @@ void __modc_null_fail(const char* file, int line) {
 	crash_die();
 }
 
+void __modc_div_fail(const char* file, int line) {
+	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "division by zero or overflow\n");
+		crash_reporting = 1;
+		crash_run_cleanups();
+		if (file != NULL && *file != 0 && line > 0) {
+			n = snprintf(buf, CrashMsgCap, "%s:%d: division by zero or overflow\n",
+				     file, line);
+		}
+		if (n > 0) {
+			if (n >= CrashMsgCap) {
+				n = CrashMsgCap - 1;
+			}
+			crash_write(buf, n);
+		}
+	}
+	crash_die();
+}
+
 void __modc_assert_fail(const char* file, int line, const char* expr) {
 	if (crash_reporting == 0) {
 		char buf[CrashMsgCap] = { 0 };

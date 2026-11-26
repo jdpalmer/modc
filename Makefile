@@ -115,6 +115,8 @@ check: $(MODC)
 	$(call expect_abort,bounds_subrange_order_oob,bounds_subrange_order_oob.mc,bounds: index)
 	$(call expect_abort,null_recv_oob,null_recv_oob.mc,null method receiver)
 	$(call expect_abort,size_overflow_oob,size_overflow_oob.mc,size: count)
+	$(call expect_abort,div_zero_oob,div_zero_oob.mc,division by zero or overflow)
+	$(call expect_abort,div_min_neg1_oob,div_min_neg1_oob.mc,division by zero or overflow)
 	# --release omits traps (null recv should not print the checked message)
 	./modc build --release -o $(BUILD)/null_recv_release test/null_recv_oob.mc
 	@$(BUILD)/null_recv_release >$(BUILD)/null_recv_release.out 2>$(BUILD)/null_recv_release.err; test $$? -ne 0
@@ -123,6 +125,10 @@ check: $(MODC)
 	./modc build --release -o $(BUILD)/size_overflow_release test/size_overflow_oob.mc
 	@$(BUILD)/size_overflow_release >$(BUILD)/size_overflow_release.out 2>$(BUILD)/size_overflow_release.err; test $$? -eq 0
 	@! grep -q 'size: count' $(BUILD)/size_overflow_release.err
+	# --release omits div traps (may SIGFPE / wrap; must not print div message)
+	./modc build --release -o $(BUILD)/div_zero_release test/div_zero_oob.mc
+	@$(BUILD)/div_zero_release >$(BUILD)/div_zero_release.out 2>$(BUILD)/div_zero_release.err; \
+		! grep -q 'division by zero or overflow' $(BUILD)/div_zero_release.err
 	$(call expect_abort,crash_panic,crash_panic_die.mc,)
 	$(call expect_abort,crash_cleanup,crash_cleanup_die.mc,cleaned|after-cleanup)
 	$(call expect_abort,crash_signal,crash_signal_die.mc,cleaned|crash: SIGSEGV)

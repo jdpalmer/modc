@@ -1588,6 +1588,46 @@ check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count) {
 			 (int64_t)v, bits);
 }
 
+/* Signed minimum for ty (after promote); 0 if not a signed integer type. */
+static int
+signed_type_min(Compiler* c, Type* ty, int64_t* out) {
+	int bits;
+	Type* pt;
+
+	if (out == NULL || ty == NULL || !is_signed_int(ty))
+		return 0;
+	pt = promote(c, ty);
+	bits = type_size(c, pt) * 8;
+	if (bits <= 0 || bits > 64)
+		return 0;
+	*out = (bits == 64) ? INT64_MIN : -(int64_t)(UINT64_C(1) << (bits - 1));
+	return 1;
+}
+
+/*
+ * Constant /0 and signed MIN/-1 are errors (C undefined). Float /0 is IEEE
+ * and is not diagnosed here.
+ */
+static void
+check_div_op(Compiler* c, Span sp, Type* ty, Node* lhs, Node* rhs) {
+	int64_t a, b, min;
+
+	if (rhs == NULL || ty == NULL || !is_int(ty))
+		return;
+	if (!eval_const(c, rhs, &b))
+		return;
+	if (b == 0) {
+		error_at(c, sp, "division by zero");
+		return;
+	}
+	if (b != -1 || lhs == NULL || !is_signed_int(ty))
+		return;
+	if (!eval_const(c, lhs, &a))
+		return;
+	if (signed_type_min(c, ty, &min) && a == min)
+		error_at(c, sp, "signed division overflow");
+}
+
 // True when signed constant v is non-negative and fits in unsigned type uty.
 static int
 signed_const_fits_unsigned(Compiler* c, Type* uty, int64_t v) {
@@ -1949,11 +1989,23 @@ eval_rec(Compiler* c, Node* n, int64_t* out) {
 			*out = a * b;
 			return 1;
 		case PnSlash:
-			*out = b ? a / b : 0;
+		case PnPercent: {
+			int64_t min;
+
+			if (b == 0)
+				return 0;
+			if (b == -1) {
+				min = INT64_MIN;
+				if (n->type && is_signed_int(n->type))
+					(void)signed_type_min(c, n->type, &min);
+				else if (n->a && n->a->type && is_signed_int(n->a->type))
+					(void)signed_type_min(c, n->a->type, &min);
+				if (a == min)
+					return 0;
+			}
+			*out = (n->op == PnSlash) ? a / b : a % b;
 			return 1;
-		case PnPercent:
-			*out = b ? a % b : 0;
-			return 1;
+		}
 		case PnAmp:
 			*out = a & b;
 			return 1;
@@ -3195,10 +3247,14 @@ type_expr_bin(Compiler* c, Node* n) {
 	} else if (n->op == PnStar || n->op == PnSlash) {
 		valid = is_arith(lt) && is_arith(rt);
 		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_error;
+		if (enum_chk && valid && n->op == PnSlash)
+			check_div_op(c, n->span, n->type, n->a, n->b);
 	} else if (n->op == PnPercent || n->op == PnAmp ||
 		   n->op == PnPipe || n->op == PnCaret) {
 		valid = is_int(lt) && is_int(rt);
 		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_error;
+		if (enum_chk && valid && n->op == PnPercent)
+			check_div_op(c, n->span, n->type, n->a, n->b);
 	} else if (n->op == PnAmpAmp || n->op == PnPipePipe) {
 		valid = is_scalar(lt) && is_scalar(rt);
 		n->type = valid ? c->types.type_bool : c->types.type_error;
@@ -3268,10 +3324,11 @@ is_modifiable_lvalue(Node* n) {
 // Type-check compound and simple assignment with conversions and side checks.
 static Node*
 type_expr_assign(Compiler* c, Node* n) {
-	int enum_chk, shift_chk, void_arith_chk, ptr_arith, valid;
+	int enum_chk, shift_chk, div_chk, void_arith_chk, ptr_arith, valid;
 
 	enum_chk = n->type == NULL;
 	shift_chk = (n->op == PnShlEq || n->op == PnShrEq) && n->type == NULL;
+	div_chk = (n->op == PnSlashEq || n->op == PnPercentEq) && n->type == NULL;
 	void_arith_chk = (n->op == PnPlusEq || n->op == PnMinusEq) && n->type == NULL;
 	n->a = type_expr(c, n->a);
 	n->b = type_expr(c, n->b);
@@ -3319,6 +3376,8 @@ type_expr_assign(Compiler* c, Node* n) {
 		reject_void_ptr_arith(c, n->span, decay(c, n->a->type));
 	if (shift_chk)
 		check_shift_count(c, n->span, n->a ? n->a->type : NULL, n->b);
+	if (div_chk)
+		check_div_op(c, n->span, n->a ? n->a->type : NULL, n->a, n->b);
 	return n;
 }
 

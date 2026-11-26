@@ -126,6 +126,9 @@ package (message, cleanups, abort). Pass `--release` to omit them (production):
 - method entry — pointer receiver must be non-null (`__modc_null_fail`)
 - `alloc(T, n)` / `reserve` / `push` / `append` (and pool twins) — trap when
   `count * sizeof(T)` would wrap (`__modc_size_fail`)
+- integer `/` and `%` (and `/=` / `%=`) — trap on a zero divisor or signed
+  `MIN / -1` (`__modc_div_fail`); constant cases are a compile-time error.
+  Floating-point division is unchecked (IEEE)
 
 In `.mc` sources, indexing a raw `T*` (or open `T[]`) is a compile-time error;
 use `T[N]`, `T[..]`, or `ranged(p, n)` first. Forming `*(p + i)` / `*(i + p)`

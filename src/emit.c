@@ -993,6 +993,63 @@ emit_null_fail(Compiler* c, Span sp, int lok) {
 	emitlbl(lok);
 }
 
+// Call __modc_div_fail(file, line) then continue at lok.
+static void
+emit_div_fail(Compiler* c, Span sp, int lok) {
+	Val fp;
+
+	fp = emit_span_file_ptr(c, sp);
+	fprintf(outf, "\tcall $__modc_div_fail(l %s, w %d)\n",
+		fp.text, sp.line > 0 ? sp.line : 0);
+	emitjmp(lok);
+	emitlbl(lok);
+}
+
+/*
+ * Trap on integer /0 and signed MIN/-1 before div/rem.
+ * Omitted when !runtime_check (--release). Floats are unchecked (IEEE).
+ */
+static void
+emit_div_check(Compiler* c, Val l, Val r, Type* ty, Span sp) {
+	Val z, isneg1, ismin, both;
+	int lok, ltrap, lovf, bits;
+	int64_t min;
+	Type* pt;
+
+	if (!c->opt.runtime_check || ty == NULL || !is_int(ty))
+		return;
+	lok = newlbl();
+	ltrap = newlbl();
+	z = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w ceq%c %s, 0\n", z.text, r.cls, r.text);
+	/* Signed types (not char / unsigned): also trap MIN / -1. */
+	if (!ty->is_unsigned) {
+		pt = promote(c, ty);
+		bits = type_size(c, pt) * 8;
+		if (bits > 0 && bits <= 64) {
+			min = (bits == 64) ? INT64_MIN
+					  : -(int64_t)(UINT64_C(1) << (bits - 1));
+			lovf = newlbl();
+			emitjnz(z.text, ltrap, lovf);
+			emitlbl(lovf);
+			isneg1 = vtmp('w', NULL);
+			fprintf(outf, "\t%s =w ceq%c %s, -1\n", isneg1.text, r.cls, r.text);
+			ismin = vtmp('w', NULL);
+			fprintf(outf, "\t%s =w ceq%c %s, %" PRId64 "\n",
+				ismin.text, l.cls, l.text, min);
+			both = vtmp('w', NULL);
+			fprintf(outf, "\t%s =w and %s, %s\n", both.text, isneg1.text, ismin.text);
+			emitjnz(both.text, ltrap, lok);
+			emitlbl(ltrap);
+			emit_div_fail(c, sp, lok);
+			return;
+		}
+	}
+	emitjnz(z.text, ltrap, lok);
+	emitlbl(ltrap);
+	emit_div_fail(c, sp, lok);
+}
+
 /* Under runtime checks: trap if a method's pointer receiver is null. */
 static void
 emit_recv_null_check(Compiler* c, Node* fn) {
@@ -1579,6 +1636,8 @@ emitexpr_assign(Compiler* c, Node* n) {
 		}
 		if (n->op == PnShlEq || n->op == PnShrEq)
 			r = mask_shift_count(c, r, n->a->type);
+		if (n->op == PnSlashEq || n->op == PnPercentEq)
+			emit_div_check(c, l, r, n->a->type, n->span);
 		v = vtmp(l.cls, n->a->type);
 		fprintf(outf, "\t%s =%c %s %s, %s\n", v.text, l.cls, op, l.text, r.text);
 		if (v.cls != qbe_class(n->a->type))
@@ -2337,6 +2396,8 @@ emitexpr_bin(Compiler* c, Node* n) {
 		r = coerce(r, cls, n->type);
 	if (n->op == PnShl || n->op == PnShr)
 		r = mask_shift_count(c, r, n->type);
+	if (n->op == PnSlash || n->op == PnPercent)
+		emit_div_check(c, l, r, n->type, n->span);
 	op = qbe_arith_op(n->op, n->type && n->type->is_unsigned);
 	v = vtmp(cls, n->type);
 	fprintf(outf, "\t%s =%c %s %s, %s\n", v.text, cls, op, l.text, r.text);

@@ -271,7 +271,8 @@ void tty_reapply_editor_mode(File *f); /* Win32: restore VT/editor modes; POSIX:
 ## `crash`
 
 Process-fatal funnel (no `recover`). Linked into every `modc` build so
-Runtime checks (bounds + null receivers + size overflow; omit with `--release`) and `<assert.h>` share one death path. Import the package to
+Runtime checks (bounds + null receivers + size overflow + integer division;
+omit with `--release`) and `<assert.h>` share one death path. Import the package to
 call `panic` / `crash_init` from user code:
 
 ```c
@@ -293,5 +294,5 @@ overload void panic(const char[..] file, int line, const char[..] msg);
   like `crash: SIGSEGV` (Unix) or `crash: access violation` (Windows). Bounds
   traps that hit exactly `index == len` add an off-by-one hint (`valid 0..len-1`).
 - `__modc_bounds_fail` / `__modc_null_fail` / `__modc_size_fail` /
-  `__modc_assert_fail` / `__modc_fatal` are the compiler and assert entry points
-  (same funnel).
+  `__modc_div_fail` / `__modc_assert_fail` / `__modc_fatal` are the compiler
+  and assert entry points (same funnel).
