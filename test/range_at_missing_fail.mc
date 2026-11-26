@@ -15,7 +15,8 @@ overload size_t range_count(OnlyCount b, int** out_ptr) {
 int main() {
 	OnlyCount b = { 3 };
 	int s = 0;
-	for (auto x : b)
+	for (auto x : b) {
 		s = s + x;
+	}
 	return s;
 }

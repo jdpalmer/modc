@@ -2908,6 +2908,7 @@ typedef struct {
 	Node* count;
 	Node* base;
 	Symbol* tmpsym;
+	Symbol* at_sym;
 	int needtmp;
 	int use_hooks;
 	int use_at;
@@ -2990,7 +2991,8 @@ range_for_info(Compiler* c, Span sp, Node* range, RangeInfo* ri) {
 		error_at(c, sp, "expression is not iterable in range-for");
 		return 0;
 	}
-	if (symbol_resolve_range_at(c, t, elem, sp) == NULL) {
+	ri->at_sym = symbol_resolve_range_at(c, t, elem, sp);
+	if (ri->at_sym == NULL) {
 		error_at(c, sp,
 			 "range-for hooks require both range_count and range_at for this type");
 		return 0;
@@ -3156,7 +3158,7 @@ parse_range_for(Compiler* c, Span sp) {
 		node_add(outer, xdecl);
 		ri.count = mknames(nsym, sp);
 
-		ats = ri.use_at ? symbol_resolve_range_at(c, range->type, ri.elem, sp) : NULL;
+		ats = ri.at_sym;
 	} else {
 		psym = NULL;
 		ats = NULL;
