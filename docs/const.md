@@ -54,6 +54,9 @@ const? char[..] const? char[..] s.trim();
 
 - At the call site, a const argument yields a const result; a mutable argument
   yields a mutable result (no dual overloads).
+- With several `const?` parameters, the result is const only when **every**
+  `const?` argument is const (AND). One mutable `const?` argument keeps the
+  result mutable.
 - Inside the function body, `const?` parameters are treated as **const** (read-only).
 - String literals match `const?` sinks.
 

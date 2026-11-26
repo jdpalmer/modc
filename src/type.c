@@ -2892,6 +2892,7 @@ arg_provides_const(Compiler* c, Node* arg) {
 }
 
 // Bind const? return type from poly parameter argument constness.
+// Result is const only when every const? parameter argument is const (AND).
 static Type*
 instantiate_poly_return(Compiler* c, Type* ft, Node** args, int nargs) {
 	Type* ret;
@@ -2902,14 +2903,14 @@ instantiate_poly_return(Compiler* c, Type* ft, Node** args, int nargs) {
 	ret = ft->base;
 	if (ret == NULL || !ret->is_poly)
 		return ret;
-	as_const = 0;
+	as_const = 1;
 	saw_poly = 0;
 	for (i = 0; i < ft->params_len && i < nargs; i++) {
 		if (ft->params[i] == NULL || !ft->params[i]->is_poly)
 			continue;
 		saw_poly = 1;
-		if (arg_provides_const(c, args[i]))
-			as_const = 1;
+		if (!arg_provides_const(c, args[i]))
+			as_const = 0;
 	}
 	if (!saw_poly)
 		return ret;
