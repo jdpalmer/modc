@@ -138,7 +138,8 @@ static const LangTopic topics[] = {
 		"  • in the method body: no null tests on r, and no rebinding r (mutate through it)\n"
 		"  • callers must pass a live T*; entry inserts a null trap (--release omits)\n"
 		"  • methods may be defined outside T's origin package (import the defining package)\n"
-		"  • overload marks free-function overloading; methods use receiver dispatch\n"
+		"  • same (T, name) may overload on params; no overload keyword (always-suffixed link names)\n"
+		"  • free functions still need overload; methods resolve like free overloads + embeds\n"
 		"\n"
 		"See also: auto, import, const\n"
 	},

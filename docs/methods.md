@@ -37,7 +37,7 @@ w.show();
 w.set_title("Tasks");
 ```
 
-Method declarations follow the form `ret (T *receiver).name(params)`. Receivers must be pointers to a struct or union. A method may be defined in any package that can see `T` (including outside `T`'s origin package); the linker name still uses `T`'s origin package (see below). Duplicate `(T, name)` pairs are rejected. Methods cannot be nested inside functions, combined with `overload`, or overloaded on arity. Method names exist in a per-type namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a struct field, the compiler rejects the method at define time. Visibility follows ordinary package rules: import the defining package to use the method.
+Method declarations follow the form `ret (T *receiver).name(params)`. Receivers must be pointers to a struct or union. A method may be defined in any package that can see `T` (including outside `T`'s origin package); the linker name still uses `T`'s origin package (see below). Multiple methods may share `(T, name)` when their parameter lists differ; call-site resolution matches free-function overloads (arity and types, never return type alone). Exact duplicates of `(T, name, params)` are rejected. Methods cannot be nested inside functions or marked with the `overload` keyword (receiver methods are always overloadable by signature). Method names exist in a per-type namespace, so calling `a.free()` never collides with libc `free(p)`. If a method name collides with a struct field, the compiler rejects the method at define time. Visibility follows ordinary package rules: import the defining package to use the method.
 
 When calling `expr.name()`, passing a pointer `T *` passes the pointer directly, while passing a mutable lvalue `T` automatically passes its address `&expr`. Calling a method on a null `T *` is a caller error (see below). Projecting or upcasting through a null outer pointer for an anonymous embed is a compile-time error (see [struct.md](struct.md)). When an `Outer` struct anonymously embeds an `Inner` struct, calling `outer.method()` resolves to `(Inner *).method` with automatic pointer address adjustments.
 
@@ -76,12 +76,13 @@ void (File *f).close() {
 
 ## Linker Symbol Mangling
 
-Methods generate linker symbols using the `package_type_method` pattern, where **package** is the receiver type’s origin package (not necessarily the file that defines the method). Package paths convert slashes to underscores (`ui/draw` becomes `ui_draw`), struct tags convert to lowercase (`Window` becomes `window`), and method names remain unchanged. The table below assumes type `Window` originates in package `ui`:
+Methods generate linker symbols using the `package_type_method__params` pattern, where **package** is the receiver type’s origin package (not necessarily the file that defines the method). Package paths convert slashes to underscores (`ui/draw` becomes `ui_draw`), struct tags convert to lowercase (`Window` becomes `window`), and method names remain unchanged. The `__params` suffix always encodes the post-receiver parameter types (same encoding as free `overload` mangling); a zero-arity method uses `__v`. The receiver type is already in the prefix, so it is not repeated in the suffix. The table below assumes type `Window` originates in package `ui`:
 
-| **Source Method Declaration**        | **Generated Linker Symbol** |
-| ------------------------------------ | --------------------------- |
-| `void (Window *w).show()`            | `ui_window_show`            |
-| `void (Window *w).set_title(char *)` | `ui_window_set_title`       |
+| **Source Method Declaration**        | **Generated Linker Symbol**   |
+| ------------------------------------ | ----------------------------- |
+| `void (Window *w).show()`            | `ui_window_show__v`           |
+| `void (Window *w).set_title(char *)` | `ui_window_set_title__pc`     |
+| `void (Window *w).set_title(int)`    | `ui_window_set_title__i`      |
 
 As a design convention, use methods for operations on existing object handles and plain free functions for constructors or package initialization entry points (`window_open()`, `ui_init()`).
 

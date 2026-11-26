@@ -567,6 +567,8 @@ create:
 	return s;
 }
 
+static int overload_score(Compiler* c, Type* fn, Node** args, int args_len);
+
 // Append alphanumeric characters of s as lowercase (for method mangling).
 static void
 mangle_lower(const char* s, char* buf, int* pos, int cap) {
@@ -582,10 +584,10 @@ mangle_lower(const char* s, char* buf, int* pos, int cap) {
 	}
 }
 
-// Build pkg_typename_method linker symbol for a method.
+// Build pkg_typename_method__params linker symbol (post-receiver params; __v if none).
 static void
-mangle_method(const char* pkg, const char* tag, const char* method, char* buf, int cap) {
-	int pos;
+mangle_method(const char* pkg, const char* tag, const char* method, Type* fn, char* buf, int cap) {
+	int pos, i;
 
 	pos = 0;
 	buf[0] = 0;
@@ -601,11 +603,21 @@ mangle_method(const char* pkg, const char* tag, const char* method, char* buf, i
 			mappend(buf, &pos, cap, "_");
 		mappend(buf, &pos, cap, method);
 	}
+	mappend(buf, &pos, cap, "__");
+	/* Receiver is in the prefix; mangle only the remaining parameters. */
+	if (fn == NULL || !is_func(fn) || fn->params_len <= 1)
+		mappend(buf, &pos, cap, "v");
+	else {
+		for (i = 1; i < fn->params_len; i++) {
+			if (i > 1)
+				mappend(buf, &pos, cap, "_");
+			mangle_type(fn->params[i], buf, &pos, cap);
+		}
+	}
 }
 
-
-// Find a file-scope method on recv_tag with the given name.
-Symbol* symbol_find_method(Compiler* c, const char* recv_tag, const char* name) {
+// Find a file-scope method on recv_tag with name and exact signature.
+Symbol* symbol_find_method(Compiler* c, const char* recv_tag, const char* name, Type* t) {
 	Symbol* s;
 
 	if (recv_tag == NULL || name == NULL)
@@ -617,16 +629,59 @@ Symbol* symbol_find_method(Compiler* c, const char* recv_tag, const char* name) 
 			continue;
 		if (strcmp(s->name, name) != 0)
 			continue;
+		if (t && s->type && !type_eq(s->type, t))
+			continue;
 		if (symbol_visible(c, s))
 			return s;
 	}
 	return NULL;
 }
 
+// Score methods on recv_tag named method; set any_out if the name exists.
+static Symbol*
+resolve_methods_on_tag(Compiler* c, const char* recv_tag, const char* method,
+		       Node** args, int args_len, Span sp, int* any_out) {
+	Symbol *s, *best;
+	int score, bestscore, any;
+
+	best = NULL;
+	bestscore = -1;
+	any = 0;
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->hidden || s->dead || !s->is_method || s->block != 0)
+			continue;
+		if (s->recv_tag == NULL || strcmp(s->recv_tag, recv_tag) != 0)
+			continue;
+		if (strcmp(s->name, method) != 0)
+			continue;
+		if (!symbol_visible(c, s))
+			continue;
+		any = 1;
+		score = overload_score(c, s->type, args, args_len);
+		if (score < 0)
+			continue;
+		if (score > bestscore) {
+			best = s;
+			bestscore = score;
+		} else if (score == bestscore && best) {
+			error_at(c, sp, "ambiguous call to method %s", method);
+			if (any_out)
+				*any_out = any;
+			return best;
+		}
+	}
+	if (any_out)
+		*any_out = any;
+	return best;
+}
+
 // Resolve a method call on recv_ty, including anonymous-embed upcast.
-Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* method, Span sp) {
+Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* method,
+				   Node** args, int args_len, Span sp) {
 	Type* ag;
-	Symbol *s, *hit, *ts, *tagsym;
+	Symbol *best, *ts, *tagsym;
+	const char* hit_tag;
+	int any;
 
 	if (method == NULL)
 		return NULL;
@@ -637,30 +692,43 @@ Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* metho
 		error_at(c, sp, "method call requires a struct pointer receiver");
 		return NULL;
 	}
-	s = symbol_find_method(c, ag->tag, method);
-	if (s)
-		return s;
-	hit = NULL;
+	best = resolve_methods_on_tag(c, ag->tag, method, args, args_len, sp, &any);
+	if (any) {
+		if (best == NULL)
+			error_at(c, sp, "no matching overload for method %s", method);
+		return best;
+	}
+	hit_tag = NULL;
 	for (ts = c->syms.symbols; ts; ts = ts->next) {
 		if (ts->hidden || ts->dead || !ts->is_method || ts->block != 0)
 			continue;
 		if (strcmp(ts->name, method) != 0 || ts->recv_tag == NULL)
 			continue;
+		if (!symbol_visible(c, ts))
+			continue;
 		tagsym = symbol_lookup_tag(c, ts->recv_tag);
 		if (tagsym == NULL || tagsym->type == NULL || tagsym->type->kind != ag->kind)
 			continue;
-		if (anon_embed_offset(ag, tagsym->type, NULL) == 1) {
-			if (hit)
-				error_at(c, sp, "ambiguous method %s for receiver", method);
-			hit = ts;
+		if (anon_embed_offset(ag, tagsym->type, NULL) != 1)
+			continue;
+		if (hit_tag && strcmp(hit_tag, ts->recv_tag) != 0) {
+			error_at(c, sp, "ambiguous method %s for receiver", method);
+			return ts;
 		}
+		hit_tag = ts->recv_tag;
 	}
-	if (hit == NULL)
+	if (hit_tag == NULL) {
 		error_at(c, sp, "no method named %s for receiver type", method);
-	return hit;
+		return NULL;
+	}
+	best = resolve_methods_on_tag(c, hit_tag, method, args, args_len, sp, &any);
+	if (best == NULL)
+		error_at(c, sp, any ? "no matching overload for method %s" : "no method named %s for receiver type",
+			 method);
+	return best;
 }
 
-// Define a method; linkname is pkg_typename_method.
+// Define a method; linkname is pkg_typename_method__params (always-suffixed).
 Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const char* recv_tag, Type* t, int storage, Span sp) {
 	Symbol *old, *s;
 	char pkg[128], buf[256];
@@ -680,15 +748,13 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 		storage = StStatic;
 	if (find_field(rt, name, NULL))
 		error_at(c, sp, "method name %s conflicts with field on %s", name, recv_tag);
-	old = symbol_find_method(c, recv_tag, name);
+	old = symbol_find_method(c, recv_tag, name, t);
 	if (old && t && old->type && type_eq(old->type, t)) {
 		old->type = t;
 		if (storage == StNone && old->storage == StExtern)
 			old->storage = StNone;
 		return old;
 	}
-	if (old)
-		error_at(c, sp, "duplicate method %s on %s", name, recv_tag);
 	/* Linker name uses the receiver type's origin package (not the defining file). */
 	pkg[0] = 0;
 	if (rt->pkg_root && rt->pkg_root[0])
@@ -697,7 +763,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 		pkg_mangle_from_file(c->paths.infile ? c->paths.infile : sp.file, pkg, sizeof(pkg));
 	if (pkg[0] == 0)
 		snprintf(pkg, sizeof(pkg), "main");
-	mangle_method(pkg, recv_tag, name, buf, sizeof(buf));
+	mangle_method(pkg, recv_tag, name, t, buf, sizeof(buf));
 	if (linkname_taken(c, buf))
 		error_at(c, sp, "linker name collision for method %s", name);
 	s = xmalloc(sizeof(*s));

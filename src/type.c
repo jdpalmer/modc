@@ -2680,9 +2680,9 @@ lower_pool_method(Compiler* c, Node* n, Node* recv, const char* method) {
 // Rewrite a method call into an ordinary call with receiver as first arg.
 static Node*
 lower_method_call(Compiler* c, Node* n) {
-	Node *recv, *nm, *call;
+	Node *recv, *nm, *call, **args;
 	Symbol* sym;
-	int i;
+	int i, nargs;
 
 	if (n == NULL || n->a == NULL || n->a->kind != NdMethod)
 		return n;
@@ -2703,14 +2703,20 @@ lower_method_call(Compiler* c, Node* n) {
 	}
 	if (is_pool_type(c, recv->type))
 		return lower_pool_method(c, n, recv, n->a->s);
-	sym = symbol_resolve_method_call(c, recv->type, n->a->s, n->span);
+	for (i = 0; i < n->children_len; i++)
+		if (n->children[i])
+			n->children[i] = type_expr(c, n->children[i]);
+	nargs = n->children_len + 1;
+	args = xmalloc((size_t)nargs * sizeof(Node*));
+	args[0] = recv;
+	for (i = 0; i < n->children_len; i++)
+		args[i + 1] = n->children[i];
+	sym = symbol_resolve_method_call(c, recv->type, n->a->s, args, nargs, n->span);
+	free(args);
 	if (sym == NULL)
 		return n;
 	if (sym->recv_type)
 		recv = maybe_embed_upcast(c, sym->recv_type, recv);
-	for (i = 0; i < n->children_len; i++)
-		if (n->children[i])
-			n->children[i] = type_expr(c, n->children[i]);
 	nm = node(NdName, n->span);
 	nm->s = sym->name;
 	nm->symbol = sym;

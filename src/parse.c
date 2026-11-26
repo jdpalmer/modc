@@ -4307,9 +4307,7 @@ parse_decl_or_def(Compiler* c, int in_func) {
 			return;
 		}
 		if (ismethod) {
-			s = symbol_find_method(c, recv_tag, name);
-			if (s && s->type && !type_eq(s->type, ty))
-				error_at(c, sp, "method %s signature mismatch", name);
+			s = symbol_find_method(c, recv_tag, name, ty);
 			if (s == NULL)
 				s = symbol_define_method(c, name, recv_ty, recv_tag, ty, storage, sp);
 			else {
