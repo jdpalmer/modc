@@ -121,6 +121,7 @@ check: $(MODC)
 	$(call expect_abort,overflow_mul_oob,overflow_mul_oob.mc,signed integer overflow)
 	$(call expect_abort,overflow_neg_oob,overflow_neg_oob.mc,signed integer overflow)
 	$(call expect_abort,copy_oob,copy_oob.mc,bounds: index)
+	$(call expect_abort,shift_neg_lhs_oob,shift_neg_lhs_oob.mc,left shift of a negative value)
 
 	# --release omits traps (null recv should not print the checked message)
 	./modc build --release -o $(BUILD)/null_recv_release test/null_recv_oob.mc

@@ -496,6 +496,8 @@ overflow bugs unless you pass `--release`:
   (two’s complement). Unsigned wrap is defined and unchecked.
 - **`copy(dst, src)`:** requires `len(src) <= len(dst)` (`__modc_bounds_fail`).
   With `--release`, returns false and does not write.
+- **Negative `<<`:** signed left operand `< 0` traps (`__modc_shift_fail`);
+  constant cases are a compile-time error.
 
 ```c
 void (File* f).close() {

@@ -303,6 +303,26 @@ void __modc_overflow_fail(const char* file, int line) {
 	crash_die();
 }
 
+void __modc_shift_fail(const char* file, int line) {
+	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "left shift of a negative value\n");
+		crash_reporting = 1;
+		crash_run_cleanups();
+		if (file != NULL && *file != 0 && line > 0) {
+			n = snprintf(buf, CrashMsgCap, "%s:%d: left shift of a negative value\n",
+				     file, line);
+		}
+		if (n > 0) {
+			if (n >= CrashMsgCap) {
+				n = CrashMsgCap - 1;
+			}
+			crash_write(buf, n);
+		}
+	}
+	crash_die();
+}
+
 /* 1 if a*b overflows int64_t. Used by the emitter for 64-bit signed mul checks.
  * Avoid INT64_* macros: hermetic stdint uses rejected ll suffixes in .mc. */
 int __modc_i64_mul_ovf(int64_t a, int64_t b) {
