@@ -527,7 +527,10 @@ the checker trusts the declarations and does not look inside the callee:
 - **`putenv` / `_putenv`** are `[[retains]]` in the hermetic headers — an owned
   argument is discharged at the call (stack addresses are still rejected).
 - **Raw `T*`** after `ptr()` or casts leaves the checked world.
-- **Calls through function pointers** do not track retain or release.
+- **Calls through function pointers** do not track retain, release, or
+  escapes. Ownership attributes on a function-pointer type are not applied at
+  an indirect call; use a direct call when the checker must enforce the
+  contract (see [safety.md](safety.md)).
 
 Most C APIs only borrow their arguments for the duration of the call
 (`strlen`, the path argument to `fopen`). For those, pass a short-lived C

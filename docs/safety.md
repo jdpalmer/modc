@@ -65,7 +65,10 @@ width in both modes.
   [interop.md](interop.md).
 - **Raw `T*`** — after `ptr()`, casts, or open `T[]` from headers, indexing and
   arithmetic are unchecked (headers and C still allow `p[i]`).
-- **Function pointers** — retain/release are not tracked across indirect calls.
+- **Function pointers** — calls through function pointers do not track
+  `[[provides]]` / `[[releases]]` / `[[retains]]` / escapes. Ownership attrs on
+  the pointee type are informational only at an indirect call; prefer a direct
+  call when the checker must see the contract.
 - **`--release`** — traps are gone; signed overflow wraps; some size/`copy`
   paths soft-fail instead of aborting. Production builds are closer to ordinary
   C performance and closer to ordinary C footguns.
