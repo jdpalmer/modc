@@ -3782,6 +3782,7 @@ parse_stmt(Compiler* c) {
 	if (eat(c, PnSemi))
 		return node(NdSkip, sp);
 	n = type_expr(c, parse_expr(c));
+	type_reject_pending_overload(c, n);
 	expect(c, PnSemi, "';'");
 	(void)d;
 	return n;

@@ -1429,6 +1429,29 @@ maybe_ranged_cast_ptr(Compiler* c, Type* dst, Node* src) {
 	return d;
 }
 
+/* Error if an overloaded free-fn value was never bound by call or target type. */
+void
+type_reject_pending_overload(Compiler* c, Node* n) {
+	const char* name;
+
+	if (c == NULL || n == NULL || !n->overload_pending)
+		return;
+	name = NULL;
+	if (n->kind == NdName)
+		name = n->s;
+	else if (n->kind == NdAddr && n->a && n->a->kind == NdName)
+		name = n->a->s;
+	if (name)
+		error_at(c, n->span,
+			 "address of overloaded function %s requires a function pointer type",
+			 name);
+	else
+		error_at(c, n->span,
+			 "address of overloaded function requires a function pointer type");
+	n->overload_pending = 0;
+	n->type = c->types.type_error;
+}
+
 /*
  * When src is an overloaded function name or &name, rebind to the candidate
  * whose type exactly matches dst (function or pointer-to-function), like C++
@@ -1441,6 +1464,8 @@ maybe_resolve_overload_value(Compiler* c, Type* dst, Node* src) {
 
 	if (c == NULL || src == NULL)
 		return src;
+	if (src->kind == NdCast && src->a)
+		return maybe_resolve_overload_value(c, src->type ? src->type : dst, src->a);
 	if (src->kind == NdAddr && src->a && src->a->kind == NdName)
 		name = src->a;
 	else if (src->kind == NdName)
@@ -1450,10 +1475,16 @@ maybe_resolve_overload_value(Compiler* c, Type* dst, Node* src) {
 	if (name->s == NULL || !symbol_has_overload(c, name->s))
 		return src;
 	s = symbol_resolve_overload_addr(c, name->s, dst, src->span);
-	if (s == NULL)
+	if (s == NULL) {
+		src->overload_pending = 0;
+		if (name)
+			name->overload_pending = 0;
 		return src;
+	}
 	name->symbol = s;
 	name->type = s->type;
+	name->overload_pending = 0;
+	src->overload_pending = 0;
 	if (src->kind == NdAddr)
 		src->type = type_ptr(c, s->type);
 	else
@@ -2886,6 +2917,7 @@ type_expr_call(Compiler* c, Node* n) {
 		if (osym) {
 			n->a->symbol = osym;
 			n->a->type = osym->type;
+			n->a->overload_pending = 0;
 		}
 		n->int_val = 1;
 	}
@@ -3723,8 +3755,10 @@ Node* type_expr(Compiler* c, Node* n) {
 		return n;
 	if (n->type && is_error(n->type))
 		return n;
-	if (n->type && n->kind != NdCast && n->kind != NdSizeof && n->kind != NdSizeofT && n->kind != NdBin && n->kind != NdUn && n->kind != NdPost && n->kind != NdCall && n->kind != NdIndex && n->kind != NdAddr && n->kind != NdDeref && n->kind != NdAssign && n->kind != NdCond && n->kind != NdComma && n->kind != NdDot && n->kind != NdArrow && n->kind != NdTupleLit && n->kind != NdInit)
+	if (n->type && n->kind != NdCast && n->kind != NdSizeof && n->kind != NdSizeofT && n->kind != NdBin && n->kind != NdUn && n->kind != NdPost && n->kind != NdCall && n->kind != NdIndex && n->kind != NdAddr && n->kind != NdDeref && n->kind != NdAssign && n->kind != NdCond && n->kind != NdComma && n->kind != NdDot && n->kind != NdArrow && n->kind != NdTupleLit && n->kind != NdInit && n->kind != NdName) {
+		/* NdName must reach the overload_pending mark below. */
 		return n;
+	}
 
 	switch (n->kind) {
 	case NdLit:
@@ -3735,6 +3769,9 @@ Node* type_expr(Compiler* c, Node* n) {
 	case NdName:
 		if (n->symbol)
 			n->type = n->symbol->type;
+		if (n->s && symbol_has_overload(c, n->s) &&
+		    symbol_overload_candidates(c, n->s) > 1)
+			n->overload_pending = 1;
 		return n;
 	case NdSizeofT:
 		if (is_error(n->type))
@@ -3761,6 +3798,8 @@ Node* type_expr(Compiler* c, Node* n) {
 		n->a = type_expr(c, n->a);
 		if (is_error(n->a ? n->a->type : NULL) || is_error(n->type))
 			return type_poison(c, n);
+		if (n->a)
+			n->a = maybe_resolve_overload_value(c, n->type, n->a);
 		check_unnecessary_cast(c, NULL, n);
 		if (n->type && is_ranged(n->type))
 			n->a = apply_implicit_conversions(c, n->type, n->a);
@@ -3780,6 +3819,10 @@ Node* type_expr(Compiler* c, Node* n) {
 			error_at(c, n->span, "address-of requires an lvalue or function");
 		if (n->a && n->a->type)
 			n->type = type_ptr(c, n->a->type);
+		if (n->a && (n->a->overload_pending ||
+			     (n->a->kind == NdName && n->a->s && symbol_has_overload(c, n->a->s) &&
+			      symbol_overload_candidates(c, n->a->s) > 1)))
+			n->overload_pending = 1;
 		n->is_lvalue = 0;
 		return n;
 	case NdDeref:
@@ -4070,13 +4113,19 @@ Node* type_expr(Compiler* c, Node* n) {
 					 "conditional expression arms have incompatible types");
 			n->type = lt ? lt : (rt ? rt : c->types.type_int);
 		}
+		type_reject_pending_overload(c, n->b);
+		type_reject_pending_overload(c, n->c);
 		return n;
 	case NdComma:
 		n->a = type_expr(c, n->a);
 		n->b = type_expr(c, n->b);
 		if (is_error(n->a ? n->a->type : NULL) || is_error(n->b ? n->b->type : NULL))
 			return type_poison(c, n);
+		type_reject_pending_overload(c, n->a);
+		/* Result arm may still be resolved by an outer typed context. */
 		n->type = n->b ? n->b->type : c->types.type_error;
+		if (n->b)
+			n->overload_pending = n->b->overload_pending;
 		return n;
 	default:
 		return n;

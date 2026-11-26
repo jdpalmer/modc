@@ -522,6 +522,8 @@ struct Node {
 	int is_synth;
 	// Unnecessary-cast diagnostic already emitted.
 	int cast_checked;
+	/* Overloaded free-fn name / &name not yet bound by target type or call. */
+	int overload_pending;
 };
 
 // ---- Macros ----
@@ -856,6 +858,7 @@ Symbol* symbol_define_method(Compiler* c, const char* name, Type* recv, const ch
 Symbol* symbol_find_method(Compiler* c, Type* recv, const char* recv_tag, const char* name, Type* t);
 Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* method, Node** args, int args_len, Span sp);
 int symbol_has_overload(Compiler* c, const char* name);
+int symbol_overload_candidates(Compiler* c, const char* name);
 Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int args_len, Span sp);
 Symbol* symbol_resolve_overload_addr(Compiler* c, const char* name, Type* target, Span sp);
 Symbol* symbol_resolve_range_count(Compiler* c, Type* range_ty, Type** elem_out, Span sp);
@@ -910,6 +913,7 @@ int intern_bytes(Compiler* c, const void* bytes, int nbytes);
 int eval_const(Compiler* c, Node* n, int64_t* out);
 int eval_float_const(Compiler* c, Node* n, double* out);
 Node* type_expr(Compiler* c, Node* n);
+void type_reject_pending_overload(Compiler* c, Node* n);
 void mark_symbol_used(Node* n);
 Field* find_field(Type* t, const char* name, int* off);
 Type* field_lhs(Type* t);

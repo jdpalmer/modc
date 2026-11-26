@@ -1098,8 +1098,8 @@ Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int 
 	return best;
 }
 
-static int
-func_addr_candidates(Compiler* c, const char* name) {
+int
+symbol_overload_candidates(Compiler* c, const char* name) {
 	Symbol* s;
 	int n;
 
@@ -1133,7 +1133,7 @@ symbol_resolve_overload_addr(Compiler* c, const char* name, Type* target, Span s
 	if (ft && is_ptr(ft) && ft->base && is_func(ft->base))
 		ft = ft->base;
 	if (ft == NULL || !is_func(ft)) {
-		n = func_addr_candidates(c, name);
+		n = symbol_overload_candidates(c, name);
 		if (n > 1) {
 			error_at(c, sp,
 				 "address of overloaded function %s requires a function pointer type",
