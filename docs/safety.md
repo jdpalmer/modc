@@ -25,10 +25,11 @@ the linked guides.
 | Live receivers | Methods must not null-check `(T *r)` at entry; callers keep them live | [methods.md](methods.md) |
 | Constant arithmetic faults | Constant `/0`, `%0`, `MIN/-1`, signed overflow, and bad signed `<<` are compile errors | [arrays.md](arrays.md#runtime-checks-on-by-default) |
 
-`modc check` type-checks the import graph’s **API surface** only. Body-level
-diagnostics (escapes, releases, dead-init, …) run on `modc build` / `test`.
-Do not treat `check` alone as a safety gate; see [packages.md](packages.md)
-and [quickstart.md](quickstart.md).
+`modc check` type-checks the import graph’s **API surface** only (same idea as
+an interface parse). Body-level diagnostics (escapes, releases, dead-init, …)
+run on `modc build` / `test`. `check` can exit **0** when `build` would fail on
+those body issues. For CI and “build until clean,” use `build` or `test`, not
+`check` alone; see [packages.md](packages.md) and [quickstart.md](quickstart.md).
 
 ## Runtime traps (default builds)
 

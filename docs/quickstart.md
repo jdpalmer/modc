@@ -371,4 +371,4 @@ When writing or generating %C code, adhere to the following dialect conventions 
 
 - **Imports and Headers**: Use the `import` directive for first-party %C packages, reserving `#include` directives and build flags for standard C library dependencies.
 
-- **Compiler Diagnostics**: Execute `./modc check file.mc` prior to running `build`, resolving all compiler warnings and diagnostics before finalizing changes.
+- **Compiler Diagnostics**: Use `modc build` (or `test`) to clear body-level diagnostics; `modc check` only covers the API surface and can exit 0 when `build` would still fail.

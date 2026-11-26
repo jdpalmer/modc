@@ -15,7 +15,9 @@ usage(const char* sub) {
 		fprintf(stderr,
 			"usage: modc check [options] file...\n"
 			"\n"
-			"Parse and type-check %%C sources (no code generation).\n"
+			"Type-check the import graph API surface (types, signatures, globals).\n"
+			"Function bodies are skipped — not a safety gate for escapes/releases/\n"
+			"dead-init. Use modc build or modc test for full body checking.\n"
 			"\n"
 			"Options:\n"
 			"  -D, --define NAME[=VALUE]   preprocessor macro\n"

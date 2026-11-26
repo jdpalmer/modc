@@ -401,10 +401,10 @@ imports and type-checks the graph's **API surface** (types, signatures, globals;
 function bodies are skipped — same idea as FPC's interface parse), reusing
 `.pkg.mc` when valid under the same knobs as `build` (including a stamp of
 the running `modc` binary, so a rebuilt driver cannot inherit a hit from an
-older one). A check hit is not a full safety gate: body-level diagnostics
-(dead-init, releases, escapes, …) run on `modc build`, and `check` may exit 0
-when only those body issues exist. Use `build` for non-zero exit on full
-typecheck failure.
+older one). **`check` is not a safety gate:** body-level diagnostics
+(dead-init, releases, escapes, …) run only on `modc build` / `test`, and
+`check` may exit 0 when only those body issues exist. Prefer `build` or
+`test` in CI.
 `modc build` (with a file, a directory, or `.` by default) compiles the root
 plus its packages, applies `c_libs` / frameworks, and links; directory roots
 omit `*_test.mc`. The project root is inferred automatically, so the usual
