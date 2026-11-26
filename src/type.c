@@ -1523,8 +1523,11 @@ maybe_resolve_overload_value(Compiler* c, Type* dst, Node* src) {
 
 	if (c == NULL || src == NULL)
 		return src;
-	if (src->kind == NdCast && src->a)
-		return maybe_resolve_overload_value(c, src->type ? src->type : dst, src->a);
+	/* Resolve through a cast in place; never unwrap (would drop the cast). */
+	if (src->kind == NdCast && src->a) {
+		src->a = maybe_resolve_overload_value(c, src->type ? src->type : dst, src->a);
+		return src;
+	}
 	if (src->kind == NdAddr && src->a && src->a->kind == NdName)
 		name = src->a;
 	else if (src->kind == NdName)

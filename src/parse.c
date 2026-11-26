@@ -2990,9 +2990,14 @@ range_for_info(Compiler* c, Span sp, Node* range, RangeInfo* ri) {
 		error_at(c, sp, "expression is not iterable in range-for");
 		return 0;
 	}
+	if (symbol_resolve_range_at(c, t, elem, sp) == NULL) {
+		error_at(c, sp,
+			 "range-for hooks require both range_count and range_at for this type");
+		return 0;
+	}
 	ri->elem = elem;
 	ri->use_hooks = 1;
-	ri->use_at = symbol_resolve_range_at(c, t, elem, sp) != NULL;
+	ri->use_at = 1;
 	if (range->is_lvalue)
 		ri->base = range;
 	else {

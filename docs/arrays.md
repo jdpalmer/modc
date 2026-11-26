@@ -274,7 +274,10 @@ for (auto *p : a) {
 
 The same forms work over `T[..]`.
 
-Custom types can participate by providing `overload` hooks. `range_count` supplies a length (and optionally a base pointer via an out-parameter). `range_at` supplies element access when iteration is not over a contiguous buffer:
+Custom types can participate by providing **both** `overload` hooks.
+`range_count` supplies a length (and optionally a base pointer via an
+out-parameter). `range_at` supplies per-index element access. A type with
+`range_count` but no matching `range_at` is not iterable:
 
 ```c
 overload size_t range_count(MyBuf b, int** out_ptr) {
