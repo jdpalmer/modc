@@ -883,6 +883,7 @@ int type_size(Compiler* c, Type* t);
 int type_align(Compiler* c, Type* t);
 const char* type_name(Type* t);
 int type_eq(Type* a, Type* b);
+int type_eq_qual(Type* a, Type* b);
 int is_int(Type* t);
 int is_scalar(Type* t);
 int is_ptr(Type* t);

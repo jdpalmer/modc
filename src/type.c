@@ -879,6 +879,65 @@ int type_eq(Type* a, Type* b) {
 	}
 }
 
+/*
+ * Like type_eq, but pointer / ranged / array const and const? (is_poly) must
+ * match. Used for address-of overload selection (C++ [over.over] exactness).
+ */
+int type_eq_qual(Type* a, Type* b) {
+	int i;
+
+	if (a == b)
+		return 1;
+	if (a == NULL || b == NULL)
+		return 0;
+	if (a->kind == TyError || b->kind == TyError)
+		return 0;
+	if ((a->kind == TyChar || a->kind == TyUChar) && (b->kind == TyChar || b->kind == TyUChar))
+		return a->is_readonly == b->is_readonly && a->is_poly == b->is_poly;
+	if (a->kind != b->kind)
+		return 0;
+	switch (a->kind) {
+	case TyPtr:
+		return a->is_readonly == b->is_readonly && a->is_poly == b->is_poly &&
+		       type_eq_qual(a->base, b->base);
+	case TyArray:
+		return a->is_readonly == b->is_readonly && a->is_poly == b->is_poly &&
+		       type_eq_qual(a->base, b->base) &&
+		       (a->len < 0 || b->len < 0 || a->len == b->len);
+	case TyFunc:
+		if (!type_eq_qual(a->base, b->base) || a->params_len != b->params_len ||
+		    a->is_varargs != b->is_varargs)
+			return 0;
+		for (i = 0; i < a->params_len; i++)
+			if (!type_eq_qual(a->params[i], b->params[i]))
+				return 0;
+		return 1;
+	case TyStruct:
+	case TyUnion:
+	case TyEnum:
+		if (a->is_ranged || b->is_ranged) {
+			if (!a->is_ranged || !b->is_ranged)
+				return 0;
+			return a->is_readonly == b->is_readonly && a->is_poly == b->is_poly &&
+			       type_eq_qual(a->base, b->base);
+		}
+		if (a->is_tuple || b->is_tuple) {
+			Field *fa, *fb;
+
+			if (!a->is_tuple || !b->is_tuple)
+				return 0;
+			for (fa = a->fields, fb = b->fields; fa && fb;
+			     fa = fa->next, fb = fb->next)
+				if (!type_eq_qual(fa->type, fb->type))
+					return 0;
+			return fa == NULL && fb == NULL;
+		}
+		return a == b;
+	default:
+		return 1;
+	}
+}
+
 // True when sp is in user code (unit files or main input), not header-only.
 int user_source(Compiler* c, Span sp) {
 	int i;

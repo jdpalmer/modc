@@ -1163,7 +1163,7 @@ symbol_resolve_overload_addr(Compiler* c, const char* name, Type* target, Span s
 			continue;
 		if (!s->is_overload && find_func_unmarked(c, name) != s)
 			continue;
-		if (!type_eq(s->type, ft))
+		if (!type_eq_qual(s->type, ft))
 			continue;
 		if (best) {
 			error_at(c, sp, "ambiguous address of overloaded function %s", name);
