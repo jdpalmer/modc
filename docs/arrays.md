@@ -94,7 +94,8 @@ Do not invent a parallel `{ char *p; size_t len; size_t cap }` struct to “own�
 what `char[..]` already is. Prefer storing `char[..]` in structs when you
 need length-aware text; keep `char *` for foreign NUL C boundaries, then
 convert once with `ranged` / `str_from_cstr`. Heap growth:
-`reserve` / `push` / `append` / `release` (or `str_*` wrappers in `str`).
+`reserve` / `push` / `append` / `release` (or `str_reserve` / `str_append` /
+`str_free` in `str`).
 Element copy into an existing window: `copy(dst, src)` (requires
 `len(src) <= len(dst)`; traps if not unless `--release`).
 Region lifetimes: `pool p { … }` (auto-free at block end).
@@ -340,12 +341,15 @@ For string literals, prefer `const char[..]` rather than wrapping with `str_from
 
 ## Standard Library Packages
 
-Importing `str` (`import "str";`) provides length-aware helpers on `char[..]`:
-`cstr_write(buf, s)`, `s.split_once`, trim/chomp, compare, parse via
-`s.to_long`, search via `s.find` / `s.ifind`, and heap owners via
-`str_dup` / `str_append` / `str_free` (see `str/mod.mc`). Prefer `char[..]`
-reader methods for literals (`s.eq("ok")`); use `str_from_cstr` /
-`*_cstr` only for foreign `char *`.
+Importing `str` (`import "str";`) attaches **reader methods** on `char[..]`
+(`s.eq`, `s.cmp`, `s.starts_with` / `s.ends_with`, `s.find` / `s.rfind` /
+`s.ifind` / `s.irfind`, `s.split_once`, `s.trim` / `s.ltrim` / `s.rtrim` /
+`s.chomp`, `s.to_long`, `s.is_empty`). Factories and null-tolerant mutators
+stay free: `str_dup`, `str_from_cstr`, `str_reserve` / `str_append` /
+`str_append_byte` / `str_set` / `str_free`. C-boundary: `cstr_write` /
+`cstr_zlen` / `cstr_reset` and `*_cstr` variants for foreign `char *`. Prefer
+`"..."`.eq / method calls for literals; use `str_from_cstr` / `*_cstr` only
+for NUL-terminated pointers. See `str/mod.mc`.
 
 A `pool p { … }` statement is bump allocation into a region. `p.alloc(T)` and
 `p.alloc(T, n)` return a `T*` or `T[..]` minted in the pool; `p.copy`,
