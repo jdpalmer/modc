@@ -1359,18 +1359,39 @@ emit_shift_fail(Compiler* c, Span sp, int lok) {
 	emitlbl(lok);
 }
 
-/* Trap when signed LHS of << is negative (C UB). Omit with --release. */
+/*
+ * Trap signed << UB: negative LHS, or value<<count not representable.
+ * Count must already be masked. Omit with --release.
+ */
 static void
-emit_shl_neg_check(Compiler* c, Val l, Type* ty, Span sp) {
-	Val flag;
-	int lok, ltrap;
+emit_shl_check(Compiler* c, Val l, Val r, Type* ty, Span sp) {
+	Val flag, lim, maxv;
+	int64_t max;
+	Type* pt;
+	int bits, lok, ltrap, lfit;
 
 	if (!signed_ovf_active(c, ty))
 		return;
-	flag = vtmp('w', NULL);
-	fprintf(outf, "\t%s =w cslt%c %s, 0\n", flag.text, l.cls, l.text);
+	pt = promote(c, ty);
+	bits = type_size(c, pt) * 8;
+	if (bits <= 0 || bits > 64)
+		return;
+	max = (bits == 64) ? INT64_MAX
+			   : (int64_t)((UINT64_C(1) << (bits - 1)) - 1);
 	lok = newlbl();
 	ltrap = newlbl();
+	lfit = newlbl();
+	flag = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w cslt%c %s, 0\n", flag.text, l.cls, l.text);
+	emitjnz(flag.text, ltrap, lfit);
+	emitlbl(lfit);
+	maxv = vtmp(l.cls, ty);
+	fprintf(outf, "\t%s =%c copy %" PRId64 "\n", maxv.text, l.cls, max);
+	lim = vtmp(l.cls, ty);
+	/* max is nonnegative; logical shr matches arithmetic here. */
+	fprintf(outf, "\t%s =%c shr %s, %s\n", lim.text, l.cls, maxv.text, r.text);
+	flag = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w csgt%c %s, %s\n", flag.text, l.cls, l.text, lim.text);
 	emitjnz(flag.text, ltrap, lok);
 	emitlbl(ltrap);
 	emit_shift_fail(c, sp, lok);
@@ -1812,7 +1833,7 @@ emitexpr_assign(Compiler* c, Node* n) {
 		if (n->op == PnShlEq || n->op == PnShrEq)
 			r = mask_shift_count(c, r, n->a->type);
 		if (n->op == PnShlEq)
-			emit_shl_neg_check(c, l, n->a->type, n->span);
+			emit_shl_check(c, l, r, n->a->type, n->span);
 		if (n->op == PnSlashEq || n->op == PnPercentEq)
 			emit_div_check(c, l, r, n->a->type, n->span);
 		if ((n->op == PnPlusEq || n->op == PnMinusEq || n->op == PnStarEq) &&
@@ -2589,7 +2610,7 @@ emitexpr_bin(Compiler* c, Node* n) {
 	if (n->op == PnShl || n->op == PnShr)
 		r = mask_shift_count(c, r, n->type);
 	if (n->op == PnShl)
-		emit_shl_neg_check(c, l, n->type, n->span);
+		emit_shl_check(c, l, r, n->type, n->span);
 	if (n->op == PnSlash || n->op == PnPercent)
 		emit_div_check(c, l, r, n->type, n->span);
 	if ((n->op == PnPlus || n->op == PnMinus || n->op == PnStar) &&

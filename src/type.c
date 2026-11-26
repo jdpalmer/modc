@@ -1588,19 +1588,6 @@ check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count) {
 			 (int64_t)v, bits);
 }
 
-/* C UB: left shift of a negative signed value. */
-static void
-check_shift_neg_lhs(Compiler* c, Span sp, Type* lhs_ty, Node* lhs) {
-	int64_t v;
-
-	if (lhs == NULL || lhs_ty == NULL || !is_signed_int(lhs_ty))
-		return;
-	if (!eval_const(c, lhs, &v))
-		return;
-	if (v < 0)
-		error_at(c, sp, "left shift of a negative value");
-}
-
 /* Signed min/max for ty (after promote); 0 if not a signed integer type. */
 static int
 signed_type_bounds(Compiler* c, Type* ty, int64_t* min, int64_t* max) {
@@ -1621,6 +1608,36 @@ signed_type_bounds(Compiler* c, Type* ty, int64_t* min, int64_t* max) {
 		*min = -*max - 1;
 	}
 	return 1;
+}
+
+/*
+ * C UB for signed <<: negative LHS, or nonnegative LHS whose value<<count
+ * is not representable in the result type.
+ */
+static void
+check_signed_shl(Compiler* c, Span sp, Type* lhs_ty, Node* lhs, Node* count) {
+	int64_t a, b, min, max;
+	int bits;
+	Type* pt;
+
+	if (lhs == NULL || lhs_ty == NULL || !is_signed_int(lhs_ty))
+		return;
+	if (!eval_const(c, lhs, &a))
+		return;
+	if (a < 0) {
+		error_at(c, sp, "left shift of a negative value");
+		return;
+	}
+	if (count == NULL || !eval_const(c, count, &b))
+		return;
+	if (!signed_type_bounds(c, lhs_ty, &min, &max))
+		return;
+	pt = promote(c, lhs_ty);
+	bits = type_size(c, pt) * 8;
+	if (bits <= 0 || b < 0 || b >= (int64_t)bits)
+		return; /* count diagnostic already */
+	if (a > (max >> b))
+		error_at(c, sp, "left shift overflow");
 }
 
 static int
@@ -2142,12 +2159,28 @@ eval_rec(Compiler* c, Node* n, int64_t* out) {
 		case PnCaret:
 			*out = a ^ b;
 			return 1;
-		case PnShl:
-			/* C UB: negative signed LHS; also avoid host UB when folding. */
+		case PnShl: {
+			int64_t min, max;
+			int bits;
+			Type* ty;
+
+			/* C UB: negative LHS or unrepresentable result; avoid host UB. */
 			if (a < 0)
+				return 0;
+			ty = n->type;
+			if (ty == NULL || !is_signed_int(ty))
+				ty = n->a ? n->a->type : NULL;
+			if (ty && is_signed_int(ty) && signed_type_bounds(c, ty, &min, &max)) {
+				bits = type_size(c, promote(c, ty)) * 8;
+				if (bits <= 0 || b < 0 || b >= (int64_t)bits)
+					return 0;
+				if (a > (max >> b))
+					return 0;
+			} else if (b < 0 || b >= 63)
 				return 0;
 			*out = a << b;
 			return 1;
+		}
 		case PnShr:
 			*out = a >> b;
 			return 1;
@@ -3452,7 +3485,7 @@ type_expr_bin(Compiler* c, Node* n) {
 		if (n->type == NULL && valid) {
 			check_shift_count(c, n->span, lt, n->b);
 			if (n->op == PnShl)
-				check_shift_neg_lhs(c, n->span, lt, n->a);
+				check_signed_shl(c, n->span, lt, n->a, n->b);
 		}
 		n->type = valid ? promote(c, lt) : c->types.type_error;
 	} else {
@@ -3559,7 +3592,7 @@ type_expr_assign(Compiler* c, Node* n) {
 	if (shift_chk) {
 		check_shift_count(c, n->span, n->a ? n->a->type : NULL, n->b);
 		if (n->op == PnShlEq)
-			check_shift_neg_lhs(c, n->span, n->a ? n->a->type : NULL, n->a);
+			check_signed_shl(c, n->span, n->a ? n->a->type : NULL, n->a, n->b);
 	}
 	if (div_chk)
 		check_div_op(c, n->span, n->a ? n->a->type : NULL, n->a, n->b);

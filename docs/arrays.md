@@ -137,9 +137,10 @@ package (message, cleanups, abort). Pass `--release` to omit them (production):
   complement). Unsigned arithmetic already wraps and is not trapped
 - `copy(dst, src)` — require `len(src) <= len(dst)` (`__modc_bounds_fail`);
   soft-fails (false, no write) under `--release`
-- signed `<<` — trap when the left operand is negative (`__modc_shift_fail`);
-  constant cases are a compile-time error. Shift counts are still masked to
-  the type width; `--release` omits the negative-LHS trap
+- signed `<<` — trap when the left operand is negative or the shifted result
+  is not representable (`__modc_shift_fail`); constant cases are compile-time
+  errors. Shift counts are still masked to the type width; `--release` omits
+  the traps
 
 In `.mc` sources, indexing a raw `T*` (or open `T[]`) is a compile-time error;
 use `T[N]`, `T[..]`, or `ranged(p, n)` first. Forming `*(p + i)` / `*(i + p)`

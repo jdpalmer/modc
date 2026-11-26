@@ -306,11 +306,11 @@ void __modc_overflow_fail(const char* file, int line) {
 void __modc_shift_fail(const char* file, int line) {
 	if (crash_reporting == 0) {
 		char buf[CrashMsgCap] = { 0 };
-		int n = snprintf(buf, CrashMsgCap, "left shift of a negative value\n");
+		int n = snprintf(buf, CrashMsgCap, "signed left shift overflow\n");
 		crash_reporting = 1;
 		crash_run_cleanups();
 		if (file != NULL && *file != 0 && line > 0) {
-			n = snprintf(buf, CrashMsgCap, "%s:%d: left shift of a negative value\n",
+			n = snprintf(buf, CrashMsgCap, "%s:%d: signed left shift overflow\n",
 				     file, line);
 		}
 		if (n > 0) {
