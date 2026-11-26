@@ -40,7 +40,7 @@
 
 * **Common C antipatterns are rejected in user code** including pointer-primitive unions, unions that overlay structs, `void *` arithmetic, implicit narrowing, unrelated pointer conversions, unsequenced `i = i++`, assignments in conditionals, and other classic C traps
 
-* **Defined behavior** for things that are often undefined in standard C (including `char`'s definition as an unsigned value and widths for numeric types)
+* **Defined behavior** for things that are often undefined in standard C (including `char`'s definition as an unsigned value, widths for numeric types, and signed overflow: trap by default, two’s-complement wrap with `--release`)
 
 * **Ranged arrays** that provide typed pointer/length views (subrange + ranged iteration)
 

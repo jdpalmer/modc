@@ -3,7 +3,8 @@
 // crash_init registers an optional cleanup (e.g. tty restore) and installs
 // cross-platform fault handlers. panic / __modc_* / fault signals: run cleanups
 // LIFO, write a one-line stderr message, then abort (or re-raise the fault).
-// Runtime checks (default; omit with --release) and <assert.h> share this path.
+// Runtime checks — bounds, null recv, size, div, signed overflow (default;
+// omit with --release) — and <assert.h> share this path.
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -280,6 +281,53 @@ void __modc_div_fail(const char* file, int line) {
 		}
 	}
 	crash_die();
+}
+
+void __modc_overflow_fail(const char* file, int line) {
+	if (crash_reporting == 0) {
+		char buf[CrashMsgCap] = { 0 };
+		int n = snprintf(buf, CrashMsgCap, "signed integer overflow\n");
+		crash_reporting = 1;
+		crash_run_cleanups();
+		if (file != NULL && *file != 0 && line > 0) {
+			n = snprintf(buf, CrashMsgCap, "%s:%d: signed integer overflow\n", file,
+				     line);
+		}
+		if (n > 0) {
+			if (n >= CrashMsgCap) {
+				n = CrashMsgCap - 1;
+			}
+			crash_write(buf, n);
+		}
+	}
+	crash_die();
+}
+
+/* 1 if a*b overflows int64_t. Used by the emitter for 64-bit signed mul checks.
+ * Avoid INT64_* macros: hermetic stdint uses rejected ll suffixes in .mc. */
+int __modc_i64_mul_ovf(int64_t a, int64_t b) {
+	int64_t imax = 9223372036854775807L;
+	int64_t imin = -imax - 1;
+
+	if (a == 0 || b == 0) {
+		return 0;
+	}
+	if (a == -1) {
+		return b == imin;
+	}
+	if (b == -1) {
+		return a == imin;
+	}
+	if (a > 0) {
+		if (b > 0) {
+			return a > imax / b;
+		}
+		return b < imin / a;
+	}
+	if (b > 0) {
+		return a < imin / b;
+	}
+	return b < imax / a;
 }
 
 void __modc_assert_fail(const char* file, int line, const char* expr) {

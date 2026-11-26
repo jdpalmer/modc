@@ -117,6 +117,9 @@ check: $(MODC)
 	$(call expect_abort,size_overflow_oob,size_overflow_oob.mc,size: count)
 	$(call expect_abort,div_zero_oob,div_zero_oob.mc,division by zero or overflow)
 	$(call expect_abort,div_min_neg1_oob,div_min_neg1_oob.mc,division by zero or overflow)
+	$(call expect_abort,overflow_add_oob,overflow_add_oob.mc,signed integer overflow)
+	$(call expect_abort,overflow_mul_oob,overflow_mul_oob.mc,signed integer overflow)
+	$(call expect_abort,overflow_neg_oob,overflow_neg_oob.mc,signed integer overflow)
 	# --release omits traps (null recv should not print the checked message)
 	./modc build --release -o $(BUILD)/null_recv_release test/null_recv_oob.mc
 	@$(BUILD)/null_recv_release >$(BUILD)/null_recv_release.out 2>$(BUILD)/null_recv_release.err; test $$? -ne 0
@@ -129,6 +132,12 @@ check: $(MODC)
 	./modc build --release -o $(BUILD)/div_zero_release test/div_zero_oob.mc
 	@$(BUILD)/div_zero_release >$(BUILD)/div_zero_release.out 2>$(BUILD)/div_zero_release.err; \
 		! grep -q 'division by zero or overflow' $(BUILD)/div_zero_release.err
+	# --release: signed overflow wraps (two's complement), no overflow message
+	./modc build --release -o $(BUILD)/overflow_add_release test/overflow_add_oob.mc
+	@$(BUILD)/overflow_add_release >$(BUILD)/overflow_add_release.out 2>$(BUILD)/overflow_add_release.err; \
+		test $$? -eq 0
+	@! grep -q 'signed integer overflow' $(BUILD)/overflow_add_release.err
+	@grep -q 'wrapped' $(BUILD)/overflow_add_release.out
 	$(call expect_abort,crash_panic,crash_panic_die.mc,)
 	$(call expect_abort,crash_cleanup,crash_cleanup_die.mc,cleaned|after-cleanup)
 	$(call expect_abort,crash_signal,crash_signal_die.mc,cleaned|crash: SIGSEGV)

@@ -1588,20 +1588,120 @@ check_shift_count(Compiler* c, Span sp, Type* lhs, Node* count) {
 			 (int64_t)v, bits);
 }
 
-/* Signed minimum for ty (after promote); 0 if not a signed integer type. */
+/* Signed min/max for ty (after promote); 0 if not a signed integer type. */
 static int
-signed_type_min(Compiler* c, Type* ty, int64_t* out) {
+signed_type_bounds(Compiler* c, Type* ty, int64_t* min, int64_t* max) {
 	int bits;
 	Type* pt;
 
-	if (out == NULL || ty == NULL || !is_signed_int(ty))
+	if (min == NULL || max == NULL || ty == NULL || !is_signed_int(ty))
 		return 0;
 	pt = promote(c, ty);
 	bits = type_size(c, pt) * 8;
 	if (bits <= 0 || bits > 64)
 		return 0;
-	*out = (bits == 64) ? INT64_MIN : -(int64_t)(UINT64_C(1) << (bits - 1));
+	if (bits == 64) {
+		*min = INT64_MIN;
+		*max = INT64_MAX;
+	} else {
+		*max = (int64_t)((UINT64_C(1) << (bits - 1)) - 1);
+		*min = -*max - 1;
+	}
 	return 1;
+}
+
+static int
+signed_type_min(Compiler* c, Type* ty, int64_t* out) {
+	int64_t max;
+
+	return signed_type_bounds(c, ty, out, &max);
+}
+
+/* 1 if signed op overflows; on success stores the mathematical result in *out. */
+static int
+signed_binop_ovf(int op, int64_t a, int64_t b, int64_t min, int64_t max, int64_t* out) {
+	if (out == NULL)
+		return 1;
+	switch (op) {
+	case PnPlus:
+		if (b > 0 && a > max - b)
+			return 1;
+		if (b < 0 && a < min - b)
+			return 1;
+		*out = a + b;
+		return 0;
+	case PnMinus:
+		if (b > 0 && a < min + b)
+			return 1;
+		if (b < 0 && a > max + b)
+			return 1;
+		*out = a - b;
+		return 0;
+	case PnStar:
+		if (a == 0 || b == 0) {
+			*out = 0;
+			return 0;
+		}
+		if (a == -1) {
+			if (b == min)
+				return 1;
+			*out = -b;
+			return 0;
+		}
+		if (b == -1) {
+			if (a == min)
+				return 1;
+			*out = -a;
+			return 0;
+		}
+		if (a > 0) {
+			if (b > 0) {
+				if (a > max / b)
+					return 1;
+			} else if (b < min / a)
+				return 1;
+		} else {
+			if (b > 0) {
+				if (a < min / b)
+					return 1;
+			} else if (b < max / a)
+				return 1;
+		}
+		*out = a * b;
+		return 0;
+	default:
+		return 1;
+	}
+}
+
+/*
+ * Constant signed + - * overflow is an error (C undefined). Unsigned wrap and
+ * float arithmetic are not diagnosed here.
+ */
+static void
+check_signed_ovf_bin(Compiler* c, Span sp, int op, Type* ty, Node* lhs, Node* rhs) {
+	int64_t a, b, min, max, r;
+
+	if (lhs == NULL || rhs == NULL || ty == NULL || !is_signed_int(ty))
+		return;
+	if (!signed_type_bounds(c, ty, &min, &max))
+		return;
+	if (!eval_const(c, lhs, &a) || !eval_const(c, rhs, &b))
+		return;
+	if (signed_binop_ovf(op, a, b, min, max, &r))
+		error_at(c, sp, "signed integer overflow");
+}
+
+static void
+check_signed_ovf_neg(Compiler* c, Span sp, Type* ty, Node* operand) {
+	int64_t a, min;
+
+	if (operand == NULL || ty == NULL || !is_signed_int(ty))
+		return;
+	if (!eval_const(c, operand, &a))
+		return;
+	if (signed_type_min(c, ty, &min) && a == min)
+		error_at(c, sp, "signed integer overflow");
 }
 
 /*
@@ -1963,9 +2063,18 @@ eval_rec(Compiler* c, Node* n, int64_t* out) {
 		case PnPlus:
 			*out = a;
 			return 1;
-		case PnMinus:
+		case PnMinus: {
+			int64_t min = INT64_MIN;
+
+			if (n->type && is_signed_int(n->type))
+				(void)signed_type_min(c, n->type, &min);
+			else if (n->a && n->a->type && is_signed_int(n->a->type))
+				(void)signed_type_min(c, n->a->type, &min);
+			if (a == min)
+				return 0;
 			*out = -a;
 			return 1;
+		}
 		case PnTilde:
 			*out = ~a;
 			return 1;
@@ -1980,14 +2089,19 @@ eval_rec(Compiler* c, Node* n, int64_t* out) {
 			return 0;
 		switch (n->op) {
 		case PnPlus:
-			*out = a + b;
-			return 1;
 		case PnMinus:
-			*out = a - b;
+		case PnStar: {
+			int64_t min = INT64_MIN, max = INT64_MAX, r;
+
+			if (n->type && is_signed_int(n->type))
+				(void)signed_type_bounds(c, n->type, &min, &max);
+			else if (n->a && n->a->type && is_signed_int(n->a->type))
+				(void)signed_type_bounds(c, n->a->type, &min, &max);
+			if (signed_binop_ovf(n->op, a, b, min, max, &r))
+				return 0;
+			*out = r;
 			return 1;
-		case PnStar:
-			*out = a * b;
-			return 1;
+		}
 		case PnSlash:
 		case PnPercent: {
 			int64_t min;
@@ -3221,9 +3335,11 @@ type_expr_bin(Compiler* c, Node* n) {
 			if (n->type == NULL)
 				reject_void_ptr_arith(c, n->span, rt);
 			n->type = rt;
-		} else if (is_arith(lt) && is_arith(rt))
+		} else if (is_arith(lt) && is_arith(rt)) {
 			n->type = usual_arith(c, lt, rt);
-		else {
+			if (enum_chk)
+				check_signed_ovf_bin(c, n->span, PnPlus, n->type, n->a, n->b);
+		} else {
 			valid = 0;
 			n->type = c->types.type_error;
 		}
@@ -3238,9 +3354,11 @@ type_expr_bin(Compiler* c, Node* n) {
 			if (n->type == NULL)
 				reject_void_ptr_arith(c, n->span, lt);
 			n->type = lt;
-		} else if (is_arith(lt) && is_arith(rt))
+		} else if (is_arith(lt) && is_arith(rt)) {
 			n->type = usual_arith(c, lt, rt);
-		else {
+			if (enum_chk)
+				check_signed_ovf_bin(c, n->span, PnMinus, n->type, n->a, n->b);
+		} else {
 			valid = 0;
 			n->type = c->types.type_error;
 		}
@@ -3249,6 +3367,8 @@ type_expr_bin(Compiler* c, Node* n) {
 		n->type = valid ? usual_arith(c, lt, rt) : c->types.type_error;
 		if (enum_chk && valid && n->op == PnSlash)
 			check_div_op(c, n->span, n->type, n->a, n->b);
+		if (enum_chk && valid && n->op == PnStar)
+			check_signed_ovf_bin(c, n->span, PnStar, n->type, n->a, n->b);
 	} else if (n->op == PnPercent || n->op == PnAmp ||
 		   n->op == PnPipe || n->op == PnCaret) {
 		valid = is_int(lt) && is_int(rt);
@@ -3378,6 +3498,13 @@ type_expr_assign(Compiler* c, Node* n) {
 		check_shift_count(c, n->span, n->a ? n->a->type : NULL, n->b);
 	if (div_chk)
 		check_div_op(c, n->span, n->a ? n->a->type : NULL, n->a, n->b);
+	if (enum_chk && n->a && n->b &&
+	    (n->op == PnPlusEq || n->op == PnMinusEq || n->op == PnStarEq)) {
+		int bop = n->op == PnPlusEq ? PnPlus :
+			  n->op == PnMinusEq ? PnMinus : PnStar;
+
+		check_signed_ovf_bin(c, n->span, bop, n->a->type, n->a, n->b);
+	}
 	return n;
 }
 
@@ -3564,6 +3691,8 @@ Node* type_expr(Compiler* c, Node* n) {
 			return type_poison(c, n);
 		}
 		n->type = n->a ? promote(c, n->a->type) : c->types.type_error;
+		if (nk && n->op == PnMinus)
+			check_signed_ovf_neg(c, n->span, n->type, n->a);
 		return n;
 	case NdPost:
 		n->a = type_expr(c, n->a);

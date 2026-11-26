@@ -467,11 +467,11 @@ with `(int)len(slice)` and `ptr(slice)`.
 
 See [arrays.md](arrays.md) and [interop.md](interop.md).
 
-### Runtime checks (bounds, null receivers, size overflow, division)
+### Runtime checks (bounds, null receivers, size, division, signed overflow)
 
 Compile-time contracts catch ownership and escape mistakes. Runtime traps
-catch indexing, method-call, allocation-size, and integer-division bugs unless
-you pass `--release`:
+catch indexing, method-call, allocation-size, integer-division, and signed
+overflow bugs unless you pass `--release`:
 
 - **Bounds:** `s[i]` and `s[lo..hi]` on `T[..]` / `T[N]` check against the
   length and trap on overflow (`__modc_bounds_fail`).
@@ -486,6 +486,10 @@ you pass `--release`:
 - **Integer division:** `/`, `%`, `/=`, and `%=` trap on a zero divisor or
   signed `MIN / -1` (`__modc_div_fail`). Constant `/0`, `%0`, and `MIN/-1` are
   compile-time errors. Floating-point `/` follows IEEE and is not trapped.
+- **Signed overflow:** `+`, `-`, `*`, unary `-`, `++`/`--`, and matching
+  compound assigns trap on overflow (`__modc_overflow_fail`). Constant
+  overflow is a compile-time error. With `--release`, signed overflow wraps
+  (two’s complement). Unsigned wrap is defined and unchecked.
 
 ```c
 void (File* f).close() {

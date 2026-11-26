@@ -1005,6 +1005,44 @@ emit_div_fail(Compiler* c, Span sp, int lok) {
 	emitlbl(lok);
 }
 
+// Call __modc_overflow_fail(file, line) then continue at lok.
+static void
+emit_overflow_fail(Compiler* c, Span sp, int lok) {
+	Val fp;
+
+	fp = emit_span_file_ptr(c, sp);
+	fprintf(outf, "\tcall $__modc_overflow_fail(l %s, w %d)\n",
+		fp.text, sp.line > 0 ? sp.line : 0);
+	emitjmp(lok);
+	emitlbl(lok);
+}
+
+/* Trap when flag (w) is nonzero. */
+static void
+emit_trap_if(Compiler* c, Val flag, Span sp) {
+	int lok, ltrap;
+
+	lok = newlbl();
+	ltrap = newlbl();
+	emitjnz(flag.text, ltrap, lok);
+	emitlbl(ltrap);
+	emit_overflow_fail(c, sp, lok);
+}
+
+/*
+ * True when runtime signed-overflow checks apply: runtime_check on, signed
+ * integer (not unsigned/char), QBE w/l class.
+ */
+static int
+signed_ovf_active(Compiler* c, Type* ty) {
+	Type* pt;
+
+	if (!c->opt.runtime_check || ty == NULL || !is_int(ty) || ty->is_unsigned)
+		return 0;
+	pt = promote(c, ty);
+	return type_size(c, pt) * 8 > 0;
+}
+
 /*
  * Trap on integer /0 and signed MIN/-1 before div/rem.
  * Omitted when !runtime_check (--release). Floats are unchecked (IEEE).
@@ -1048,6 +1086,107 @@ emit_div_check(Compiler* c, Val l, Val r, Type* ty, Span sp) {
 	emitjnz(z.text, ltrap, lok);
 	emitlbl(ltrap);
 	emit_div_fail(c, sp, lok);
+}
+
+/*
+ * After wrapping signed add/sub: overflow iff ((res^a) & (res^b)) < 0 for add,
+ * or ((a^b) & (a^res)) < 0 for sub (Hacker's Delight).
+ */
+static void
+emit_signed_addsub_ovf(Compiler* c, int is_sub, Val a, Val b, Val res, Span sp) {
+	Val t1, t2, both, flag;
+
+	t1 = vtmp(res.cls, NULL);
+	t2 = vtmp(res.cls, NULL);
+	both = vtmp(res.cls, NULL);
+	flag = vtmp('w', NULL);
+	if (is_sub) {
+		fprintf(outf, "\t%s =%c xor %s, %s\n", t1.text, res.cls, a.text, b.text);
+		fprintf(outf, "\t%s =%c xor %s, %s\n", t2.text, res.cls, a.text, res.text);
+	} else {
+		fprintf(outf, "\t%s =%c xor %s, %s\n", t1.text, res.cls, res.text, a.text);
+		fprintf(outf, "\t%s =%c xor %s, %s\n", t2.text, res.cls, res.text, b.text);
+	}
+	fprintf(outf, "\t%s =%c and %s, %s\n", both.text, res.cls, t1.text, t2.text);
+	fprintf(outf, "\t%s =w cslt%c %s, 0\n", flag.text, res.cls, both.text);
+	emit_trap_if(c, flag, sp);
+}
+
+/* Unary -: trap when operand is signed MIN. */
+static void
+emit_signed_neg_ovf(Compiler* c, Val a, Type* ty, Span sp) {
+	Val flag;
+	int64_t min;
+	Type* pt;
+	int bits;
+
+	if (!signed_ovf_active(c, ty))
+		return;
+	pt = promote(c, ty);
+	bits = type_size(c, pt) * 8;
+	min = (bits == 64) ? INT64_MIN : -(int64_t)(UINT64_C(1) << (bits - 1));
+	flag = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w ceq%c %s, %" PRId64 "\n", flag.text, a.cls, a.text, min);
+	emit_trap_if(c, flag, sp);
+}
+
+/*
+ * Signed mul overflow: widen 32-bit to 64-bit; for 64-bit ask crash helper.
+ * Returns the product Val (narrowed).
+ */
+static Val
+emit_signed_mul_checked(Compiler* c, Val l, Val r, Type* ty, Span sp) {
+	Val v, al, bl, prod, narrow, wide, flag;
+	Type* pt;
+	int bits;
+
+	pt = promote(c, ty);
+	bits = type_size(c, pt) * 8;
+	v = vtmp(l.cls, ty);
+	if (!signed_ovf_active(c, ty)) {
+		fprintf(outf, "\t%s =%c mul %s, %s\n", v.text, l.cls, l.text, r.text);
+		return v;
+	}
+	if (bits <= 32 && l.cls == 'w') {
+		al = vtmp('l', c->types.type_llong);
+		bl = vtmp('l', c->types.type_llong);
+		prod = vtmp('l', c->types.type_llong);
+		narrow = vtmp('w', ty);
+		wide = vtmp('l', c->types.type_llong);
+		flag = vtmp('w', NULL);
+		fprintf(outf, "\t%s =l extsw %s\n", al.text, l.text);
+		fprintf(outf, "\t%s =l extsw %s\n", bl.text, r.text);
+		fprintf(outf, "\t%s =l mul %s, %s\n", prod.text, al.text, bl.text);
+		fprintf(outf, "\t%s =w copy %s\n", narrow.text, prod.text);
+		fprintf(outf, "\t%s =l extsw %s\n", wide.text, narrow.text);
+		fprintf(outf, "\t%s =w cnel %s, %s\n", flag.text, wide.text, prod.text);
+		emit_trap_if(c, flag, sp);
+		fprintf(outf, "\t%s =w copy %s\n", v.text, narrow.text);
+		return v;
+	}
+	/* 64-bit (or long class): helper returns 1 if overflow. */
+	flag = vtmp('w', NULL);
+	fprintf(outf, "\t%s =w call $__modc_i64_mul_ovf(l %s, l %s)\n",
+		flag.text, l.text, r.text);
+	emit_trap_if(c, flag, sp);
+	fprintf(outf, "\t%s =%c mul %s, %s\n", v.text, l.cls, l.text, r.text);
+	return v;
+}
+
+/* After add/sub/mul of signed ints: trap on overflow (omit --release). */
+static Val
+emit_signed_arith(Compiler* c, int op, Val l, Val r, Type* ty, Span sp) {
+	Val v;
+
+	if (op == PnStar || op == PnStarEq)
+		return emit_signed_mul_checked(c, l, r, ty, sp);
+	v = vtmp(l.cls, ty);
+	fprintf(outf, "\t%s =%c %s %s, %s\n",
+		v.text, l.cls, (op == PnMinus || op == PnMinusEq) ? "sub" : "add",
+		l.text, r.text);
+	if (signed_ovf_active(c, ty))
+		emit_signed_addsub_ovf(c, op == PnMinus || op == PnMinusEq, l, r, v, sp);
+	return v;
 }
 
 /* Under runtime checks: trap if a method's pointer receiver is null. */
@@ -1551,9 +1690,16 @@ emitinc(Compiler* c, Node* n, int pre, int plus) {
 	}
 	cur = vtmp(qbe_class(t), t);
 	fprintf(outf, "\t%s =%c %s %s\n", cur.text, cur.cls, loadop(t), addr.text);
-	neu = vtmp(cur.cls, t);
-	fprintf(outf, "\t%s =%c %s %s, %d\n",
-		neu.text, cur.cls, plus ? "add" : "sub", cur.text, step);
+	if (t && is_int(t) && !t->is_unsigned && !is_ptr(t) && step == 1) {
+		Val one;
+
+		one = vimm(cur.cls, 1, t);
+		neu = emit_signed_arith(c, plus ? PnPlus : PnMinus, cur, one, t, n->span);
+	} else {
+		neu = vtmp(cur.cls, t);
+		fprintf(outf, "\t%s =%c %s %s, %d\n",
+			neu.text, cur.cls, plus ? "add" : "sub", cur.text, step);
+	}
 	fprintf(outf, "\t%s %s, %s\n", storeop(c, t), neu.text, addr.text);
 	return pre ? neu : cur;
 }
@@ -1638,8 +1784,14 @@ emitexpr_assign(Compiler* c, Node* n) {
 			r = mask_shift_count(c, r, n->a->type);
 		if (n->op == PnSlashEq || n->op == PnPercentEq)
 			emit_div_check(c, l, r, n->a->type, n->span);
-		v = vtmp(l.cls, n->a->type);
-		fprintf(outf, "\t%s =%c %s %s, %s\n", v.text, l.cls, op, l.text, r.text);
+		if ((n->op == PnPlusEq || n->op == PnMinusEq || n->op == PnStarEq) &&
+		    n->a->type && is_int(n->a->type) && !n->a->type->is_unsigned &&
+		    !is_ptr(n->a->type)) {
+			v = emit_signed_arith(c, n->op, l, r, n->a->type, n->span);
+		} else {
+			v = vtmp(l.cls, n->a->type);
+			fprintf(outf, "\t%s =%c %s %s, %s\n", v.text, l.cls, op, l.text, r.text);
+		}
 		if (v.cls != qbe_class(n->a->type))
 			v = coerce(v, qbe_class(n->a->type), n->a->type);
 		fprintf(outf, "\t%s %s, %s\n", storeop(c, n->a->type), v.text, addr.text);
@@ -2398,6 +2550,10 @@ emitexpr_bin(Compiler* c, Node* n) {
 		r = mask_shift_count(c, r, n->type);
 	if (n->op == PnSlash || n->op == PnPercent)
 		emit_div_check(c, l, r, n->type, n->span);
+	if ((n->op == PnPlus || n->op == PnMinus || n->op == PnStar) &&
+	    n->type && is_int(n->type) && !n->type->is_unsigned) {
+		return emit_signed_arith(c, n->op, l, r, n->type, n->span);
+	}
 	op = qbe_arith_op(n->op, n->type && n->type->is_unsigned);
 	v = vtmp(cls, n->type);
 	fprintf(outf, "\t%s =%c %s %s, %s\n", v.text, cls, op, l.text, r.text);
@@ -2727,10 +2883,14 @@ emitexpr(Compiler* c, Node* n) {
 		}
 		if (n->op == PnPlus)
 			return l;
-		v = vtmp(l.cls, n->type);
-		if (n->op == PnMinus)
+		if (n->op == PnMinus) {
+			emit_signed_neg_ovf(c, l, n->type, n->span);
+			v = vtmp(l.cls, n->type);
 			fprintf(outf, "\t%s =%c sub 0, %s\n", v.text, l.cls, l.text);
-		else if (n->op == PnTilde)
+			return v;
+		}
+		v = vtmp(l.cls, n->type);
+		if (n->op == PnTilde)
 			fprintf(outf, "\t%s =%c xor %s, -1\n", v.text, l.cls, l.text);
 		else
 			return l;

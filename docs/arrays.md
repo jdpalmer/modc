@@ -129,6 +129,10 @@ package (message, cleanups, abort). Pass `--release` to omit them (production):
 - integer `/` and `%` (and `/=` / `%=`) — trap on a zero divisor or signed
   `MIN / -1` (`__modc_div_fail`); constant cases are a compile-time error.
   Floating-point division is unchecked (IEEE)
+- signed `+` `-` `*` and unary `-` (including `++`/`--` and compound assigns) —
+  trap on overflow (`__modc_overflow_fail`); constant overflow is a
+  compile-time error. With `--release`, signed overflow wraps (two’s
+  complement). Unsigned arithmetic already wraps and is not trapped
 
 In `.mc` sources, indexing a raw `T*` (or open `T[]`) is a compile-time error;
 use `T[N]`, `T[..]`, or `ranged(p, n)` first. Forming `*(p + i)` / `*(i + p)`
