@@ -139,7 +139,8 @@ static const LangTopic topics[] = {
 		"  • live T* / T[..]*: entry inserts a null trap (--release omits); T[..] by value has none\n"
 		"  • any package may extend a visible type; import the defining package to call\n"
 		"  • duplicate (recv, name, params) is an error; same name may overload on params\n"
-		"  • free functions still need overload; methods resolve like free overloads + embeds\n"
+		"  • free functions: at most one unmarked (C ABI) + overload extras; &f needs a typed fnptr\n"
+		"  • methods resolve like free overloads + embeds\n"
 		"\n"
 		"See also: auto, import, const\n"
 	},

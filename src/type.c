@@ -1429,11 +1429,44 @@ maybe_ranged_cast_ptr(Compiler* c, Type* dst, Node* src) {
 	return d;
 }
 
+/*
+ * When src is an overloaded function name or &name, rebind to the candidate
+ * whose type exactly matches dst (function or pointer-to-function), like C++
+ * [over.over]. Non-fnptr destinations with multiple candidates error.
+ */
+static Node*
+maybe_resolve_overload_value(Compiler* c, Type* dst, Node* src) {
+	Node* name;
+	Symbol* s;
+
+	if (c == NULL || src == NULL)
+		return src;
+	if (src->kind == NdAddr && src->a && src->a->kind == NdName)
+		name = src->a;
+	else if (src->kind == NdName)
+		name = src;
+	else
+		return src;
+	if (name->s == NULL || !symbol_has_overload(c, name->s))
+		return src;
+	s = symbol_resolve_overload_addr(c, name->s, dst, src->span);
+	if (s == NULL)
+		return src;
+	name->symbol = s;
+	name->type = s->type;
+	if (src->kind == NdAddr)
+		src->type = type_ptr(c, s->type);
+	else
+		src->type = s->type;
+	return src;
+}
+
 // Run embed and ranged rewrite passes before assignment or argument checking.
 static Node*
 apply_implicit_conversions_impl(Compiler* c, Type* dst, Node* src, int check_cast) {
 	if (dst == NULL || src == NULL)
 		return src;
+	src = maybe_resolve_overload_value(c, dst, src);
 	if (check_cast)
 		check_unnecessary_cast(c, dst, src);
 	src = maybe_embed_deref_project(c, dst, src);

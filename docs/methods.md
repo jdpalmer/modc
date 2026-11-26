@@ -17,7 +17,13 @@ int a = max(1, 2);
 float f = max(1.0f, 2.0f);
 ```
 
-This mechanism keeps C semantics rather than C++ complexity. There are no templates, default arguments, operator overloading, or Argument-Dependent Lookup (ADL). Only functions marked with `overload` are name-mangled. Unmarked free functions keep their source names as linker symbols, ensuring stable C entry points and standard library functions like `sin` remain unmangled. The `overload` keyword also defines custom iterator hooks for range-for loops.
+This mechanism keeps C semantics rather than C++ complexity. There are no templates, default arguments, operator overloading, or Argument-Dependent Lookup (ADL). Only functions marked with `overload` are name-mangled. Unmarked free functions keep their source names as linker symbols, ensuring stable C entry points and standard library functions like `sin` remain unmangled.
+
+**Mixing with a C ABI entry:** a name may have **at most one** unmarked declaration (the unmangled linker symbol) plus any number of `overload` declarations with **different** parameter lists. Calls resolve across the whole set (unmarked + overloads). An `overload` that repeats the unmarked parameter list is an error.
+
+**Address-of:** `&f` / decaying `f` to a function pointer uses the target type (init, assignment, argument, return, cast) and requires an **exact** function-type match, like C++ `[over.over]`. With more than one candidate, an untyped context (`void *p = &f`) is an error — declaration order must not pick a winner.
+
+The `overload` keyword also defines custom iterator hooks for range-for loops.
 
 ## Methods and Receiver Syntax
 

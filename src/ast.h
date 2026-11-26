@@ -857,6 +857,7 @@ Symbol* symbol_find_method(Compiler* c, Type* recv, const char* recv_tag, const 
 Symbol* symbol_resolve_method_call(Compiler* c, Type* recv_ty, const char* method, Node** args, int args_len, Span sp);
 int symbol_has_overload(Compiler* c, const char* name);
 Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int args_len, Span sp);
+Symbol* symbol_resolve_overload_addr(Compiler* c, const char* name, Type* target, Span sp);
 Symbol* symbol_resolve_range_count(Compiler* c, Type* range_ty, Type** elem_out, Span sp);
 Symbol* symbol_resolve_range_at(Compiler* c, Type* range_ty, Type* elem, Span sp);
 void symbol_push_block(Compiler* c);

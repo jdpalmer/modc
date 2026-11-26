@@ -478,12 +478,61 @@ find_func_overload(Compiler* c, const char* name, Type* t) {
 	Symbol* s;
 
 	for (s = c->syms.symbols; s; s = s->next) {
-		if (s->hidden)
+		if (s->hidden || s->dead || s->is_method)
 			continue;
-		if (s->kind == SkFunc && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0 && type_eq(s->type, t))
+		if (s->kind == SkFunc && s->block == 0 && s->is_overload && strcmp(s->name, name) == 0 &&
+		    type_eq(s->type, t) && symbol_visible(c, s))
 			return s;
 	}
 	return NULL;
+}
+
+/* Visible unmarked (C ABI) file-scope free function with this name, if any. */
+static Symbol*
+find_func_unmarked(Compiler* c, const char* name) {
+	Symbol* s;
+
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->hidden || s->dead || s->is_method)
+			continue;
+		if (s->kind == SkFunc && s->block == 0 && !s->is_overload && strcmp(s->name, name) == 0 &&
+		    symbol_visible(c, s))
+			return s;
+	}
+	return NULL;
+}
+
+/* Parameter lists match (arity, varargs, param types); return type ignored. */
+static int
+func_params_eq(Type* a, Type* b) {
+	int i;
+
+	if (a == NULL || b == NULL || !is_func(a) || !is_func(b))
+		return 0;
+	if (a->params_len != b->params_len || a->is_varargs != b->is_varargs)
+		return 0;
+	for (i = 0; i < a->params_len; i++)
+		if (!type_eq(a->params[i], b->params[i]))
+			return 0;
+	return 1;
+}
+
+/* True if any visible overload of name shares this parameter list. */
+static int
+overload_params_taken(Compiler* c, const char* name, Type* t) {
+	Symbol* s;
+
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->hidden || s->dead || s->is_method)
+			continue;
+		if (s->kind != SkFunc || s->block != 0 || !s->is_overload || strcmp(s->name, name) != 0)
+			continue;
+		if (!symbol_visible(c, s))
+			continue;
+		if (func_params_eq(s->type, t))
+			return 1;
+	}
+	return 0;
 }
 
 // True if linkname is already used by another visible symbol.
@@ -509,33 +558,54 @@ set_func_linkname(Compiler* c, Symbol* s, Span sp) {
 }
 
 // Define or extend a function symbol; overloads get mangled linknames.
+// At most one unmarked (C ABI) free function per name; further decls must be
+// overload and must not reuse that parameter list.
 Symbol* symbol_define_func(Compiler* c, const char* name, Type* t, int storage, Span sp, int isoverload) {
-	Symbol *old, *s;
+	Symbol *old, *s, *unmarked;
 
 	if (isoverload && c->syms.block != 0) {
 		error_at(c, sp, "overload functions must have file scope");
 		isoverload = 0;
 	}
 	old = symbol_lookup(c, name);
-	if (old && old->block == c->syms.block) {
-		if (isoverload || old->is_overload) {
-			if (isoverload != old->is_overload) {
-				error_at(c, sp, "cannot mix overload and non-overload declarations of %s", name);
-				return old;
-			}
-			if (isoverload && type_eq(old->type, t)) {
-				old->type = t ? t : old->type;
-				if (storage == StNone && old->storage == StExtern)
-					old->storage = StNone;
-				return old;
-			}
-			if (isoverload) {
-				if (find_func_overload(c, name, t))
-					error_at(c, sp, "duplicate overload of %s", name);
-				goto create;
-			}
+	unmarked = (c->syms.block == 0) ? find_func_unmarked(c, name) : NULL;
+	if (isoverload && c->syms.block == 0) {
+		Symbol* ov;
+
+		if (unmarked && func_params_eq(unmarked->type, t)) {
+			error_at(c, sp,
+				 "overload of %s collides with the unmarked C ABI declaration",
+				 name);
+			return unmarked;
 		}
+		ov = find_func_overload(c, name, t);
+		if (ov) {
+			ov->type = t ? t : ov->type;
+			if (storage == StNone && ov->storage == StExtern)
+				ov->storage = StNone;
+			return ov;
+		}
+		goto create;
+	}
+	if (!isoverload && c->syms.block == 0 && unmarked) {
+		/* Redeclaration of the C ABI entry. */
+		unmarked->type = t ? t : unmarked->type;
+		if (storage == StNone && unmarked->storage == StExtern)
+			unmarked->storage = StNone;
+		return unmarked;
+	}
+	if (!isoverload && c->syms.block == 0 && overload_params_taken(c, name, t)) {
+		error_at(c, sp,
+			 "unmarked %s collides with an existing overload; keep one C ABI entry or use overload",
+			 name);
+		/* Still create so later lookups see something. */
+		goto create;
+	}
+	if (old && old->block == c->syms.block) {
 		if (old->kind == SkFunc) {
+			/* Lookup may return an overload; unmarked creation is above. */
+			if (old->is_overload)
+				goto create;
 			old->type = t ? t : old->type;
 			if (storage == StNone && old->storage == StExtern)
 				old->storage = StNone;
@@ -996,6 +1066,8 @@ overload_score(Compiler* c, Type* fn, Node** args, int args_len) {
 }
 
 // Pick the best overload by score; error on ambiguity or no match.
+// Candidates are all file-scope free functions of this name: unmarked C ABI
+// entry (if any) plus every overload.
 Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int args_len, Span sp) {
 	Symbol *s, *best;
 	int score, bestscore;
@@ -1003,7 +1075,12 @@ Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int 
 	best = NULL;
 	bestscore = -1;
 	for (s = c->syms.symbols; s; s = s->next) {
-		if (s->kind != SkFunc || s->block != 0 || !s->is_overload || strcmp(s->name, name) != 0)
+		if (s->kind != SkFunc || s->block != 0 || s->is_method || s->hidden || s->dead ||
+		    strcmp(s->name, name) != 0)
+			continue;
+		if (!symbol_visible(c, s))
+			continue;
+		if (!s->is_overload && find_func_unmarked(c, name) != s)
 			continue;
 		score = overload_score(c, s->type, args, args_len);
 		if (score < 0)
@@ -1018,6 +1095,84 @@ Symbol* symbol_resolve_overload(Compiler* c, const char* name, Node** args, int 
 	}
 	if (best == NULL)
 		error_at(c, sp, "no matching overload for %s", name);
+	return best;
+}
+
+static int
+func_addr_candidates(Compiler* c, const char* name) {
+	Symbol* s;
+	int n;
+
+	n = 0;
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->kind != SkFunc || s->block != 0 || s->is_method || s->hidden || s->dead ||
+		    strcmp(s->name, name) != 0)
+			continue;
+		if (!symbol_visible(c, s))
+			continue;
+		if (!s->is_overload && find_func_unmarked(c, name) != s)
+			continue;
+		n++;
+	}
+	return n;
+}
+
+/*
+ * Address-of / function-pointer decay for an overloaded name (C++ [over.over]
+ * style): exact function-type match against the target. target may be a
+ * function type or pointer-to-function. No target (or a non-fnptr target)
+ * with more than one candidate is an error.
+ */
+Symbol*
+symbol_resolve_overload_addr(Compiler* c, const char* name, Type* target, Span sp) {
+	Symbol *s, *best, *only;
+	Type* ft;
+	int n;
+
+	ft = target;
+	if (ft && is_ptr(ft) && ft->base && is_func(ft->base))
+		ft = ft->base;
+	if (ft == NULL || !is_func(ft)) {
+		n = func_addr_candidates(c, name);
+		if (n > 1) {
+			error_at(c, sp,
+				 "address of overloaded function %s requires a function pointer type",
+				 name);
+			return NULL;
+		}
+		only = NULL;
+		for (s = c->syms.symbols; s; s = s->next) {
+			if (s->kind != SkFunc || s->block != 0 || s->is_method || s->hidden ||
+			    s->dead || strcmp(s->name, name) != 0)
+				continue;
+			if (!symbol_visible(c, s))
+				continue;
+			if (!s->is_overload && find_func_unmarked(c, name) != s)
+				continue;
+			only = s;
+			break;
+		}
+		return only;
+	}
+	best = NULL;
+	for (s = c->syms.symbols; s; s = s->next) {
+		if (s->kind != SkFunc || s->block != 0 || s->is_method || s->hidden || s->dead ||
+		    strcmp(s->name, name) != 0)
+			continue;
+		if (!symbol_visible(c, s))
+			continue;
+		if (!s->is_overload && find_func_unmarked(c, name) != s)
+			continue;
+		if (!type_eq(s->type, ft))
+			continue;
+		if (best) {
+			error_at(c, sp, "ambiguous address of overloaded function %s", name);
+			return best;
+		}
+		best = s;
+	}
+	if (best == NULL)
+		error_at(c, sp, "no overload of %s matches the target function type", name);
 	return best;
 }
 

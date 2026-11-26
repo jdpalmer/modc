@@ -165,7 +165,7 @@ int a = max(1, 2);
 float f = max(1.0f, 2.0f);
 ```
 
-Ordinary free functions without the `overload` keyword preserve their exact source name as the exported linker symbol. Consequently, functions intended as stable C entry points or ABI boundaries should not be marked `overload` if an unmangled symbol name is required. See [methods.md](methods.md) for further details on method dispatch and symbol visibility.
+Ordinary free functions without the `overload` keyword preserve their exact source name as the exported linker symbol. You may add further `overload` declarations of the same name with different parameter lists; the unmarked entry stays the C ABI symbol. Taking the address of an overloaded name needs a typed function-pointer context. See [methods.md](methods.md).
 
 ### Receiver syntax
 
