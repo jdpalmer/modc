@@ -95,6 +95,8 @@ what `char[..]` already is. Prefer storing `char[..]` in structs when you
 need length-aware text; keep `char *` for foreign NUL C boundaries, then
 convert once with `ranged` / `str_from_cstr`. Heap growth:
 `reserve` / `push` / `append` / `release` (or `str_*` wrappers in `str`).
+Element copy into an existing window: `copy(dst, src)` (requires
+`len(src) <= len(dst)`; traps if not unless `--release`).
 Region lifetimes: `pool p { … }` (auto-free at block end).
 
 ```c
@@ -133,6 +135,8 @@ package (message, cleanups, abort). Pass `--release` to omit them (production):
   trap on overflow (`__modc_overflow_fail`); constant overflow is a
   compile-time error. With `--release`, signed overflow wraps (two’s
   complement). Unsigned arithmetic already wraps and is not trapped
+- `copy(dst, src)` — require `len(src) <= len(dst)` (`__modc_bounds_fail`);
+  soft-fails (false, no write) under `--release`
 
 In `.mc` sources, indexing a raw `T*` (or open `T[]`) is a compile-time error;
 use `T[N]`, `T[..]`, or `ranged(p, n)` first. Forming `*(p + i)` / `*(i + p)`

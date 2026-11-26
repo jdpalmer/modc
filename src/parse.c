@@ -2188,7 +2188,7 @@ parse_primary(Compiler* c) {
 		     strcmp(t->s, "cstr") == 0 ||
 		     strcmp(t->s, "alloc") == 0 || strcmp(t->s, "reserve") == 0 ||
 		     strcmp(t->s, "push") == 0 || strcmp(t->s, "append") == 0 ||
-		     strcmp(t->s, "release") == 0) &&
+		     strcmp(t->s, "release") == 0 || strcmp(t->s, "copy") == 0) &&
 		    at(c, PnLparen)) {
 			s = symbol_lookup(c, t->s);
 			if (s) {

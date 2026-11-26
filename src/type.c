@@ -2852,7 +2852,8 @@ type_expr_call(Compiler* c, Node* n) {
 	/* Heap T[..] builtins — user symbols named the same win (Go-style). */
 	if (bn && !(n->a && n->a->symbol) &&
 	    (strcmp(bn, "reserve") == 0 || strcmp(bn, "push") == 0 ||
-	     strcmp(bn, "append") == 0 || strcmp(bn, "release") == 0)) {
+	     strcmp(bn, "append") == 0 || strcmp(bn, "release") == 0 ||
+	     strcmp(bn, "copy") == 0)) {
 		Node *sarg, *a1, *esz, *nm, *call;
 		Type *st, *et;
 		const char* rt;
@@ -2873,6 +2874,48 @@ type_expr_call(Compiler* c, Node* n) {
 			call = node1(NdCall, n->span, nm);
 			node_add(call, sarg);
 			call->type = c->types.type_void;
+			return call;
+		}
+		if (strcmp(bn, "copy") == 0) {
+			if (n->children_len != 2)
+				error_at(c, n->span,
+					 "copy() takes (T[..] dst, const T[..] src)");
+			sarg = n->children_len > 0 ? n->children[0] : NULL;
+			a1 = n->children_len > 1 ? n->children[1] : NULL;
+			st = sarg ? sarg->type : NULL;
+			if (st && is_ptr(st) && is_ranged(st->base))
+				st = st->base;
+			else if (st && is_array(st) && st->base)
+				sarg = maybe_ranged_conv(c, type_ranged(c, st->base), sarg);
+			st = sarg ? sarg->type : NULL;
+			if (st && is_ptr(st) && is_ranged(st->base))
+				st = st->base;
+			if (!is_ranged(st) || st->base == NULL) {
+				error_at(c, n->span, "copy() requires a T[..] destination");
+				n->type = c->types.type_bool;
+				return n;
+			}
+			if (st->is_readonly) {
+				error_at(c, n->span, "cannot copy into a const T[..]");
+				help_topic(c, "const");
+			}
+			et = st->base;
+			/* Spill header pointer: T[..]* as-is, else &lvalue or by-value spill. */
+			if (sarg && sarg->type && is_ptr(sarg->type) &&
+			    is_ranged(sarg->type->base)) {
+				/* already T[..]* */
+			} else if (sarg && is_ranged(sarg->type) && sarg->is_lvalue) {
+				sarg = node1(NdAddr, n->span, sarg);
+				sarg = type_expr(c, sarg);
+			}
+			a1 = coerce_slice_arg(c, a1, et);
+			esz = mk_size_lit(c, n->span, type_size(c, et));
+			nm = mk_rt_name(n->span, "__modc_copy");
+			call = node1(NdCall, n->span, nm);
+			node_add(call, sarg);
+			node_add(call, esz);
+			node_add(call, a1);
+			call->type = c->types.type_bool;
 			return call;
 		}
 		if (strcmp(bn, "reserve") == 0) {

@@ -551,6 +551,32 @@ bool __modc_append(__modc_slice* s, size_t elemsz, __modc_slice* extra) {
 	return true;
 }
 
+/*
+ * Copy len(src) elements into dst[0..). Requires len(src) <= len(dst).
+ * Soft-fails (false, no write) when too long or null; the emitter traps
+ * len(src) > len(dst) when runtime checks are on.
+ */
+bool __modc_copy(__modc_slice* dst, size_t elemsz, __modc_slice* src) {
+	if (dst == NULL || elemsz == 0) {
+		return false;
+	}
+	size_t n = src ? src.len : 0;
+	if (n == 0) {
+		return true;
+	}
+	if (dst.len < n) {
+		return false;
+	}
+	if (dst.ptr == NULL || src == NULL || src.ptr == NULL) {
+		return false;
+	}
+	if (n > ((size_t)-1) / elemsz) {
+		return false;
+	}
+	memmove(dst.ptr, src.ptr, n * elemsz);
+	return true;
+}
+
 void __modc_release(__modc_slice* s) {
 	if (s == NULL) {
 		return;

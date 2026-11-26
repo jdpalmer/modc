@@ -127,7 +127,9 @@ when you need bounds; use `char *` at foreign NUL boundaries.
 
 **Heap builtins:** `alloc(T)` → `T*`, `alloc(T, n)` → `T[..]` (uninitialized;
 `NULL` / empty on OOM). Mutate in place: `reserve` / `push` / `append` /
-`release` on any `T[..]*`. The `str` package wraps growth as `str_reserve` /
+`release` on any `T[..]*`. Copy into an existing window with
+`copy(dst, src)` (`T[..]` / `T[N]`; requires `len(src) <= len(dst)`, traps if
+not unless `--release`). The `str` package wraps growth as `str_reserve` /
 `str_append` / `str_append_byte` / `str_free` (plus `str_dup`, `str_set`).
 Only `release` / `str_free` headers these created (or that you treat as malloc
 owners) — not literals, subslices, or pool views.

@@ -2303,6 +2303,15 @@ emitexpr_call(Compiler* c, Node* n, Val v) {
 				emit_size_fail(c, newlen, args[1], n->span, lok);
 			}
 			emit_size_mul_check(c, newlen, args[1], n->span);
+		} else if (strcmp(bn, "__modc_copy") == 0 && na >= 3) {
+			Val dlen, slen;
+
+			/* Require len(src) <= len(dst); reuse bounds trap messaging. */
+			dlen = emit_load_slice_len(c, args[0]);
+			slen = emit_load_slice_len(c, args[2]);
+			if (c->opt.runtime_check)
+				emit_ule_bounds(c, slen, dlen, n->span);
+			emit_size_mul_check(c, slen, args[1], n->span);
 		} else if (strcmp(bn, "__modc_pool_copy") == 0 && na >= 4) {
 			Val nlen;
 

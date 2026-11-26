@@ -445,7 +445,7 @@ defer release(&s);
 
 ```c
 write(fd, ptr(s), len(s));
-memcpy(ptr(dst), ptr(src), len(src) * sizeof(dst[0]));
+copy(dst, src); /* requires len(src) <= len(dst); traps if not (omit --release) */
 
 void open_file(const char[..] path) {
 	/* fopen(path, "r");      // Error: char[..] is not const char* */
@@ -459,6 +459,10 @@ void open_file(const char[..] path) {
 	}
 }
 ```
+
+Prefer `copy(dst, src)` over `memcpy(ptr(dst), ptr(src), …)` when both sides are
+`T[..]`: same element type, bounds-checked, overlap-safe (`memmove`). Use
+`ptr` + libc only at a true C boundary.
 
 You still write ordinary calls such as `strlen(s)` or `printf("%s", slice)`;
 the compiler rewrites them to use the length: `strlen` becomes an O(1) `len`
@@ -490,6 +494,8 @@ overflow bugs unless you pass `--release`:
   compound assigns trap on overflow (`__modc_overflow_fail`). Constant
   overflow is a compile-time error. With `--release`, signed overflow wraps
   (two’s complement). Unsigned wrap is defined and unchecked.
+- **`copy(dst, src)`:** requires `len(src) <= len(dst)` (`__modc_bounds_fail`).
+  With `--release`, returns false and does not write.
 
 ```c
 void (File* f).close() {

@@ -120,6 +120,8 @@ check: $(MODC)
 	$(call expect_abort,overflow_add_oob,overflow_add_oob.mc,signed integer overflow)
 	$(call expect_abort,overflow_mul_oob,overflow_mul_oob.mc,signed integer overflow)
 	$(call expect_abort,overflow_neg_oob,overflow_neg_oob.mc,signed integer overflow)
+	$(call expect_abort,copy_oob,copy_oob.mc,bounds: index)
+
 	# --release omits traps (null recv should not print the checked message)
 	./modc build --release -o $(BUILD)/null_recv_release test/null_recv_oob.mc
 	@$(BUILD)/null_recv_release >$(BUILD)/null_recv_release.out 2>$(BUILD)/null_recv_release.err; test $$? -ne 0
@@ -138,6 +140,10 @@ check: $(MODC)
 		test $$? -eq 0
 	@! grep -q 'signed integer overflow' $(BUILD)/overflow_add_release.err
 	@grep -q 'wrapped' $(BUILD)/overflow_add_release.out
+	# --release: copy soft-fails (false) instead of bounds trap
+	./modc build --release -o $(BUILD)/copy_release test/copy_oob.mc
+	@$(BUILD)/copy_release >$(BUILD)/copy_release.out 2>$(BUILD)/copy_release.err; test $$? -eq 0
+	@! grep -q 'bounds: index' $(BUILD)/copy_release.err
 	$(call expect_abort,crash_panic,crash_panic_die.mc,)
 	$(call expect_abort,crash_cleanup,crash_cleanup_die.mc,cleaned|after-cleanup)
 	$(call expect_abort,crash_signal,crash_signal_die.mc,cleaned|crash: SIGSEGV)
